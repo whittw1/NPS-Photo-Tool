@@ -1,0 +1,49 @@
+{
+  "routes": [
+    {
+      "route": "/sw.js",
+      "headers": {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Service-Worker-Allowed": "/"
+      }
+    },
+    {
+      "route": "/index.html",
+      "headers": {
+        "Cache-Control": "no-cache, no-store, must-revalidate"
+      }
+    },
+    {
+      "route": "/manifest.json",
+      "headers": {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "content-type": "application/manifest+json"
+      }
+    },
+    {
+      "route": "/team_guide_citations.json",
+      "headers": {
+        "Cache-Control": "public, no-cache"
+      }
+    },
+    {
+      "route": "/nps_locations.json",
+      "headers": {
+        "Cache-Control": "public, no-cache"
+      }
+    }
+  ],
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": ["/sw.js", "/*.json", "/*.{png,jpg,ico,svg,webp}"]
+  },
+  "mimeTypes": {
+    ".json": "application/json",
+    ".webmanifest": "application/manifest+json"
+  },
+  "globalHeaders": {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "strict-origin-when-cross-origin"
+  }
+}

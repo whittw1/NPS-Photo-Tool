@@ -1,0 +1,9 @@
+{
+  "name": "NPS Photo Collector",
+  "short_name": "NPS Photos",
+  "start_url": "./index.html",
+  "display": "browser",
+  "background_color": "#f4f6fa",
+  "theme_color": "#5c3b1e",
+  "description": "NPS field photo documentation with GPS and location tracking"
+}

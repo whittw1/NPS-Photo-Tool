@@ -1,0 +1,3848 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-title" content="NPS Photo Collector">
+<link rel="manifest" href="manifest.json">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<title>NPS Photo Collector</title>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  });
+}
+</script>
+<style>
+  :root {
+    --bg:            #f4f6fa;
+    --card:          #ffffff;
+    --card-alt:      #eef2f8;
+    --border:        #d8dde8;
+    --accent:        #5c3b1e;
+    --accent-hover:  #74502c;
+    --danger:        #dc2626;
+    --danger-hover:  #b91c1c;
+    --success:       #16a34a;
+    --success-hover: #15803d;
+    --warning:       #ca8a04;
+    --text:          #1a2336;
+    --text-dim:      #6b7588;
+    --text-label:    #6b7588;
+    --input-bg:      #ffffff;
+    --photo-bg:      #eef2f8;
+    --radius:        12px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-overflow-scrolling: touch;
+    overflow-y: auto;
+  }
+
+  /* -- Header -- */
+  .header {
+    background: linear-gradient(135deg, #3d2613 0%, #5c3b1e 50%, #7a5533 100%);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+    color: #ffffff;
+    padding: 12px 20px;
+    padding-top: calc(12px + env(safe-area-inset-top, 0px));
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  }
+  .header h1 { font-size: 17px; font-weight: 600; letter-spacing: 0.5px; color: #ffffff; }
+  .header-actions { display: flex; gap: 8px; }
+  .header-badge {
+    background: rgba(255, 255, 255, 0.25);
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 10px;
+    margin-left: 8px;
+  }
+  /* Header buttons: translucent white on green */
+  .header .btn-outline {
+    background: rgba(255, 255, 255, 0.15);
+    border: 1.5px solid rgba(255, 255, 255, 0.4);
+    color: #ffffff;
+  }
+  .header .btn-outline:hover {
+    background: rgba(255, 255, 255, 0.25);
+    border-color: rgba(255, 255, 255, 0.7);
+    color: #ffffff;
+  }
+  .header .btn-accent {
+    background: rgba(255, 255, 255, 0.95);
+    color: var(--accent);
+  }
+  .header .btn-accent:hover {
+    background: #ffffff;
+    color: var(--accent-hover);
+  }
+
+  /* -- Buttons -- */
+  .btn {
+    padding: 10px 18px;
+    border: none;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+    color: white;
+  }
+  .btn-accent  { background: var(--accent); }
+  .btn-accent:hover  { background: var(--accent-hover); }
+  .btn-success { background: var(--success); }
+  .btn-success:hover { background: var(--success-hover); }
+  .btn-danger  { background: var(--danger); }
+  .btn-danger:hover  { background: var(--danger-hover); }
+  .btn-warning { background: var(--warning); color: #ffffff; }
+  .btn-outline {
+    background: transparent;
+    border: 1.5px solid var(--border);
+    color: var(--text-dim);
+  }
+  .btn-outline:hover { border-color: var(--text-dim); color: var(--text); }
+  .btn-sm  { padding: 7px 14px; font-size: 13px; }
+  .btn:disabled { opacity: 0.4; cursor: default; }
+
+  /* -- Layout -- */
+  .container { max-width: 860px; margin: 0 auto; padding: 20px; }
+
+  /* -- Saved entries panel -- */
+  .saved-panel {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    margin-bottom: 20px;
+    overflow: hidden;
+  }
+  .saved-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    background: var(--card-alt);
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+  }
+  .saved-panel-header:hover { background: #e2e8f0; }
+  .saved-panel-header h2 {
+    font-size: 14px;
+    color: var(--success);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .saved-count-badge {
+    background: var(--success);
+    color: white;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 2px 9px;
+    border-radius: 10px;
+  }
+  .saved-panel-body.collapsed { display: none; }
+  .saved-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .saved-item:last-child { border-bottom: none; }
+  .saved-item-thumb {
+    width: 54px;
+    height: 40px;
+    object-fit: cover;
+    border-radius: 5px;
+    flex-shrink: 0;
+    background: var(--photo-bg);
+    border: 1px solid var(--border);
+  }
+  .saved-item-thumb-empty {
+    width: 54px;
+    height: 40px;
+    border-radius: 5px;
+    flex-shrink: 0;
+    background: var(--photo-bg);
+    border: 1px dashed var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    color: var(--text-dim);
+  }
+  .saved-item-info { flex: 1; min-width: 0; }
+  .saved-item-name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .saved-item-detail { font-size: 12px; color: var(--text-dim); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .saved-item-actions { display: flex; gap: 6px; flex-shrink: 0; }
+  .saved-empty { padding: 20px; text-align: center; color: var(--text-dim); font-size: 13px; }
+
+  /* -- Location section -- */
+  .site-section {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin-bottom: 20px;
+  }
+  .site-section-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .site-section label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-label);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+  .site-section input {
+    flex: 1;
+    padding: 10px 14px;
+    background: var(--input-bg);
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 15px;
+    font-family: inherit;
+  }
+  .site-section input:focus { outline: none; border-color: var(--accent); }
+  .site-list-hint {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 6px;
+    display: none;
+  }
+  .site-list-hint.visible { display: block; }
+
+  .tg-item {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .tg-item:last-child { border-bottom: none; }
+  .tg-item:hover, .tg-item:focus { background: var(--card-alt); outline: none; }
+  .tg-item-code { font-weight: 700; font-size: 13px; color: var(--accent); font-family: monospace; }
+  .tg-item-section { font-size: 11px; color: var(--warning); margin-left: 6px; }
+  .tg-item-desc { font-size: 12px; color: var(--text-dim); margin-top: 3px; line-height: 1.3; }
+  .tg-item-cite { font-size: 11px; color: var(--text-label); margin-top: 2px; font-style: italic; }
+  .tg-no-results { padding: 14px; text-align: center; color: var(--text-dim); font-size: 13px; }
+  .tg-item mark, .tg-section-header mark { background: var(--warning); color: #000; padding: 0 2px; border-radius: 2px; }
+  .tg-chips {
+    position: sticky; top: 0; z-index: 2;
+    display: flex; flex-wrap: wrap; gap: 4px;
+    padding: 6px 8px; background: var(--card); border-bottom: 1px solid var(--border);
+  }
+  .tg-chip {
+    font-size: 11px; padding: 3px 8px; border-radius: 999px;
+    border: 1px solid var(--border); background: transparent; color: var(--text-dim);
+    cursor: pointer; user-select: none; white-space: nowrap; line-height: 1.4;
+  }
+  .tg-chip:hover { color: var(--text); border-color: var(--accent); }
+  .tg-chip.active { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
+  .tg-section-header {
+    padding: 8px 12px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--text-label); font-weight: 600; background: var(--card); border-bottom: 1px solid var(--border);
+  }
+
+  .loc-item {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--text);
+    transition: background 0.15s;
+  }
+  .loc-item:last-child { border-bottom: none; }
+  .loc-item:hover, .loc-item:active { background: var(--card-alt); }
+
+  .cc-category {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--accent);
+    padding: 10px 14px 4px;
+    background: var(--card);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+  .cc-item {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--text);
+    transition: background 0.15s;
+  }
+  .cc-item:active { background: var(--card-alt); }
+  .cc-item .cc-code { font-family: monospace; font-weight: 600; color: var(--accent); margin-right: 8px; }
+  .cc-item .cc-desc { color: var(--text-dim); }
+
+  .site-import-btn {
+    flex-shrink: 0;
+    background: transparent;
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-dim);
+    padding: 9px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .site-import-btn:hover { border-color: var(--text-dim); color: var(--text); }
+
+  /* -- Entry form -- */
+  .entry-section {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  .entry-section h2 {
+    font-size: 15px;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 16px;
+  }
+
+  .form-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+  .form-group:last-of-type { margin-bottom: 0; }
+  .score-buttons {
+    display: flex; flex-wrap: wrap; gap: 8px;
+  }
+  .score-btn {
+    flex: 1 1 auto;
+    min-width: 80px;
+    padding: 10px 6px;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: inherit;
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    background: var(--input-bg);
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: all 0.15s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .score-btn:active { transform: scale(0.96); }
+  .score-btn.active {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: #fff;
+  }
+  .form-group label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-label);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .form-group input {
+    padding: 12px 14px;
+    background: var(--input-bg);
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 16px;
+    font-family: inherit;
+  }
+  .form-group textarea {
+    padding: 12px 14px;
+    background: var(--input-bg);
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 15px;
+    font-family: inherit;
+    resize: vertical;
+    min-height: 90px;
+  }
+  .form-group input:focus, .form-group textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  /* -- Photo grid -- */
+  .photo-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+    margin-top: 18px;
+  }
+  .photo-slot label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-label);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+    text-align: center;
+  }
+  .photo-capture {
+    width: 100%;
+    aspect-ratio: 4/3;
+    background: var(--photo-bg);
+    border: 2px dashed var(--border);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.15s;
+  }
+  .photo-capture:hover { border-color: var(--accent); }
+  .photo-capture.has-photo { border-style: solid; border-color: var(--success); }
+  .photo-capture img { width: 100%; height: 100%; object-fit: cover; position: absolute; }
+  .photo-capture .placeholder {
+    color: var(--text-dim);
+    font-size: 11px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    padding: 4px;
+    text-align: center;
+  }
+  .photo-capture .placeholder svg { width: 24px; height: 24px; opacity: 0.5; }
+  .photo-capture .retake-badge {
+    position: absolute;
+    bottom: 5px;
+    right: 5px;
+    background: rgba(0,0,0,0.7);
+    color: white;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 600;
+  }
+  .photo-capture .saved-badge {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    background: rgba(0,0,0,0.7);
+    color: var(--success);
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-weight: 600;
+  }
+
+  /* -- Bottom bar -- */
+  .bottom-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: var(--card);
+    border-top: 1px solid var(--border);
+    padding: 12px 20px;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    z-index: 100;
+  }
+  .entry-count { font-size: 13px; color: var(--text-dim); }
+  .entry-count strong { color: var(--text); }
+  .bottom-spacer { height: 80px; }
+
+  input[type="file"] { display: none; }
+
+  /* -- Toast -- */
+  .toast {
+    position: fixed;
+    top: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--success);
+    color: white;
+    padding: 12px 24px;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: 14px;
+    z-index: 300;
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  .toast.show { opacity: 1; }
+  .toast.toast-warn { background: var(--warning); color: #ffffff; }
+
+  /* -- Dialogs -- */
+  .dialog-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .dialog {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    width: 100%;
+    max-width: 380px;
+    padding: 24px;
+  }
+  .dialog h3 { font-size: 18px; margin-bottom: 10px; }
+  .dialog p  { font-size: 14px; color: var(--text-dim); margin-bottom: 18px; line-height: 1.5; }
+  .dialog-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
+
+  /* -- Storage indicator -- */
+  #storageIndicator { font-size: 11px; color: var(--text-dim); display: none; margin-top: 2px; }
+
+  .add-photo-btn {
+    width: 100%;
+    margin-top: 12px;
+    padding: 14px;
+    background: transparent;
+    border: 2px dashed var(--border);
+    border-radius: 10px;
+    color: var(--accent);
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  .add-photo-btn:hover { border-color: var(--accent); background: var(--card-alt); }
+
+  .browse-photo-btn {
+    display: block;
+    width: 100%;
+    margin-top: 6px;
+    padding: 6px 0;
+    font-size: 12px;
+    font-family: inherit;
+    font-weight: 600;
+    color: var(--text-dim);
+    background: var(--input-bg);
+    border: 1.5px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .browse-photo-btn:active { background: var(--card-alt); }
+  .photo-slot-extra { position: relative; }
+  .photo-slot-extra .remove-slot-btn {
+    position: absolute;
+    top: 22px;
+    right: 4px;
+    z-index: 10;
+    background: var(--danger);
+    border: none;
+    border-radius: 50%;
+    width: 22px;
+    height: 22px;
+    color: white;
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+  }
+
+  /* -- Overflow menu -- */
+  .overflow-menu-wrapper { position: relative; display: none; }
+  .overflow-btn {
+    background: rgba(255, 255, 255, 0.15);
+    border: 1.5px solid rgba(255, 255, 255, 0.4);
+    color: #ffffff;
+    border-radius: 8px;
+    padding: 7px 12px;
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .overflow-btn:hover { background: rgba(255, 255, 255, 0.25); border-color: rgba(255, 255, 255, 0.7); color: #ffffff; }
+  .overflow-dropdown {
+    display: none;
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    min-width: 180px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    z-index: 200;
+    overflow: hidden;
+  }
+  .overflow-dropdown.open { display: block; }
+  .overflow-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 14px 18px;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+    text-align: left;
+  }
+  .overflow-item:last-child { border-bottom: none; }
+  .overflow-item:hover { background: var(--card-alt); }
+  .overflow-item .oi-icon { font-size: 17px; width: 22px; text-align: center; }
+
+  @media (max-width: 640px) {
+    .header-btn-secondary { display: none !important; }
+    .overflow-menu-wrapper { display: block; }
+    .header { padding: 10px 14px; }
+    .container { padding: 14px; }
+    .entry-section, .site-section { padding: 14px; }
+    .btn-sm { padding: 8px 14px; font-size: 14px; }
+    .photo-grid { gap: 10px; }
+    .bottom-bar { padding: 10px 14px; }
+    .entry-count { font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- -- HEADER -- -->
+<div class="header">
+  <div style="display:flex;align-items:center;gap:10px;">
+    <svg viewBox="0 0 120 50" width="60" height="25" style="flex-shrink:0;">
+      <rect width="120" height="50" rx="3" fill="#1a2a6c"/>
+      <rect x="2" y="2" width="116" height="46" rx="2" fill="none" stroke="#fff" stroke-width="1.5"/>
+      <text x="60" y="28" text-anchor="middle" font-family="'Georgia','Times New Roman',serif" font-size="24" font-weight="bold" fill="#fff" letter-spacing="2">HGS</text>
+      <text x="60" y="42" text-anchor="middle" font-family="'Arial','Helvetica',sans-serif" font-size="8.5" font-weight="bold" fill="#fff" letter-spacing="3.5">ENGINEERING</text>
+      <text x="112" y="42" text-anchor="end" font-family="'Georgia','Times New Roman',serif" font-size="6" fill="#fff" font-style="italic">inc.</text>
+    </svg>
+    <div>
+      <h1 style="font-size:16px;font-weight:700;letter-spacing:0.3px;">NPS Photo Collector</h1>
+    </div>
+    <span class="header-badge" id="headerBadge" style="display:none;"></span>
+    <span id="integrityBadge" onclick="runIntegrityCheck(true)" style="display:none;font-size:11px;font-weight:600;margin-left:8px;padding:2px 8px;border-radius:10px;cursor:pointer;" title="Photo storage health. Tap to re-check and list any missing photos."></span>
+  </div>
+  <div class="header-actions">
+    <button class="btn btn-outline btn-sm header-btn-secondary" onclick="showSavedList()">&#128203; List</button>
+    <button class="btn btn-outline btn-sm header-btn-secondary" onclick="showSettings()">&#9881;</button>
+    <button class="btn btn-outline btn-sm header-btn-secondary" onclick="importBackup()">&#128229; Import</button>
+    <button class="btn btn-outline btn-sm header-btn-secondary" onclick="saveBackup()">&#128228; Backup</button>
+    <!-- Mobile overflow menu -->
+    <div class="overflow-menu-wrapper" id="overflowWrapper">
+      <button class="overflow-btn" onclick="toggleOverflow()" title="More options">&#8943;</button>
+      <div class="overflow-dropdown" id="overflowDropdown">
+        <button class="overflow-item" onclick="showSavedList();closeOverflow()">
+          <span class="oi-icon">&#128203;</span> Saved List
+        </button>
+        <button class="overflow-item" onclick="showSettings();closeOverflow()">
+          <span class="oi-icon">&#9881;</span> Settings
+        </button>
+        <button class="overflow-item" onclick="importBackup();closeOverflow()">
+          <span class="oi-icon">&#128229;</span> Import
+        </button>
+        <button class="overflow-item" onclick="saveBackup();closeOverflow()">
+          <span class="oi-icon">&#128228;</span> Backup
+        </button>
+      </div>
+    </div>
+    <button class="btn btn-accent btn-sm" onclick="showExportDialog()">&#128230; Export</button>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- -- SAVED ENTRIES -- -->
+  <div class="saved-panel" id="savedPanel">
+    <div class="saved-panel-header" onclick="toggleSavedPanel()">
+      <h2>&#9989; Saved Entries <span class="saved-count-badge" id="savedCountBadge">0</span></h2>
+      <span id="savedToggle" style="color:var(--text-dim);font-size:13px;">&#9660; Show</span>
+    </div>
+    <div class="saved-panel-body collapsed" id="savedPanelBody"></div>
+  </div>
+
+  <!-- -- REGION & PARK SELECTOR -- -->
+  <div class="site-section">
+    <div class="site-section-row" style="margin-bottom:10px;">
+      <label>Region</label>
+      <select id="regionSelect" onchange="onRegionChange()"
+        style="flex:1;padding:10px 14px;background:var(--input-bg);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:15px;-webkit-appearance:none;appearance:none;">
+        <option value="">— All Regions —</option>
+      </select>
+    </div>
+    <div class="site-section-row">
+      <label>Park</label>
+      <select id="forestSelect" onchange="onForestChange()"
+        style="flex:1;padding:10px 14px;background:var(--input-bg);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:15px;-webkit-appearance:none;appearance:none;">
+        <option value="">— Select Park —</option>
+      </select>
+    </div>
+    <div class="site-list-hint" id="forestHint"></div>
+  </div>
+
+  <!-- -- LOCATION -- -->
+  <div class="site-section">
+    <div class="site-section-row">
+      <label>Location</label>
+      <input type="text" id="siteName"
+        placeholder="Type a location or tap list button"
+        oninput="autoSaveCurrent()" autocomplete="off" style="flex:1;">
+      <button class="btn btn-outline btn-sm" onclick="showLocationPicker()" title="Pick from location list"
+        style="flex-shrink:0;white-space:nowrap;padding:0 12px;">&#128205; List</button>
+      <button class="site-import-btn" onclick="importSiteList()" title="Load location list from .txt file">
+        &#128196; Import
+      </button>
+      <input type="file" id="siteListFile" accept=".txt" style="display:none" onchange="handleSiteListFile(event)">
+    </div>
+    <div class="site-list-hint" id="siteListHint"></div>
+  </div>
+
+  <!-- -- LOCATION PICKER MODAL -- -->
+  <div class="dialog-overlay" id="locationPickerOverlay" style="display:none;" onclick="if(event.target===this)closeLocationPicker()">
+    <div class="dialog" style="max-width:500px;max-height:80vh;display:flex;flex-direction:column;">
+      <h3>&#128205; Select Location</h3>
+      <div id="locationPickerGPSHint" style="font-size:12px;color:var(--text-dim);margin-bottom:6px;display:none;"></div>
+      <div id="locationRadiusRow" style="display:none;margin-bottom:8px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <button id="radiusNearbyBtn" class="btn btn-sm" onclick="setLocationRadius('nearby')"
+            style="flex:1;padding:8px 0;font-size:13px;border-radius:6px;">Nearby (10 mi)</button>
+          <button id="radiusAllBtn" class="btn btn-outline btn-sm" onclick="setLocationRadius('all')"
+            style="flex:1;padding:8px 0;font-size:13px;border-radius:6px;">All Locations</button>
+        </div>
+      </div>
+      <input type="text" id="locationPickerSearch" placeholder="Filter locations..."
+        oninput="filterLocationPicker()"
+        style="padding:10px 12px;background:var(--input-bg);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:15px;margin-bottom:8px;">
+      <div id="locationPickerList" style="flex:1;overflow-y:auto;max-height:50vh;border:1px solid var(--border);border-radius:8px;background:var(--input-bg);"></div>
+      <div class="dialog-actions" style="margin-top:10px;">
+        <button class="btn btn-outline btn-sm" onclick="closeLocationPicker()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- -- COMMON CITATIONS MODAL -- -->
+  <div class="dialog-overlay" id="commonCitationsOverlay" style="display:none;" onclick="if(event.target===this)closeCommonCitations()">
+    <div class="dialog" style="max-width:500px;max-height:80vh;display:flex;flex-direction:column;">
+      <h3>&#9733; Common Citations</h3>
+      <div id="commonCitationsList" style="flex:1;overflow-y:auto;max-height:60vh;"></div>
+      <div class="dialog-actions" style="margin-top:10px;">
+        <button class="btn btn-outline btn-sm" onclick="closeCommonCitations()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- -- PROTOCOL AREA DROPDOWN -- -->
+  <div class="site-section">
+    <div class="site-section-row">
+      <label>Protocol Area</label>
+      <select id="protocolArea" onchange="autoSaveCurrent()"
+        style="flex:1;padding:12px 14px;background:var(--input-bg);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:15px;-webkit-appearance:none;appearance:none;">
+        <option value="">— Select Protocol Area —</option>
+        <option value="Air Emissions">Air Emissions</option>
+        <option value="Cultural Resources">Cultural Resources</option>
+        <option value="Environmental Management">Environmental Management</option>
+        <option value="Hazardous Materials">Hazardous Materials</option>
+        <option value="Hazardous Waste">Hazardous Waste</option>
+        <option value="Materials Management">Materials Management</option>
+        <option value="Noise & Radiation">Noise &amp; Radiation</option>
+        <option value="Petroleum, Oil and Lubricants">Petroleum, Oil and Lubricants</option>
+        <option value="Pesticide Management">Pesticide Management</option>
+        <option value="Pollution Prevention">Pollution Prevention</option>
+        <option value="Solid Waste">Solid Waste</option>
+        <option value="Stormwater">Stormwater</option>
+        <option value="Tanks & Transportation">Tanks &amp; Transportation</option>
+        <option value="Wastewater">Wastewater</option>
+        <option value="Water Quality">Water Quality</option>
+        <option value="FS: Pesticides">FS: Pesticides</option>
+        <option value="FS: Wastewater">FS: Wastewater</option>
+        <option value="FS: Water Quality">FS: Water Quality</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- -- ENTRY FORM -- -->
+  <div class="entry-section">
+    <h2 id="entryFormTitle">&#128269; New Entry</h2>
+
+    <div class="form-group" style="position:relative;">
+      <label>Team Guide Citation</label>
+      <div style="display:flex;gap:6px;align-items:stretch;">
+        <input type="text" id="tgSearch" placeholder="Search citations... (e.g. flammable, 1910, RCRA)"
+          autocomplete="off" oninput="filterCitations()" onfocus="filterCitations()">
+        <button class="btn btn-outline btn-sm" onclick="showCommonCitations()"
+          style="flex-shrink:0;padding:0 10px;white-space:nowrap;">&#9733; Common</button>
+        <button class="btn btn-outline btn-sm" id="tgClearBtn" onclick="clearCitation()"
+          style="flex-shrink:0;padding:0 10px;display:none;color:var(--danger);border-color:var(--danger);">&#10005;</button>
+      </div>
+      <div id="tgResults" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:100;max-height:260px;overflow-y:auto;background:var(--card);border:1.5px solid var(--border);border-radius:0 0 8px 8px;box-shadow:0 8px 24px rgba(0,0,0,0.4);"></div>
+      <div id="tgSelected" style="display:none;margin-top:6px;padding:8px 10px;background:var(--card-alt);border-radius:6px;font-size:12px;line-height:1.4;">
+      </div>
+      <input type="hidden" id="teamGuideCitation" value="">
+    </div>
+
+    <div class="form-group">
+      <label>Score</label>
+      <input type="hidden" id="entryScore" value="">
+      <div class="score-buttons">
+        <button type="button" class="score-btn" data-score="Finding" onclick="toggleScore(this)">Finding</button>
+        <button type="button" class="score-btn" data-score="Observation" onclick="toggleScore(this)">Observation</button>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Description</label>
+      <textarea id="entryDetails" placeholder="Describe what you observed..." oninput="autoSaveCurrent()"></textarea>
+    </div>
+
+    <div class="form-group">
+      <label>GPS Coordinates</label>
+      <div style="display:flex;gap:8px;align-items:stretch;">
+        <input type="text" id="gpsDisplay" readonly
+          placeholder="Auto-captured with photos or tap GPS button"
+          style="flex:1;color:var(--text-dim);font-size:13px;cursor:default;">
+        <button class="btn btn-outline btn-sm" id="gpsBtn" onclick="getGPS()"
+          title="Capture GPS coordinates"
+          style="flex-shrink:0;white-space:nowrap;padding:0 14px;display:flex;align-items:center;gap:5px;">
+          <svg id="gpsBtnIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>
+            <path d="M12 7a5 5 0 1 0 0 10A5 5 0 0 0 12 7z"/>
+          </svg>
+          <span id="gpsBtnLabel">GPS</span>
+        </button>
+        <button class="btn btn-outline btn-sm" id="gpsClearBtn" onclick="clearGPS()"
+          title="Clear GPS coordinates"
+          style="flex-shrink:0;padding:0 10px;display:none;color:var(--danger);border-color:var(--danger);">&#10005;</button>
+      </div>
+      <div id="gpsStatus" style="font-size:11px;color:var(--text-dim);margin-top:4px;display:none;"></div>
+    </div>
+
+    <!-- -- PHOTOS -- -->
+    <div class="photo-grid">
+      <div class="photo-slot">
+        <label>Photo 1</label>
+        <div class="photo-capture" onclick="takePhoto('p_main')" id="photo_p_main">
+          <span class="placeholder">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M9 2h6l1 3H8l1-3z"/></svg>
+            Tap to capture
+          </span>
+        </div>
+        <button class="browse-photo-btn" onclick="browsePhoto('p_main')" type="button">Browse Photo</button>
+        <input type="file" accept="image/*" capture="environment" id="file_p_main" onchange="handlePhoto(this,'p_main')">
+      </div>
+      <div class="photo-slot">
+        <label>Photo 2</label>
+        <div class="photo-capture" onclick="takePhoto('p_wide')" id="photo_p_wide">
+          <span class="placeholder">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M9 2h6l1 3H8l1-3z"/></svg>
+            Tap to capture
+          </span>
+        </div>
+        <button class="browse-photo-btn" onclick="browsePhoto('p_wide')" type="button">Browse Photo</button>
+        <input type="file" accept="image/*" capture="environment" id="file_p_wide" onchange="handlePhoto(this,'p_wide')">
+      </div>
+    </div>
+
+    <!-- dynamic extra slots injected here -->
+    <div id="extraSlotsContainer"></div>
+
+    <button class="add-photo-btn" onclick="addPhotoSlot()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="18" height="18"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Add Photo
+    </button>
+  </div>
+
+  <div class="bottom-spacer"></div>
+</div>
+
+<!-- -- BOTTOM BAR -- -->
+<div class="bottom-bar">
+  <div>
+    <div class="entry-count"><strong id="entryCountNum">0</strong> entries saved</div>
+    <div id="storageIndicator" style="margin-top:3px;">
+      <div style="display:flex;align-items:center;gap:6px;">
+        <div id="storageBar" style="flex:1;height:4px;background:var(--border);border-radius:2px;overflow:hidden;max-width:120px;">
+          <div id="storageBarFill" style="height:100%;width:0%;border-radius:2px;transition:width 0.3s,background 0.3s;"></div>
+        </div>
+        <span id="storageMsg" style="font-size:11px;color:var(--text-dim);"></span>
+      </div>
+    </div>
+  </div>
+  <div style="display:flex;gap:8px;" id="bottomActions">
+    <button class="btn btn-warning btn-sm" id="saveBtn" onclick="saveEntryAndNew()">Save &amp; New &#9654;</button>
+    <button class="btn btn-outline btn-sm" id="cancelEditBtn" onclick="cancelEdit()" style="display:none;">Cancel</button>
+    <button class="btn btn-success btn-sm" onclick="showExportDialog()">&#128230; Export</button>
+  </div>
+</div>
+
+<!-- Hidden backup input -->
+<input type="file" id="backupFileInput" accept=".json" style="display:none" onchange="handleBackupFile(event)">
+
+<!-- -- EXPORT DIALOG -- -->
+<div class="dialog-overlay" id="exportOverlay" style="display:none;" onclick="if(event.target===this)closeExportDialog()">
+  <div class="dialog">
+    <h3>&#128230; Export</h3>
+    <p>Photos will be named using the entry date and location.<br>Format: <strong>MMDDYY_Location_0001.jpg</strong></p>
+    <div id="refPreview" style="font-size:12px;color:var(--text-dim);margin-top:4px;"></div>
+
+    <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);">
+      <label style="display:block;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-label);font-weight:600;margin-bottom:6px;">Include entries from</label>
+      <div style="display:flex;flex-wrap:wrap;gap:4px;">
+        <button type="button" class="tg-chip active" data-export-mode="all"       onclick="setExportDateMode('all')">All</button>
+        <button type="button" class="tg-chip"        data-export-mode="today"     onclick="setExportDateMode('today')">Today</button>
+        <button type="button" class="tg-chip"        data-export-mode="yesterday" onclick="setExportDateMode('yesterday')">Yesterday</button>
+        <button type="button" class="tg-chip"        data-export-mode="custom"    onclick="setExportDateMode('custom')">Custom</button>
+      </div>
+      <div id="exportCustomRange" style="display:none;margin-top:8px;gap:8px;align-items:center;">
+        <input type="date" id="exportFromDate" onchange="updateExportCount()" style="flex:1;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--input-bg);color:var(--text);">
+        <span style="color:var(--text-dim);font-size:12px;">to</span>
+        <input type="date" id="exportToDate"   onchange="updateExportCount()" style="flex:1;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--input-bg);color:var(--text);">
+      </div>
+      <div id="exportCount" style="font-size:12px;color:var(--text-dim);margin-top:6px;"></div>
+    </div>
+
+    <div class="dialog-actions">
+      <button class="btn btn-outline btn-sm" onclick="closeExportDialog()">Cancel</button>
+      <button class="btn btn-success btn-sm" onclick="runExport()">&#128230; Export ZIP</button>
+    </div>
+  </div>
+</div>
+
+<!-- -- POST-EXPORT BATCH DELETE PROMPT -- -->
+<div class="dialog-overlay" id="postExportOverlay" style="display:none;" onclick="if(event.target===this)closePostExportPrompt()">
+  <div class="dialog">
+    <h3>&#9989; Export complete</h3>
+    <p id="postExportMsg" style="font-size:13px;line-height:1.5;"></p>
+    <div class="dialog-actions">
+      <button class="btn btn-outline btn-sm" onclick="closePostExportPrompt()">Keep on device</button>
+      <button id="postExportDeleteBtn" class="btn btn-danger btn-sm" onclick="deleteExportedEntries()">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- -- PHOTO SETTINGS DIALOG -- -->
+<div class="dialog-overlay" id="settingsOverlay" style="display:none;">
+  <div class="dialog" style="max-width:420px;">
+    <h3>&#9881; Photo Settings</h3>
+    <div style="margin-bottom:14px;">
+      <label style="display:block;font-size:13px;color:var(--text-label);margin-bottom:6px;">Resolution Preset</label>
+      <select id="photoPreset" onchange="applyPhotoPreset()"
+        style="width:100%;padding:10px;background:var(--input-bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;-webkit-appearance:none;appearance:none;">
+        <option value="1920x1080">1920 x 1080 (Full HD) -- Default</option>
+        <option value="1280x720">1280 x 720 (HD) -- Smaller files</option>
+        <option value="2560x1440">2560 x 1440 (QHD) -- Higher detail</option>
+        <option value="custom">Custom...</option>
+        <option value="original">Original (no resize)</option>
+      </select>
+    </div>
+    <div id="customResGroup" style="display:none;margin-bottom:14px;">
+      <div style="display:flex;gap:10px;">
+        <div style="flex:1;">
+          <label style="display:block;font-size:12px;color:var(--text-label);margin-bottom:4px;">Max Width (px)</label>
+          <input type="number" id="photoMaxW" value="1920" min="320" max="4096"
+            style="width:100%;padding:8px;background:var(--input-bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;">
+        </div>
+        <div style="flex:1;">
+          <label style="display:block;font-size:12px;color:var(--text-label);margin-bottom:4px;">Max Height (px)</label>
+          <input type="number" id="photoMaxH" value="1080" min="240" max="4096"
+            style="width:100%;padding:8px;background:var(--input-bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;">
+        </div>
+      </div>
+    </div>
+    <div style="margin-bottom:14px;">
+      <label style="display:block;font-size:13px;color:var(--text-label);margin-bottom:6px;">JPEG Quality: <strong id="qualityLabel">80%</strong></label>
+      <input type="range" id="photoQuality" min="30" max="100" value="80"
+        oninput="document.getElementById('qualityLabel').textContent=this.value+'%'"
+        style="width:100%;accent-color:var(--accent);">
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-dim);margin-top:2px;">
+        <span>Smaller files</span><span>Higher quality</span>
+      </div>
+    </div>
+    <div style="background:var(--input-bg);border-radius:8px;padding:10px 12px;font-size:12px;color:var(--text-dim);margin-bottom:14px;">
+      Estimated size: <strong id="estFileSize" style="color:var(--text);">~200-400 KB per photo</strong>
+    </div>
+    <div class="dialog-actions">
+      <button class="btn btn-outline btn-sm" onclick="resetPhotoSettings()">Reset</button>
+      <button class="btn btn-accent btn-sm" onclick="savePhotoSettings()">Save Settings</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ============================================================================
+// CONSTANTS — unique keys so NPS, USFS and DLA apps don't collide on same device
+// ============================================================================
+const PHOTO_SLOTS = ['p_main', 'p_wide'];
+const PHOTO_SLOT_NAMES = { p_main: 'Photo 1', p_wide: 'Photo 2' };
+const PHOTO_DEFAULTS = { maxWidth: 1920, maxHeight: 1080, quality: 0.80, preset: '1920x1080' };
+const LS_SAVED   = 'nps_saved';
+const LS_CURRENT = 'nps_current';
+const LS_PHOTOS  = 'nps_photo_settings';
+const LS_SITES   = 'nps_site_list';
+const LS_RECENT_TG = 'nps_recent_tg';
+const IDB_NAME   = 'nps_photos_v1';
+
+// ============================================================================
+// STATE
+// ============================================================================
+let savedEntries   = [];
+let currentPhotos  = {};
+let currentEntryId = null;
+let savedPanelOpen = false;
+let extraPhotoSlots = [];
+let siteList       = [];
+let currentGPS     = null;
+let editingIndex   = null;
+// NOTE: the "forest" identifiers (forestData, selectedForest, onForestChange,
+// loadForestData, …) are kept verbatim from the USFS sibling app so bug fixes
+// port between the two as clean copy-paste. In this app they refer to NPS
+// park units; only the user-facing labels say "Park".
+let forestData     = {};   // { "Park Name": [ {n, t, d, lat, lng}, ... ] }
+let selectedForest = '';
+let locationRadius = 'nearby'; // 'nearby' or 'all'
+const NEARBY_MILES = 10;
+const LS_FOREST    = 'nps_selected_park';
+
+// ============================================================================
+// INIT
+// ============================================================================
+function init() {
+  currentEntryId = genId();
+  openPhotoDB().then(() => {
+    const testKey = '__idb_test__';
+    savePhotoToDB(testKey, new ArrayBuffer(4), 'test')
+      .then(() => getPhotoFromDB(testKey))
+      .then(r => {
+        if (r && r.data) { deletePhotoFromDB(testKey); }
+        else              { idbAvailable = false; }
+      })
+      .catch(() => { idbAvailable = false; });
+  }).catch(() => { idbAvailable = false; });
+
+  loadAll();
+  renderSavedPanel();
+  updateHeaderBadge();
+  checkStorage();
+  checkPreviousDayEntries();
+
+  // Ask the browser not to evict our storage, migrate any IDB-only photos into
+  // durable filesystem storage, then show the photo-integrity badge.
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch(e) {}
+  migratePhotosToFS().then(() => runIntegrityCheck(false));
+
+  // Load forest location data, then fall back to imported list
+  loadForestData();
+  try {
+    const sl = localStorage.getItem(LS_SITES);
+    if (sl && !localStorage.getItem(LS_FOREST)) siteList = JSON.parse(sl);
+  } catch(e) {}
+  populateSiteDatalist();
+
+  // Auto-fill location from today's most recent saved entry
+  if (!document.getElementById('siteName').value.trim()) {
+    const today = new Date().toDateString();
+    const todayEntry = [...savedEntries].reverse().find(e => {
+      return e.siteName && e.timestamp && new Date(e.timestamp).toDateString() === today;
+    });
+    if (todayEntry) {
+      document.getElementById('siteName').value = todayEntry.siteName;
+    }
+  }
+
+  // No ref input needed — photo names are auto-generated
+}
+
+// ============================================================================
+// REGION / PARK DATA
+// ============================================================================
+// REGION_MAP (NPS region → park units) is generated by build_locations.js from
+// the NPS boundary data. Do not hand-edit between the markers; re-run the
+// build script instead. Regions only filter the Park dropdown.
+// REGION_MAP:BEGIN
+const REGION_MAP = {
+  "AKR — Alaska": ["Alagnak Wild River","Aniakchak National Preserve","Bering Land Bridge National Preserve","Cape Krusenstern National Monument","Denali National Preserve","Gates of the Arctic National Preserve","Glacier Bay National Park","Katmai National Park","Kenai Fjords National Park","Klondike Gold Rush National Historical Park","Kobuk Valley National Park","Lake Clark National Preserve","Noatak National Preserve","Sitka National Historical Park","Western Arctic National Parklands","Wrangell-St. Elias National Park","Yukon-Charley Rivers National Preserve"],
+  "IMR — Intermountain": ["Alibates Flint Quarries National Monument","Amache National Historic Site","Amistad National Recreation Area","Arches National Park","Aztec Ruins National Monument","Bandelier National Monument","Bent's Old Fort National Historic Site","Big Bend National Park","Big Thicket National Preserve","Bighorn Canyon National Recreation Area","Black Canyon of the Gunnison National Park","Blackwell School National Historic Site","Bryce Canyon National Park","Canyon de Chelly National Monument","Canyonlands National Park","Capitol Reef National Park","Capulin Volcano National Monument","Carlsbad Caverns National Park","Casa Grande Ruins National Monument","Cedar Breaks National Monument","Chaco Culture National Historical Park","Chamizal National Memorial","Chickasaw National Recreation Area","Chiricahua National Monument","Colorado National Monument","Coronado National Memorial","Curecanti National Recreation Area","Devils Tower National Monument","Dinosaur National Monument","El Malpais National Monument","El Morro National Monument","Florissant Fossil Beds National Monument","Fort Bowie National Historic Site","Fort Davis National Historic Site","Fort Laramie National Historic Site","Fort Union National Monument","Fossil Butte National Monument","Gila Cliff Dwellings National Monument","Glacier National Park","Glen Canyon National Recreation Area","Golden Spike National Historical Park","Grand Canyon National Park","Grand Teton National Park","Grant-Kohrs Ranch National Historic Site","Great Sand Dunes National Park","Guadalupe Mountains National Park","Hohokam Pima National Monument","Hovenweep National Monument","Hubbell Trading Post National Historic Site","John D. Rockefeller, Jr., Memorial Parkway","Lake Meredith National Recreation Area","Little Bighorn Battlefield National Monument","Lyndon B. Johnson National Historical Park","Manhattan Project National Historical Park","Mesa Verde National Park","Montezuma Castle National Monument","Natural Bridges National Monument","Navajo National Monument","Oklahoma City National Memorial","Organ Pipe Cactus National Monument","Padre Island National Seashore","Palo Alto Battlefield National Historical Park","Pecos National Historical Park","Petrified Forest National Park","Petroglyph National Monument","Pipe Spring National Monument","Rainbow Bridge National Monument","Rio Grande Wild and Scenic River","Rocky Mountain National Park","Saguaro National Park","Salinas Pueblo Missions National Monument","San Antonio Missions National Historical Park","Sand Creek Massacre National Historic Site","Sunset Crater Volcano National Monument","Timpanogos Cave National Monument","Tonto National Monument","Tumacacori National Historical Park","Tuzigoot National Monument","Valles Caldera National Preserve","Waco Mammoth National Monument","Walnut Canyon National Monument","Washita Battlefield National Historic Site","White Sands National Park","Wupatki National Monument","Yellowstone National Park","Yucca House National Monument","Zion National Park"],
+  "MWR — Midwest": ["Agate Fossil Beds National Monument","Apostle Islands National Lakeshore","Arkansas Post National Memorial","Badlands National Park","Brown v. Board of Education National Historical Park","Buffalo National River","Charles Young Buffalo Soldiers National Monument","Cuyahoga Valley National Park","Dayton Aviation Heritage National Historical Park","Effigy Mounds National Monument","First Ladies National Historic Site","Fort Larned National Historic Site","Fort Scott National Historic Site","Fort Smith National Historic Site","Fort Union Trading Post National Historic Site","Gateway Arch National Park","George Rogers Clark National Historical Park","George Washington Carver National Monument","Grand Portage National Monument","Harry S Truman National Historic Site","Herbert Hoover National Historic Site","Homestead National Historical Park","Hopewell Culture National Historical Park","Hot Springs National Park","Ice Age National Scenic Trail","Indiana Dunes National Park","Isle Royale National Park","James A. Garfield National Historic Site","Jewel Cave National Monument","Keweenaw National Historical Park","Knife River Indian Villages National Historic Site","Lewis and Clark National Historic Trail","Lincoln Boyhood National Memorial","Lincoln Home National Historic Site","Little Rock Central High School National Historic Site","Lower Saint Croix National Scenic Riverway","Minuteman Missile National Historic Site","Mississippi National River and Recreation Area","Missouri National Recreational River","Mount Rushmore National Memorial","New Philadelphia National Historic Site","Nicodemus National Historic Site","Niobrara National Scenic River","North Country National Scenic Trail","Ozark National Scenic Riverways","Pea Ridge National Military Park","Perry's Victory and International Peace Memorial","Pictured Rocks National Lakeshore","Pipestone National Monument","President William Jefferson Clinton Birthplace Home National Historic Site","Pullman National Historical Park","River Raisin National Battlefield Park","Ronald Reagan Boyhood Home National Historic Site","Saint Croix National Scenic Riverway","Scotts Bluff National Monument","Sleeping Bear Dunes National Lakeshore","Springfield 1908 Race Riot National Monument","Ste. Genevieve National Historical Park","Tallgrass Prairie National Preserve","Theodore Roosevelt National Park","Ulysses S. Grant National Historic Site","Voyageurs National Park","William Howard Taft National Historic Site","Wilson's Creek National Battlefield","Wind Cave National Park"],
+  "NCR — National Capital": ["African American Civil War Memorial National Memorial","Anacostia Park","Antietam National Battlefield","Arlington House, The Robert E. Lee Memorial","Belmont-Paul Women's Equality National Monument","Carter G. Woodson Home National Historic Site","Catoctin Mountain Park","Chesapeake and Ohio Canal National Historical Park","Clara Barton National Historic Site","Constitution Gardens","Dwight D. Eisenhower Memorial","Ford's Theatre National Historic Site","Fort Dupont Park","Fort Foote Park","Fort Washington Park","Franklin Delano Roosevelt Memorial","Frederick Douglass National Historic Site","George Washington Memorial Parkway","Glen Echo Park","Great Falls Park","Greenbelt Park","Harmony Hall","Harpers Ferry National Historical Park","Kenilworth Park & Aquatic Gardens","Korean War Veterans Memorial","Lincoln Memorial","Lyndon Baines Johnson Memorial Grove on the Potomac","Manassas National Battlefield Park","Martin Luther King, Jr., Memorial","Mary McLeod Bethune Council House National Historic Site","Monocacy National Battlefield","National Capital Parks","National Capital Parks-East","National Mall","National Mall and Memorial Parks","Oxon Cove Park & Oxon Hill Farm","Pennsylvania Avenue National Historic Site","Piscataway Park","Prince William Forest Park","Rock Creek Park","Stephen T. Mather Training Center","Theodore Roosevelt Island","Thomas Jefferson Memorial","Vietnam Veterans Memorial","Washington Monument","White House","Wolf Trap National Park for the Performing Arts","World War I Memorial","World War II Memorial"],
+  "NER — Northeast": ["Acadia National Park","Adams National Historical Park","African Burial Ground National Monument","Allegheny Portage Railroad National Historic Site","Appalachian National Scenic Trail","Appomattox Court House National Historical Park","Assateague Island National Seashore","Blackstone River Valley National Historical Park","Bluestone National Scenic River","Booker T. Washington National Monument","Boston African American National Historic Site","Boston Harbor Islands National Recreation Area","Boston National Historical Park","Cape Cod National Seashore","Captain John Smith Chesapeake National Historic Trail","Carlisle Federal Indian Boarding School National Monument","Castle Clinton National Monument","Cedar Creek and Belle Grove National Historical Park","Colonial National Historical Park","Delaware Water Gap National Recreation Area","Edgar Allan Poe National Historic Site","Eisenhower National Historic Site","Eleanor Roosevelt National Historic Site","Federal Hall National Memorial","Fire Island National Seashore","First State National Historical Park","Flight 93 National Memorial","Fort McHenry National Monument and Historic Shrine","Fort Monroe National Monument","Fort Necessity National Battlefield","Fort Stanwix National Monument","Frances Perkins National Monument","Frederick Law Olmsted National Historic Site","Fredericksburg and Spotsylvania County Battlefields Memorial National Military Park","Friendship Hill National Historic Site","Gateway National Recreation Area","Gauley River National Recreation Area","General Grant National Memorial","George Washington Birthplace National Monument","Gettysburg National Military Park","Governors Island National Monument","Hamilton Grange National Memorial","Hampton National Historic Site","Harriet Tubman National Historical Park","Harriet Tubman Underground Railroad National Historical Park","Home of Franklin D. Roosevelt National Historic Site","Hopewell Furnace National Historic Site","Independence National Historical Park","John Fitzgerald Kennedy National Historic Site","Johnstown Flood National Memorial","Katahdin Woods and Waters National Monument","Longfellow House-Washington's Headquarters National Historic Site","Lowell National Historical Park","Maggie L. Walker National Historic Site","Marsh-Billings-Rockefeller National Historical Park","Martin Van Buren National Historic Site","Middle Delaware National Scenic River","Minute Man National Historical Park","Morristown National Historical Park","New Bedford Whaling National Historical Park","New England National Scenic Trail","New River Gorge National Park and Preserve","Paterson Great Falls National Historical Park","Petersburg National Battlefield","Richmond National Battlefield Park","Roger Williams National Memorial","Sagamore Hill National Historic Site","Saint Croix Island International Historic Site","Saint Paul's Church National Historic Site","Saint-Gaudens National Historical Park","Salem Maritime National Historical Park","Saratoga National Historical Park","Saugus Iron Works National Historic Site","Shenandoah National Park","Springfield Armory National Historic Site","Statue of Liberty National Monument","Steamtown National Historic Site","Stonewall National Monument","Thaddeus Kosciuszko National Memorial","Theodore Roosevelt Birthplace National Historic Site","Theodore Roosevelt Inaugural National Historic Site","Thomas Edison National Historical Park","Thomas Stone National Historic Site","Upper Delaware Scenic and Recreational River","Valley Forge National Historical Park","Vanderbilt Mansion National Historic Site","Weir Farm National Historical Park","Women's Rights National Historical Park"],
+  "PWR — Pacific West": ["Ala Kahakai National Historic Trail","American Memorial Park","Big Hole National Battlefield","Cabrillo National Monument","Castle Mountains National Monument","Channel Islands National Park","City of Rocks National Reserve","Crater Lake National Park","Craters of the Moon National Monument","Craters of the Moon National Preserve","César E. Chávez National Monument","Death Valley National Park","Devils Postpile National Monument","Ebey's Landing National Historical Reserve","Eugene O'Neill National Historic Site","Fort Point National Historic Site","Fort Vancouver National Historic Site","Golden Gate National Recreation Area","Grand Canyon-Parashant National Monument","Great Basin National Park","Hagerman Fossil Beds National Monument","Haleakala National Park","Hawai'i Volcanoes National Park","Honouliuli National Historic Site","Ice Age Floods National Geologic Trail","John Day Fossil Beds National Monument","John Muir National Historic Site","Joshua Tree National Park","Kalaupapa National Historical Park","Kaloko-Honokohau National Historical Park","Kings Canyon National Park","Klondike Gold Rush National Historical Park - Seattle Unit","Lake Chelan National Recreation Area","Lake Mead National Recreation Area","Lake Roosevelt National Recreation Area","Lassen Volcanic National Park","Lava Beds National Monument","Lewis and Clark National Historical Park","Manzanar National Historic Site","Minidoka National Historic Site","Mojave National Preserve","Mount Rainier National Park","Muir Woods National Monument","National Park of American Samoa","Nez Perce National Historical Park","North Cascades National Park","Olympic National Park","Oregon Caves National Monument and Preserve","Pearl Harbor National Memorial","Pinnacles National Park","Point Reyes National Seashore","Port Chicago Naval Magazine National Memorial","Presidio of San Francisco","Pu'uhonua o Honaunau National Historical Park","Pu'ukohola Heiau National Historic Site","Redwood National Park","Rosie the Riveter/World War II Home Front National Historical Park","Ross Lake National Recreation Area","San Francisco Maritime National Historical Park","San Juan Island National Historical Park","Santa Monica Mountains National Recreation Area","Sequoia National Park","Sequoia and Kings Canyon National Parks","Tule Lake National Monument","Tule Springs Fossil Beds National Monument","War in the Pacific National Historical Park","Whiskeytown-Shasta-Trinity National Recreation Area","Whitman Mission National Historic Site","Yosemite National Park"],
+  "SER — Southeast": ["Abraham Lincoln Birthplace National Historical Park","Andersonville National Historic Site","Andrew Johnson National Historic Site","Big Cypress National Preserve","Big South Fork National River and Recreation Area","Birmingham Civil Rights National Monument","Biscayne National Park","Blue Ridge Parkway","Brices Cross Roads National Battlefield Site","Buck Island Reef National Monument","Camp Nelson National Monument","Canaveral National Seashore","Cane River Creole National Historical Park","Cape Hatteras National Seashore","Cape Lookout National Seashore","Carl Sandburg Home National Historic Site","Castillo de San Marcos National Monument","Charles Pinckney National Historic Site","Chattahoochee River National Recreation Area","Chickamauga and Chattanooga National Military Park","Christiansted National Historic Site","Congaree National Park","Cowpens National Battlefield","Cumberland Gap National Historical Park","Cumberland Island National Seashore","De Soto National Memorial","Dry Tortugas National Park","Emmett Till and Mamie Till-Mobley National Monument","Everglades National Park","Fort Caroline National Memorial","Fort Donelson National Battlefield","Fort Frederica National Monument","Fort Matanzas National Monument","Fort Pulaski National Monument","Fort Raleigh National Historic Site","Fort Sumter and Fort Moultrie National Historical Park","Freedom Riders National Monument","Great Smoky Mountains National Park","Guilford Courthouse National Military Park","Gulf Islands National Seashore","Horseshoe Bend National Military Park","Jean Lafitte National Historical Park and Preserve","Jimmy Carter National Historical Park","Kennesaw Mountain National Battlefield Park","Kings Mountain National Military Park","Little River Canyon National Preserve","Mammoth Cave National Park","Martin Luther King, Jr., National Historical Park","Medgar and Myrlie Evers Home National Monument","Mill Springs Battlefield National Monument","Moores Creek National Battlefield","Natchez National Historical Park","Natchez Trace National Scenic Trail","Natchez Trace Parkway","New Orleans Jazz National Historical Park","Ninety Six National Historic Site","Obed Wild and Scenic River","Ocmulgee Mounds National Historical Park","Poverty Point National Monument","Reconstruction Era National Historical Park","Russell Cave National Monument","Salt River Bay National Historical Park and Ecological Preserve","San Juan National Historic Site","Selma to Montgomery National Historic Trail","Shiloh National Military Park","Stones River National Battlefield","Timucuan Ecological and Historic Preserve","Tupelo National Battlefield","Tuskegee Airmen National Historic Site","Tuskegee Institute National Historic Site","Vicksburg National Military Park","Virgin Islands Coral Reef National Monument","Virgin Islands National Park","Wright Brothers National Memorial"],
+};
+// REGION_MAP:END
+
+// Reverse lookup: forest name -> region label
+const FOREST_TO_REGION = {};
+for (const [region, forests] of Object.entries(REGION_MAP)) {
+  for (const f of forests) FOREST_TO_REGION[f] = region;
+}
+
+async function loadForestData() {
+  try {
+    const resp = await fetch('./nps_locations.json');
+    if (!resp.ok) throw new Error('fetch failed');
+    forestData = await resp.json();
+
+    // Populate region dropdown
+    const regSel = document.getElementById('regionSelect');
+    Object.keys(REGION_MAP).forEach(r => {
+      const opt = document.createElement('option');
+      opt.value = r;
+      opt.textContent = `${r} (${REGION_MAP[r].length} parks)`;
+      regSel.appendChild(opt);
+    });
+
+    // Populate forest dropdown (all forests initially)
+    populateForestDropdown('');
+
+    // Restore saved region + forest
+    const savedForest = localStorage.getItem(LS_FOREST);
+    if (savedForest && forestData[savedForest]) {
+      const savedRegion = FOREST_TO_REGION[savedForest] || '';
+      if (savedRegion) {
+        regSel.value = savedRegion;
+        populateForestDropdown(savedRegion);
+      }
+      document.getElementById('forestSelect').value = savedForest;
+      onForestChange(true);
+    }
+    console.log(`Loaded ${Object.keys(forestData).length} parks, ${Object.values(forestData).reduce((a, b) => a + b.length, 0)} locations`);
+  } catch (e) {
+    console.warn('Could not load nps_locations.json:', e);
+  }
+}
+
+function populateForestDropdown(regionFilter) {
+  const sel = document.getElementById('forestSelect');
+  const current = sel.value;
+  sel.innerHTML = '<option value="">— Select Park —</option>';
+
+  let names;
+  if (regionFilter && REGION_MAP[regionFilter]) {
+    names = REGION_MAP[regionFilter].filter(f => forestData[f]);
+  } else {
+    names = Object.keys(forestData).sort();
+  }
+
+  names.forEach(f => {
+    const opt = document.createElement('option');
+    opt.value = f;
+    opt.textContent = `${f} (${forestData[f].length})`;
+    sel.appendChild(opt);
+  });
+
+  // Restore selection if still in list
+  if (current && names.includes(current)) sel.value = current;
+}
+
+function onRegionChange() {
+  const region = document.getElementById('regionSelect').value;
+  populateForestDropdown(region);
+  // If the current forest isn't in this region, clear it
+  const forestSel = document.getElementById('forestSelect');
+  if (!forestSel.value) {
+    onForestChange(false);
+  }
+}
+
+function onForestChange(silent) {
+  const sel = document.getElementById('forestSelect');
+  selectedForest = sel.value;
+  localStorage.setItem(LS_FOREST, selectedForest);
+
+  const hint = document.getElementById('forestHint');
+  if (selectedForest && forestData[selectedForest]) {
+    const locs = forestData[selectedForest];
+    siteList = locs.map(l => l.n + (l.d ? ' — ' + l.d : ''));
+    hint.textContent = `${locs.length} locations available — tap List to pick or GPS to auto-suggest`;
+    hint.classList.add('visible');
+    if (!silent) showToast(`Loaded ${locs.length} locations for ${selectedForest}`);
+  } else {
+    // Fall back to imported list if no forest selected
+    try {
+      const sl = localStorage.getItem(LS_SITES);
+      if (sl) siteList = JSON.parse(sl);
+      else siteList = [];
+    } catch(e) { siteList = []; }
+    hint.classList.remove('visible');
+  }
+  populateSiteDatalist();
+  autoSaveCurrent();
+}
+
+// Auto-detect forest from GPS: find nearest forest by checking nearest location across all forests
+function autoDetectForest() {
+  if (!currentGPS || Object.keys(forestData).length === 0) return;
+  // Skip if forest already selected
+  if (selectedForest) return;
+
+  let bestDist = Infinity, bestForest = null;
+  for (const [fname, locs] of Object.entries(forestData)) {
+    for (const l of locs) {
+      const d = haversineMi(currentGPS.latitude, currentGPS.longitude, l.lat, l.lng);
+      if (d < bestDist) { bestDist = d; bestForest = fname; }
+    }
+  }
+  if (bestForest && bestDist < 100) {
+    // Set region
+    const region = FOREST_TO_REGION[bestForest] || '';
+    if (region) {
+      document.getElementById('regionSelect').value = region;
+      populateForestDropdown(region);
+    }
+    document.getElementById('forestSelect').value = bestForest;
+    onForestChange(false);
+    showToast(`Auto-detected: ${bestForest}`);
+  }
+}
+
+// ============================================================================
+// LOCATION LIST
+// ============================================================================
+function populateSiteDatalist() {
+  const hint = document.getElementById('siteListHint');
+  if (siteList.length > 0 && !selectedForest) {
+    hint.textContent = `${siteList.length} location${siteList.length !== 1 ? 's' : ''} loaded — tap List to pick`;
+    hint.classList.add('visible');
+  } else if (!selectedForest) {
+    hint.classList.remove('visible');
+  } else {
+    hint.classList.remove('visible');
+  }
+}
+
+function showLocationPicker() {
+  if (siteList.length === 0 && !selectedForest) {
+    showToast('Select a park or import a .txt file first', true);
+    return;
+  }
+  document.getElementById('locationPickerSearch').value = '';
+
+  // Show GPS hint and radius toggle if we have coordinates
+  const gpsHint = document.getElementById('locationPickerGPSHint');
+  const radiusRow = document.getElementById('locationRadiusRow');
+  if (currentGPS && selectedForest) {
+    gpsHint.textContent = 'Sorted by distance from your GPS position';
+    gpsHint.style.display = 'block';
+    radiusRow.style.display = 'block';
+    updateRadiusButtons();
+  } else {
+    gpsHint.style.display = 'none';
+    radiusRow.style.display = 'none';
+  }
+
+  renderLocationList(getLocationDisplayList());
+  document.getElementById('locationPickerOverlay').style.display = 'flex';
+  setTimeout(() => document.getElementById('locationPickerSearch').focus(), 100);
+}
+
+function setLocationRadius(mode) {
+  locationRadius = mode;
+  updateRadiusButtons();
+  filterLocationPicker();
+}
+
+function updateRadiusButtons() {
+  const nearbyBtn = document.getElementById('radiusNearbyBtn');
+  const allBtn = document.getElementById('radiusAllBtn');
+  if (locationRadius === 'nearby') {
+    nearbyBtn.className = 'btn btn-sm';
+    nearbyBtn.style.background = 'var(--accent)';
+    nearbyBtn.style.color = '#fff';
+    nearbyBtn.style.border = '1.5px solid var(--accent)';
+    allBtn.className = 'btn btn-outline btn-sm';
+    allBtn.style.background = 'transparent';
+    allBtn.style.color = 'var(--text)';
+    allBtn.style.border = '1.5px solid var(--border)';
+  } else {
+    allBtn.className = 'btn btn-sm';
+    allBtn.style.background = 'var(--accent)';
+    allBtn.style.color = '#fff';
+    allBtn.style.border = '1.5px solid var(--accent)';
+    nearbyBtn.className = 'btn btn-outline btn-sm';
+    nearbyBtn.style.background = 'transparent';
+    nearbyBtn.style.color = 'var(--text)';
+    nearbyBtn.style.border = '1.5px solid var(--border)';
+  }
+}
+
+function closeLocationPicker() {
+  document.getElementById('locationPickerOverlay').style.display = 'none';
+}
+
+// Haversine distance in miles
+function haversineMi(lat1, lng1, lat2, lng2) {
+  const R = 3958.8;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function getLocationDisplayList() {
+  if (selectedForest && forestData[selectedForest]) {
+    const locs = forestData[selectedForest];
+    let items = locs.map(l => ({
+      name: l.n + (l.d ? ' — ' + l.d : ''),
+      type: l.t,
+      dist: (currentGPS ? haversineMi(currentGPS.latitude, currentGPS.longitude, l.lat, l.lng) : null)
+    }));
+    // Sort by distance if GPS available, else alphabetical
+    if (currentGPS) {
+      items.sort((a, b) => a.dist - b.dist);
+      // Apply radius filter
+      if (locationRadius === 'nearby') {
+        const nearby = items.filter(i => i.dist <= NEARBY_MILES);
+        if (nearby.length > 0) return nearby;
+        // If nothing within radius, show all with a note
+      }
+    } else {
+      items.sort((a, b) => a.name.localeCompare(b.name));
+    }
+    return items;
+  }
+  // Fallback: imported siteList (no distance info)
+  return siteList.map(s => ({ name: s, type: '', dist: null }));
+}
+
+function filterLocationPicker() {
+  const query = document.getElementById('locationPickerSearch').value.trim().toLowerCase();
+  let items = getLocationDisplayList();
+  if (query) {
+    const terms = query.split(/\s+/);
+    items = items.filter(item => {
+      const hay = (item.name + ' ' + item.type).toLowerCase();
+      return terms.every(t => hay.includes(t));
+    });
+  }
+  // Update GPS hint with count
+  const gpsHint = document.getElementById('locationPickerGPSHint');
+  if (currentGPS && selectedForest) {
+    const radiusNote = locationRadius === 'nearby' ? ` within ${NEARBY_MILES} mi` : '';
+    gpsHint.textContent = `${items.length} location${items.length !== 1 ? 's' : ''}${radiusNote} — sorted by distance`;
+    gpsHint.style.display = 'block';
+  }
+  renderLocationList(items);
+}
+
+function renderLocationList(list) {
+  const container = document.getElementById('locationPickerList');
+  if (list.length === 0) {
+    container.innerHTML = '<div class="tg-no-results">No matching locations</div>';
+    return;
+  }
+  container.innerHTML = list.map(item => {
+    const distStr = item.dist !== null ? `<span style="color:var(--text-dim);font-size:12px;float:right;">${item.dist < 0.1 ? '< 0.1' : item.dist.toFixed(1)} mi</span>` : '';
+    const typeStr = item.type ? `<span style="color:var(--text-dim);font-size:11px;"> [${item.type}]</span>` : '';
+    return `<div class="loc-item" onclick="pickLocation('${item.name.replace(/'/g, "\\'")}')">` +
+      `${distStr}${item.name.replace(/</g,'&lt;')}${typeStr}</div>`;
+  }).join('');
+}
+
+function pickLocation(loc) {
+  document.getElementById('siteName').value = loc;
+  closeLocationPicker();
+  autoSaveCurrent();
+}
+
+// GPS auto-suggest: called after GPS capture
+function autoSuggestLocation() {
+  if (!currentGPS || !selectedForest || !forestData[selectedForest]) return;
+  const siteName = document.getElementById('siteName');
+  // Only auto-suggest if location field is empty
+  if (siteName.value.trim()) return;
+
+  const locs = forestData[selectedForest];
+  let bestDist = Infinity, bestLoc = null;
+  for (const l of locs) {
+    const d = haversineMi(currentGPS.latitude, currentGPS.longitude, l.lat, l.lng);
+    if (d < bestDist) { bestDist = d; bestLoc = l; }
+  }
+  if (bestLoc && bestDist < 50) {
+    const name = bestLoc.n + (bestLoc.d ? ' — ' + bestLoc.d : '');
+    siteName.value = name;
+    const distTxt = bestDist < 0.1 ? '< 0.1 mi' : bestDist.toFixed(1) + ' mi';
+    showToast(`Auto-suggested: ${bestLoc.n} (${distTxt} away)`);
+    autoSaveCurrent();
+  }
+}
+
+function importSiteList() {
+  // Destroy and recreate the file input to avoid iOS caching the previous file
+  const old = document.getElementById('siteListFile');
+  const parent = old.parentNode;
+  old.remove();
+  const fresh = document.createElement('input');
+  fresh.type = 'file';
+  fresh.id = 'siteListFile';
+  fresh.accept = '.txt';
+  fresh.style.display = 'none';
+  fresh.onchange = handleSiteListFile;
+  parent.appendChild(fresh);
+  fresh.click();
+}
+
+function handleSiteListFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const lines = e.target.result
+      .split(/\r?\n/)
+      .map(l => l.trim())
+      .filter(l => l.length > 0 && !l.startsWith('#'));
+
+    if (lines.length === 0) { showToast('No locations found in file', true); return; }
+
+    siteList = lines;
+    try { localStorage.setItem(LS_SITES, JSON.stringify(siteList)); } catch(e) {}
+    populateSiteDatalist();
+    showToast(`\u2714 Loaded ${lines.length} location${lines.length !== 1 ? 's' : ''}`);
+  };
+  reader.readAsText(file);
+}
+
+function genId() {
+  return 'e_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
+}
+
+// ============================================================================
+// DYNAMIC PHOTO SLOTS
+// ============================================================================
+function addPhotoSlot() {
+  const slotId = 'p_extra_' + extraPhotoSlots.length;
+  extraPhotoSlots.push(slotId);
+  const num = 2 + extraPhotoSlots.length;
+
+  const container = document.getElementById('extraSlotsContainer');
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'photo-grid photo-slot-extra';
+  wrapper.id = 'wrapper_' + slotId;
+  wrapper.style.marginTop = '12px';
+  wrapper.innerHTML = `
+    <div class="photo-slot" style="grid-column:1/span 1;">
+      <label>Photo ${num}</label>
+      <div class="photo-capture" onclick="takePhoto('${slotId}')" id="photo_${slotId}">
+        <span class="placeholder">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="5" width="18" height="14" rx="2"/>
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M9 2h6l1 3H8l1-3z"/>
+          </svg>
+          Tap to capture
+        </span>
+      </div>
+      <button class="browse-photo-btn" onclick="browsePhoto('${slotId}')" type="button">Browse Photo</button>
+      <input type="file" accept="image/*" capture="environment" id="file_${slotId}" onchange="handlePhoto(this,'${slotId}')">
+    </div>
+    <div style="display:flex;align-items:flex-end;padding-bottom:4px;">
+      <button class="btn btn-outline btn-sm" onclick="removePhotoSlot('${slotId}')"
+        style="color:var(--danger);border-color:var(--danger);padding:6px 12px;">
+        \u2715 Remove
+      </button>
+    </div>`;
+
+  container.appendChild(wrapper);
+  setTimeout(() => wrapper.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80);
+  autoSaveCurrent();
+}
+
+function removePhotoSlot(slotId) {
+  const wrapper = document.getElementById('wrapper_' + slotId);
+  if (wrapper) wrapper.remove();
+  extraPhotoSlots = extraPhotoSlots.filter(s => s !== slotId);
+  delete currentPhotos[slotId];
+  renumberExtraSlots();
+  autoSaveCurrent();
+}
+
+function renumberExtraSlots() {
+  extraPhotoSlots.forEach((slotId, i) => {
+    const label = document.querySelector(`#wrapper_${slotId} .photo-slot label`);
+    if (label) label.textContent = 'Photo ' + (3 + i);
+  });
+}
+
+function getAllCurrentSlots() {
+  return ['p_main', 'p_wide', ...extraPhotoSlots];
+}
+
+// ============================================================================
+// SCORE BUTTONS
+// ============================================================================
+function toggleScore(btn) {
+  const score = btn.dataset.score;
+  const input = document.getElementById('entryScore');
+  if (input.value === score) {
+    // Deselect
+    input.value = '';
+    btn.classList.remove('active');
+  } else {
+    // Select this one, deselect others
+    document.querySelectorAll('.score-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    input.value = score;
+  }
+  autoSaveCurrent();
+}
+
+function setScoreButtons(value) {
+  document.querySelectorAll('.score-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.score === value);
+  });
+  document.getElementById('entryScore').value = value || '';
+}
+
+// ============================================================================
+// SAVE & NEW
+// ============================================================================
+function saveEntryAndNew() {
+  if (editingIndex !== null) { saveEdit(); return; }
+  const location = document.getElementById('siteName').value.trim();
+  const details  = document.getElementById('entryDetails').value.trim();
+  const score    = document.getElementById('entryScore').value.trim();
+
+  if (!location && !details && Object.keys(currentPhotos).length === 0) {
+    showToast('Add a location, description, or at least one photo first', true);
+    return;
+  }
+  if (!score) {
+    showToast('Tap Finding or Observation to score this entry first', true);
+    return;
+  }
+
+  const entry = {
+    id:        currentEntryId,
+    siteName:  location,
+    location:  location,
+    protocolArea: document.getElementById('protocolArea').value.trim(),
+    teamGuideCitation: document.getElementById('teamGuideCitation').value.trim(),
+    score: document.getElementById('entryScore').value.trim(),
+    details:   details,
+    latitude:  currentGPS ? currentGPS.latitude  : null,
+    longitude: currentGPS ? currentGPS.longitude : null,
+    gpsAccuracy: currentGPS ? currentGPS.accuracy : null,
+    timestamp: new Date().toISOString(),
+    photos:    Object.assign({}, currentPhotos)
+  };
+
+  savedEntries.push(entry);
+  saveAll();
+  clearEntryForm(false);
+  renderSavedPanel();
+  updateHeaderBadge();
+
+  const photoCount = getAllCurrentSlots().filter(s => entry.photos[s]).length;
+  showToast(`\u2714 Saved — ${photoCount} photo${photoCount !== 1 ? 's' : ''} \u2022 ${savedEntries.length} total`);
+}
+
+// ============================================================================
+// CLEAR FORM
+// ============================================================================
+function clearEntryForm(confirmFirst = true) {
+  if (confirmFirst) {
+    const loc = document.getElementById('siteName').value.trim();
+    const det = document.getElementById('entryDetails').value.trim();
+    if ((loc || det || Object.keys(currentPhotos).length > 0) &&
+        !confirm('Clear current entry? Unsaved data will be lost.')) return;
+  }
+
+  currentPhotos  = {};
+  currentEntryId = genId();
+  currentGPS     = null;
+
+  // Keep the location dropdown value (user typically stays at same location)
+  document.getElementById('entryDetails').value  = '';
+  document.getElementById('teamGuideCitation').value = '';
+  setScoreButtons('');
+  clearCitation();
+  updateGPSDisplay();
+
+  const PH = `<span class="placeholder">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <rect x="3" y="5" width="18" height="14" rx="2"/>
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M9 2h6l1 3H8l1-3z"/>
+    </svg>
+    Tap to capture
+  </span>`;
+
+  PHOTO_SLOTS.forEach(slot => {
+    const el = document.getElementById('photo_' + slot);
+    if (el) { el.classList.remove('has-photo'); el.innerHTML = PH; }
+    const fi = document.getElementById('file_' + slot);
+    if (fi) fi.value = '';
+  });
+
+  // Remove all extra photo slots
+  extraPhotoSlots = [];
+  const ec = document.getElementById('extraSlotsContainer');
+  if (ec) ec.innerHTML = '';
+
+  autoSaveCurrent();
+}
+
+// ============================================================================
+// SAVED PANEL
+// ============================================================================
+function renderSavedPanel() {
+  const body  = document.getElementById('savedPanelBody');
+  const badge = document.getElementById('savedCountBadge');
+  const count = document.getElementById('entryCountNum');
+  badge.textContent = savedEntries.length;
+  count.textContent = savedEntries.length;
+
+  if (savedEntries.length === 0) {
+    body.innerHTML = '<div class="saved-empty">No entries yet. Select a location, add description + photos, then tap "Save & New".</div>';
+    return;
+  }
+
+  body.innerHTML = savedEntries.map((e, i) => {
+    const thumb = e.photos && e.photos.p_main && e.photos.p_main.thumbnail;
+    const photoCount = e.photos ? Object.keys(e.photos).length : 0;
+    const ts = e.timestamp ? new Date(e.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '';
+    return `
+      <div class="saved-item">
+        ${thumb
+          ? `<img class="saved-item-thumb" src="${thumb}">`
+          : `<div class="saved-item-thumb-empty">&#128247;</div>`}
+        <div class="saved-item-info">
+          <div class="saved-item-name">${e.location || '(No location)'}</div>
+          ${e.protocolArea ? `<div class="saved-item-detail" style="font-size:11px;color:var(--text-dim);">${e.protocolArea}</div>` : ''}
+          ${e.teamGuideCitation ? `<div class="saved-item-detail" style="font-size:11px;color:var(--text-dim);font-style:italic;">TG: ${e.teamGuideCitation}</div>` : ''}
+          ${e.score ? `<div class="saved-item-detail" style="font-size:11px;color:var(--text-dim);">Score: ${e.score}</div>` : ''}
+          ${e.latitude != null ? `<div style="font-size:10px;color:var(--text-dim);">${e.latitude.toFixed(6)}\u00B0N, ${Math.abs(e.longitude).toFixed(6)}\u00B0${e.longitude < 0 ? 'W' : 'E'}</div>` : ''}
+          <div class="saved-item-detail">
+            ${photoCount} photo${photoCount !== 1 ? 's' : ''}
+            ${e.exportedAt
+              ? ' \u2022 <span style="color:#4ab86a;font-weight:600;" title="Exported ' + new Date(e.exportedAt).toLocaleString() + '">\u2713 exported</span>'
+              : ' \u2022 <span style="color:#e0a44a;font-weight:700;">\u26a0 not exported</span>'}
+            ${e.details ? ' \u2022 ' + e.details.slice(0,60) + (e.details.length > 60 ? '\u2026' : '') : ''}
+            ${ts ? ' \u2022 ' + ts : ''}
+          </div>
+        </div>
+        <div class="saved-item-actions">
+          <button class="btn btn-accent btn-sm" onclick="editEntry(${i})" style="padding:5px 10px;font-size:12px;">&#9998;</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteEntry(${i})" style="padding:5px 10px;font-size:12px;">&#10005;</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function toggleSavedPanel() {
+  savedPanelOpen = !savedPanelOpen;
+  document.getElementById('savedPanelBody').classList.toggle('collapsed', !savedPanelOpen);
+  document.getElementById('savedToggle').textContent = savedPanelOpen ? '\u25B2 Hide' : '\u25BC Show';
+}
+
+function showSavedList() {
+  if (!savedPanelOpen) toggleSavedPanel();
+  document.getElementById('savedPanel').scrollIntoView({ behavior: 'smooth' });
+}
+
+function deleteEntry(index) {
+  const entry = savedEntries[index];
+  const loc = entry.location || 'entry';
+  const expNote = entry.exportedAt
+    ? `\n\nExported ${new Date(entry.exportedAt).toLocaleString([], { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' })}.`
+    : '\n\n\u26a0\ufe0f NO export record \u2014 this entry may never have left the device!';
+  if (confirm(`Delete "${loc}"?${expNote}`)) {
+    // Also remove the photo bytes (previously orphaned on single delete)
+    Object.values(entry.photos || {}).forEach(ph => { if (ph && ph.dbKey) deletePhotoFromDB(ph.dbKey); });
+    savedEntries.splice(index, 1);
+    saveAll();
+    renderSavedPanel();
+    updateHeaderBadge();
+    showToast('Entry deleted');
+  }
+}
+
+function editEntry(index) {
+  const entry = savedEntries[index];
+  if (!entry) return;
+
+  if (editingIndex !== null) {
+    if (!confirm('You are already editing an entry. Discard changes?')) return;
+  } else {
+    const loc = document.getElementById('siteName').value.trim();
+    const det = document.getElementById('entryDetails').value.trim();
+    if ((loc || det || Object.keys(currentPhotos).length > 0) &&
+        !confirm('Load saved entry for editing? Current unsaved data will be lost.')) return;
+  }
+
+  // Clear extra slots first
+  extraPhotoSlots = [];
+  const ec = document.getElementById('extraSlotsContainer');
+  if (ec) ec.innerHTML = '';
+
+  // Load entry data into form
+  document.getElementById('siteName').value      = entry.location || '';
+  document.getElementById('protocolArea').value  = entry.protocolArea || '';
+  document.getElementById('teamGuideCitation').value = entry.teamGuideCitation || '';
+  setScoreButtons(entry.score || '');
+  restoreCitationDisplay();
+  document.getElementById('entryDetails').value  = entry.details  || '';
+
+  // Restore GPS
+  if (entry.latitude != null && entry.longitude != null) {
+    currentGPS = { latitude: entry.latitude, longitude: entry.longitude, accuracy: entry.gpsAccuracy || 0 };
+  } else {
+    currentGPS = null;
+  }
+  updateGPSDisplay();
+
+  currentEntryId = entry.id || genId();
+
+  // Restore photos into base slots
+  currentPhotos = {};
+  const PH = `<span class="placeholder">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <rect x="3" y="5" width="18" height="14" rx="2"/>
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M9 2h6l1 3H8l1-3z"/>
+    </svg>
+    Tap to capture
+  </span>`;
+
+  PHOTO_SLOTS.forEach(slot => {
+    const el = document.getElementById('photo_' + slot);
+    if (!el) return;
+    const photo = entry.photos && entry.photos[slot];
+    if (photo && photo.thumbnail) {
+      currentPhotos[slot] = { ...photo };
+      el.classList.add('has-photo');
+      el.innerHTML = `<img src="${photo.thumbnail}"><span class="retake-badge">Retake</span><span class="saved-badge">\u2713</span>`;
+    } else {
+      el.classList.remove('has-photo');
+      el.innerHTML = PH;
+    }
+  });
+
+  // Restore extra photo slots
+  if (entry.photos) {
+    const extraKeys = Object.keys(entry.photos)
+      .filter(k => k.startsWith('p_extra_'))
+      .sort((a, b) => parseInt(a.replace('p_extra_','')) - parseInt(b.replace('p_extra_','')));
+
+    extraKeys.forEach((slotId, idx) => {
+      extraPhotoSlots.push(slotId);
+      const num = 3 + idx;
+      const photo = entry.photos[slotId];
+      currentPhotos[slotId] = { ...photo };
+
+      const wrapper = document.createElement('div');
+      wrapper.className = 'photo-grid photo-slot-extra';
+      wrapper.id = 'wrapper_' + slotId;
+      wrapper.style.marginTop = '12px';
+      wrapper.innerHTML = `
+        <div class="photo-slot" style="grid-column:1/span 1;">
+          <label>Photo ${num}</label>
+          <div class="photo-capture ${photo && photo.thumbnail ? 'has-photo' : ''}" onclick="takePhoto('${slotId}')" id="photo_${slotId}">
+            ${photo && photo.thumbnail
+              ? `<img src="${photo.thumbnail}"><span class="retake-badge">Retake</span><span class="saved-badge">\u2713</span>`
+              : PH}
+          </div>
+          <button class="browse-photo-btn" onclick="browsePhoto('${slotId}')" type="button">Browse Photo</button>
+          <input type="file" accept="image/*" capture="environment" id="file_${slotId}" onchange="handlePhoto(this,'${slotId}')">
+        </div>
+        <div style="display:flex;align-items:flex-end;padding-bottom:4px;">
+          <button class="btn btn-outline btn-sm" onclick="removePhotoSlot('${slotId}')"
+            style="color:var(--danger);border-color:var(--danger);padding:6px 12px;">\u2715 Remove</button>
+        </div>`;
+      ec.appendChild(wrapper);
+    });
+  }
+
+  editingIndex = index;
+  setEditModeUI(true, entry.location || 'entry');
+
+  document.getElementById('entryFormTitle').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  autoSaveCurrent();
+}
+
+function saveEdit() {
+  const location = document.getElementById('siteName').value.trim();
+  const details  = document.getElementById('entryDetails').value.trim();
+  const score    = document.getElementById('entryScore').value.trim();
+
+  if (!location && !details && Object.keys(currentPhotos).length === 0) {
+    showToast('Add a location, description, or at least one photo first', true);
+    return;
+  }
+  if (!score) {
+    showToast('Tap Finding or Observation to score this entry first', true);
+    return;
+  }
+
+  savedEntries[editingIndex] = {
+    id:          currentEntryId,
+    siteName:    location,
+    location:    location,
+    protocolArea: document.getElementById('protocolArea').value.trim(),
+    teamGuideCitation: document.getElementById('teamGuideCitation').value.trim(),
+    score: document.getElementById('entryScore').value.trim(),
+    details:     details,
+    latitude:    currentGPS ? currentGPS.latitude  : null,
+    longitude:   currentGPS ? currentGPS.longitude : null,
+    gpsAccuracy: currentGPS ? currentGPS.accuracy  : null,
+    timestamp:   savedEntries[editingIndex].timestamp,
+    photos:      Object.assign({}, currentPhotos)
+  };
+
+  saveAll();
+  editingIndex = null;
+  setEditModeUI(false);
+  clearEntryForm(false);
+  renderSavedPanel();
+  updateHeaderBadge();
+  showToast('\u2714 Entry updated');
+}
+
+function cancelEdit() {
+  editingIndex = null;
+  setEditModeUI(false);
+  clearEntryForm(false);
+  showToast('Edit cancelled');
+}
+
+function setEditModeUI(editing, locationName) {
+  const title     = document.getElementById('entryFormTitle');
+  const saveBtn   = document.getElementById('saveBtn');
+  const cancelBtn = document.getElementById('cancelEditBtn');
+
+  if (editing) {
+    title.innerHTML = `&#9998; Editing: ${(locationName || 'entry').replace(/</g,'&lt;').slice(0,40)}`;
+    title.style.color = 'var(--warning)';
+    saveBtn.textContent = 'Save Edit \u2714';
+    saveBtn.className = 'btn btn-accent btn-sm';
+    cancelBtn.style.display = 'inline-block';
+  } else {
+    title.innerHTML = '&#128269; New Entry';
+    title.style.color = '';
+    saveBtn.innerHTML = 'Save &amp; New &#9654;';
+    saveBtn.className = 'btn btn-warning btn-sm';
+    cancelBtn.style.display = 'none';
+  }
+}
+
+function updateHeaderBadge() {
+  const badge = document.getElementById('headerBadge');
+  if (savedEntries.length > 0) {
+    badge.textContent = `${savedEntries.length} saved`;
+    badge.style.display = 'inline';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+// ============================================================================
+// PHOTO HANDLING
+// ============================================================================
+function takePhoto(slotId) {
+  const old = document.getElementById('file_' + slotId);
+  const parent = old ? old.parentNode : null;
+  if (old) old.remove();
+
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.setAttribute('capture', 'environment');
+  input.id = 'file_' + slotId;
+  input.style.display = 'none';
+  input.onchange = function () { handlePhoto(this, slotId); };
+
+  const container = document.getElementById('photo_' + slotId);
+  (parent || container.parentNode).insertBefore(input, container.nextSibling);
+
+  input.click();
+}
+
+function browsePhoto(slotId) {
+  const old = document.getElementById('browse_' + slotId);
+  if (old) old.remove();
+
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  // No capture attribute — opens photo library / file picker
+  input.id = 'browse_' + slotId;
+  input.style.display = 'none';
+  input.onchange = function () { handlePhoto(this, slotId); };
+
+  const container = document.getElementById('photo_' + slotId);
+  container.parentNode.appendChild(input);
+
+  input.click();
+}
+
+let photoDB     = null;
+let idbAvailable = true;
+
+function openPhotoDB() {
+  return new Promise((resolve, reject) => {
+    if (photoDB) { resolve(photoDB); return; }
+    try {
+      const req = indexedDB.open(IDB_NAME, 1);
+      req.onupgradeneeded = e => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('photos')) db.createObjectStore('photos');
+      };
+      req.onsuccess = e => { photoDB = e.target.result; resolve(photoDB); };
+      req.onerror   = e => { idbAvailable = false; reject(e); };
+      req.onblocked = e => { idbAvailable = false; reject(e); };
+    } catch(e) { idbAvailable = false; reject(e); }
+  });
+}
+
+function savePhotoToDB(key, buf, mime) {
+  return openPhotoDB().then(db => new Promise((resolve, reject) => {
+    try {
+      const tx = db.transaction('photos', 'readwrite');
+      tx.objectStore('photos').put({ data: buf, type: mime || 'image/jpeg', size: buf.byteLength }, key);
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = reject;
+      tx.onabort = reject;
+    } catch(e) { reject(e); }
+  }));
+}
+
+function getPhotoFromDB(key) {
+  return openPhotoDB().then(db => new Promise((resolve) => {
+    try {
+      const req = db.transaction('photos','readonly').objectStore('photos').get(key);
+      req.onsuccess = () => {
+        const r = req.result;
+        if (!r) { resolve(null); return; }
+        if (r.data && (r.data instanceof ArrayBuffer || r.data.byteLength !== undefined)) resolve(r);
+        else if (r instanceof ArrayBuffer) resolve({ data: r, type: 'image/jpeg', size: r.byteLength });
+        else resolve(null);
+      };
+      req.onerror = () => resolve(null);
+    } catch(e) { resolve(null); }
+  })).catch(() => null);
+}
+
+function savePhotoFallback(key, dataUrl) {
+  try { localStorage.setItem('photo_full_' + key, dataUrl); } catch(e) {}
+}
+
+function getPhotoFallback(key) {
+  try { return localStorage.getItem('photo_full_' + key); } catch(e) { return null; }
+}
+
+function deletePhotoFromDB(key) {
+  try { localStorage.removeItem('photo_full_' + key); } catch(e) {}
+  fsDeletePhoto(key); // remove the durable filesystem copy too (fire-and-forget)
+  return openPhotoDB().then(db => new Promise(resolve => {
+    try {
+      const tx = db.transaction('photos','readwrite');
+      tx.objectStore('photos').delete(key);
+      tx.oncomplete = resolve;
+      tx.onerror    = resolve;
+    } catch(e) { resolve(); }
+  })).catch(() => {});
+}
+
+function photoDBKey(entryId, slotId) {
+  return entryId.replace(/[^a-zA-Z0-9_-]/g,'_') + '__' + slotId;
+}
+
+function base64ToUint8Array(b64) {
+  const bin = atob(b64 || '');
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+function dataUrlToUint8Array(dataUrl) {
+  return base64ToUint8Array(String(dataUrl).split(',')[1]);
+}
+// Encode bytes → base64 in chunks (fromCharCode.apply blows the stack ~100KB+).
+function uint8ToBase64(bytes) {
+  let binary = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+}
+function getAllPhotoKeys() {
+  return openPhotoDB().then(db => new Promise(resolve => {
+    try {
+      const req = db.transaction('photos','readonly').objectStore('photos').getAllKeys();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror   = () => resolve([]);
+    } catch(e) { resolve([]); }
+  })).catch(() => []);
+}
+
+// ============================================================================
+// DURABLE PHOTO STORAGE  (native filesystem primary; IndexedDB/localStorage fallback)
+// ----------------------------------------------------------------------------
+// iOS can silently EVICT WebView storage (IndexedDB / localStorage) under
+// pressure — how a sibling app lost a day's photos. On the native app we now
+// write each full-res JPEG to a real file in the app's DATA container, which is
+// NOT evicted by WebKit. IDB + localStorage remain fallbacks (and are the store
+// on the plain web build, where Filesystem isn't native).
+// ============================================================================
+function fsPlugin() {
+  const native = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  if (!native) return null;
+  return (window.Capacitor.Plugins && window.Capacitor.Plugins.Filesystem) || null;
+}
+function photoFsRelPath(dbKey) {
+  return 'nps_photos/' + String(dbKey).replace(/[^A-Za-z0-9_.-]/g, '_') + '.jpg';
+}
+async function fsWritePhoto(dbKey, base64) {
+  const FS = fsPlugin(); if (!FS) return false;
+  try { await FS.writeFile({ path: photoFsRelPath(dbKey), data: base64, directory: 'DATA', recursive: true }); return true; }
+  catch (e) { console.error('FS write fail ' + dbKey, e); return false; }
+}
+async function fsReadPhoto(dbKey) {
+  const FS = fsPlugin(); if (!FS) return null;
+  try { const r = await FS.readFile({ path: photoFsRelPath(dbKey), directory: 'DATA' });
+        if (r && r.data) return { bytes: base64ToUint8Array(r.data), type: 'image/jpeg' }; }
+  catch (e) {}
+  return null;
+}
+async function fsPhotoExists(dbKey) {
+  const FS = fsPlugin(); if (!FS) return false;
+  try { const st = await FS.stat({ path: photoFsRelPath(dbKey), directory: 'DATA' }); return !!st && (st.size == null || st.size > 0); }
+  catch (e) { return false; }
+}
+async function fsDeletePhoto(dbKey) {
+  const FS = fsPlugin(); if (!FS) return;
+  try { await FS.deleteFile({ path: photoFsRelPath(dbKey), directory: 'DATA' }); } catch (e) {}
+}
+// Persist bytes durably and CONFIRM. Returns { ok, where }.
+async function storePhotoBytes(dbKey, resizedDataUrl) {
+  const base64 = String(resizedDataUrl).split(',')[1] || '';
+  if (fsPlugin()) {
+    if (await fsWritePhoto(dbKey, base64) && await fsPhotoExists(dbKey)) return { ok: true, where: 'fs' };
+  }
+  if (idbAvailable) {
+    try { await savePhotoToDB(dbKey, base64ToUint8Array(base64).buffer, 'image/jpeg'); return { ok: true, where: 'idb' }; }
+    catch (e) { idbAvailable = false; }
+  }
+  // Last resort only (IDB unavailable/failed) — localStorage is tiny + evictable.
+  savePhotoFallback(dbKey, resizedDataUrl);
+  let ok = false; try { ok = !!localStorage.getItem('photo_full_' + dbKey); } catch (e) {}
+  return { ok, where: ok ? 'fallback' : 'none' };
+}
+async function loadPhotoBytes(dbKey, mimeType) {
+  if (!dbKey) return null;
+  const fs = await fsReadPhoto(dbKey);
+  if (fs) return fs;
+  if (idbAvailable) {
+    try { const r = await getPhotoFromDB(dbKey); if (r && r.data) return { bytes: new Uint8Array(r.data), type: r.type || mimeType || 'image/jpeg' }; }
+    catch (e) {}
+  }
+  const dataUrl = getPhotoFallback(dbKey);
+  if (dataUrl) return { bytes: dataUrlToUint8Array(dataUrl), type: dataUrl.split(';')[0].split(':')[1] || mimeType || 'image/jpeg' };
+  return null;
+}
+async function photoBytesExist(dbKey) {
+  if (!dbKey) return false;
+  if (await fsPhotoExists(dbKey)) return true;
+  if (idbAvailable) { try { const r = await getPhotoFromDB(dbKey); if (r && r.data) return true; } catch (e) {} }
+  try { if (localStorage.getItem('photo_full_' + dbKey)) return true; } catch (e) {}
+  return false;
+}
+async function fsPresentKeySet() {
+  const set = new Set(); const FS = fsPlugin(); if (!FS) return set;
+  try {
+    const r = await FS.readdir({ path: 'nps_photos', directory: 'DATA' });
+    ((r && r.files) || []).forEach(f => { const n = (typeof f === 'string') ? f : (f && f.name); if (n) set.add(String(n).replace(/\.jpg$/i, '')); });
+  } catch (e) {}
+  return set;
+}
+async function presentPhotoKeySet() {
+  const set = await fsPresentKeySet();
+  if (idbAvailable) { try { (await getAllPhotoKeys()).forEach(k => set.add(k)); } catch (e) {} }
+  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.indexOf('photo_full_') === 0) set.add(k.slice('photo_full_'.length)); } } catch (e) {}
+  return set;
+}
+let _photoMigrationDone = false;
+async function migratePhotosToFS() {
+  if (_photoMigrationDone) return;
+  const FS = fsPlugin();
+  if (!FS || !idbAvailable) { _photoMigrationDone = true; return; }
+  let idbKeys = [];
+  try { idbKeys = await getAllPhotoKeys(); } catch (e) { return; }
+  if (!idbKeys.length) { _photoMigrationDone = true; return; }
+  let fsPresent; try { fsPresent = await fsPresentKeySet(); } catch (e) { fsPresent = new Set(); }
+  const todo = idbKeys.filter(k => !fsPresent.has(k));
+  if (!todo.length) { _photoMigrationDone = true; return; }
+  let moved = 0;
+  for (const key of todo) {
+    try { const r = await getPhotoFromDB(key);
+          if (r && r.data && await fsWritePhoto(key, uint8ToBase64(new Uint8Array(r.data)))) moved++; }
+    catch (e) {}
+  }
+  _photoMigrationDone = true;
+  if (moved) showToast('Secured ' + moved + ' photo' + (moved === 1 ? '' : 's') + ' to durable storage');
+}
+
+// ---- Photo integrity badge ----
+function allReferencedPhotoKeys() {
+  const keys = [];
+  savedEntries.forEach(e => { const ph = e.photos || {}; Object.keys(ph).forEach(s => { if (ph[s] && ph[s].dbKey) keys.push(ph[s].dbKey); }); });
+  Object.keys(currentPhotos).forEach(s => { if (currentPhotos[s] && currentPhotos[s].dbKey) keys.push(currentPhotos[s].dbKey); });
+  return keys;
+}
+function paintIntegrityBadge(total, missing, checking) {
+  const b = document.getElementById('integrityBadge');
+  if (!b) return;
+  b.style.display = 'inline-block';
+  if (checking) { b.style.background = 'rgba(224,164,74,0.9)'; b.style.color = '#fff'; b.textContent = '⏳ Checking…'; return; }
+  if (total === 0) { b.style.display = 'none'; return; }
+  if (missing > 0) { b.style.background = 'rgba(200,40,40,0.95)'; b.style.color = '#fff'; b.textContent = '⚠ ' + missing + ' of ' + total + ' photos MISSING'; }
+  else { b.style.background = 'rgba(74,184,106,0.9)'; b.style.color = '#fff'; b.textContent = '✓ ' + total + ' photo' + (total === 1 ? '' : 's') + ' safe'; }
+}
+async function runIntegrityCheck(verbose) {
+  const uniq = Array.from(new Set(allReferencedPhotoKeys()));
+  paintIntegrityBadge(uniq.length, 0, true);
+  let present; try { present = await presentPhotoKeySet(); } catch (e) { present = new Set(); }
+  const missingKeys = uniq.filter(k => !present.has(k));
+  paintIntegrityBadge(uniq.length, missingKeys.length);
+  if (verbose) {
+    if (!uniq.length) { showToast('No photos to check yet.'); return; }
+    if (!missingKeys.length) { alert('✅ All ' + uniq.length + ' photos are safe in device storage.'); return; }
+    const missSet = new Set(missingKeys); const affected = [];
+    savedEntries.forEach(e => { const ph = e.photos || {}; if (Object.keys(ph).some(s => ph[s] && missSet.has(ph[s].dbKey))) affected.push(e.location || e.siteName || '(unnamed)'); });
+    alert('⚠️ ' + missingKeys.length + ' of ' + uniq.length + ' photos are MISSING from device storage.\n\nAffected entries (' + affected.length + '): ' + (affected.slice(0, 20).join(', ') + (affected.length > 20 ? ', …' : '')) + '\n\nRecover them from an earlier export that still has them.');
+  }
+}
+let _integrityTimer = null;
+function updateIntegrityBadge() {
+  if (_integrityTimer) clearTimeout(_integrityTimer);
+  _integrityTimer = setTimeout(() => { _integrityTimer = null; runIntegrityCheck(false); }, 500);
+}
+
+function handlePhoto(input, slotId) {
+  const file = input.files[0];
+  if (!file) return;
+
+  const ts       = new Date().toISOString();
+  const dbKey    = photoDBKey(currentEntryId, slotId);
+  const settings = getPhotoSettings();
+
+  const reader = new FileReader();
+  reader.onload = e => {
+    const img = new Image();
+    img.onload = async () => {
+      let w = img.width, h = img.height;
+      if (w > settings.maxWidth || h > settings.maxHeight) {
+        const ratio = Math.min(settings.maxWidth / w, settings.maxHeight / h);
+        w = Math.round(w * ratio);
+        h = Math.round(h * ratio);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      const dataUrl = canvas.toDataURL('image/jpeg', settings.quality);
+
+      // Thumbnail for UI
+      const tc = document.createElement('canvas');
+      const ts2 = Math.min(80 / w, 1);
+      tc.width  = Math.round(w * ts2);
+      tc.height = Math.round(h * ts2);
+      tc.getContext('2d').drawImage(canvas, 0, 0, tc.width, tc.height);
+      const thumbnail = tc.toDataURL('image/jpeg', 0.4);
+
+      currentPhotos[slotId] = { timestamp: ts, thumbnail, fileType: 'image/jpeg', dbKey };
+
+      const container = document.getElementById('photo_' + slotId);
+      container.classList.add('has-photo');
+      container.innerHTML = `<img src="${thumbnail}"><span class="retake-badge">Retake</span><span class="saved-badge" style="background:rgba(224,164,74,0.9);">\u2026</span>`;
+
+      // Persist durably and CONFIRM it stuck; surface failures loudly instead of
+      // silently continuing.
+      const _res = await storePhotoBytes(dbKey, dataUrl);
+      const sizeKB = Math.round(dataUrl.length * 0.75 / 1024);
+      if (_res.ok) {
+        currentPhotos[slotId].unsaved = false;
+        container.innerHTML = `<img src="${thumbnail}"><span class="retake-badge">Retake</span><span class="saved-badge">\u2713</span>`;
+        showToast(`${PHOTO_SLOT_NAMES[slotId] || 'Photo'} saved (~${sizeKB} KB)`);
+      } else {
+        currentPhotos[slotId].unsaved = true;
+        container.innerHTML = `<img src="${thumbnail}"><span class="retake-badge">Retake</span><span class="saved-badge" style="background:rgba(200,40,40,0.95);">\u26a0 NOT SAVED</span>`;
+        showToast('\u26a0 Photo did NOT save \u2014 storage problem. Export & clear now.', true);
+      }
+      updateIntegrityBadge();
+
+      // Auto-capture GPS with each photo
+      if (!currentGPS) {
+        captureGPS(true).catch(() => {});
+      }
+
+      autoSaveCurrent();
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+// ============================================================================
+// PHOTO SETTINGS
+// ============================================================================
+function getPhotoSettings() {
+  try {
+    const s = localStorage.getItem(LS_PHOTOS);
+    if (s) return JSON.parse(s);
+  } catch(e) {}
+  return { ...PHOTO_DEFAULTS };
+}
+
+function showSettings() {
+  const s = getPhotoSettings();
+  document.getElementById('photoPreset').value   = s.preset || '1920x1080';
+  document.getElementById('photoMaxW').value     = s.maxWidth;
+  document.getElementById('photoMaxH').value     = s.maxHeight;
+  document.getElementById('photoQuality').value  = Math.round(s.quality * 100);
+  document.getElementById('qualityLabel').textContent = Math.round(s.quality * 100) + '%';
+  document.getElementById('customResGroup').style.display = s.preset === 'custom' ? 'block' : 'none';
+  updateEstimates();
+  document.getElementById('settingsOverlay').style.display = 'flex';
+}
+
+function applyPhotoPreset() {
+  const p = document.getElementById('photoPreset').value;
+  document.getElementById('customResGroup').style.display = p === 'custom' ? 'block' : 'none';
+  const presets = { '1920x1080':[1920,1080], '1280x720':[1280,720], '2560x1440':[2560,1440], 'original':[99999,99999] };
+  if (presets[p]) {
+    document.getElementById('photoMaxW').value = presets[p][0];
+    document.getElementById('photoMaxH').value = presets[p][1];
+  }
+  updateEstimates();
+}
+
+function updateEstimates() {
+  const w = parseInt(document.getElementById('photoMaxW').value) || 1920;
+  const h = parseInt(document.getElementById('photoMaxH').value) || 1080;
+  const q = parseInt(document.getElementById('photoQuality').value) || 80;
+  if (document.getElementById('photoPreset').value === 'original') {
+    document.getElementById('estFileSize').textContent = '~2-4 MB (original)';
+    return;
+  }
+  const kb = Math.max(50, Math.min(Math.round(w * h * (q/100) * 0.00015), 3000));
+  document.getElementById('estFileSize').textContent = kb < 1000 ? `~${kb} KB` : `~${(kb/1000).toFixed(1)} MB`;
+}
+
+function savePhotoSettings() {
+  const p = document.getElementById('photoPreset').value;
+  const s = {
+    maxWidth:  p === 'original' ? 99999 : (parseInt(document.getElementById('photoMaxW').value) || 1920),
+    maxHeight: p === 'original' ? 99999 : (parseInt(document.getElementById('photoMaxH').value) || 1080),
+    quality:   (parseInt(document.getElementById('photoQuality').value) || 80) / 100,
+    preset: p
+  };
+  localStorage.setItem(LS_PHOTOS, JSON.stringify(s));
+  document.getElementById('settingsOverlay').style.display = 'none';
+  showToast('Photo settings saved');
+}
+
+function resetPhotoSettings() {
+  document.getElementById('photoPreset').value  = PHOTO_DEFAULTS.preset;
+  document.getElementById('photoMaxW').value    = PHOTO_DEFAULTS.maxWidth;
+  document.getElementById('photoMaxH').value    = PHOTO_DEFAULTS.maxHeight;
+  document.getElementById('photoQuality').value = Math.round(PHOTO_DEFAULTS.quality * 100);
+  document.getElementById('qualityLabel').textContent = Math.round(PHOTO_DEFAULTS.quality * 100) + '%';
+  document.getElementById('customResGroup').style.display = 'none';
+  updateEstimates();
+}
+
+// ============================================================================
+// EXPORT (ZIP with photos + CSV + XLSX — no Photo Log)
+// ============================================================================
+function showExportDialog() {
+  const total = savedEntries.length +
+    (document.getElementById('siteName').value.trim() ||
+     document.getElementById('entryDetails').value.trim()  ||
+     Object.keys(currentPhotos).length > 0 ? 1 : 0);
+  if (total === 0) { showToast('Nothing to export yet', true); return; }
+  exportDateMode = 'all';
+  document.getElementById('exportFromDate').value = '';
+  document.getElementById('exportToDate').value   = '';
+  _syncExportChips();
+  updateRefPreview();
+  updateExportCount();
+  document.getElementById('exportOverlay').style.display = 'flex';
+}
+
+function closeExportDialog() {
+  document.getElementById('exportOverlay').style.display = 'none';
+}
+
+// ---- Post-export batch delete ----
+let _lastExportedIds = [];
+
+function showPostExportPrompt(ids) {
+  _lastExportedIds = (ids || []).slice();
+  const n = _lastExportedIds.length;
+  if (n === 0) return;
+  document.getElementById('postExportMsg').textContent =
+    `Delete the ${n} exported entr${n === 1 ? 'y' : 'ies'} from this device? ` +
+    `Photos will also be permanently removed. (The exported zip is unaffected.)`;
+  document.getElementById('postExportDeleteBtn').textContent = `Delete ${n}`;
+  document.getElementById('postExportOverlay').style.display = 'flex';
+}
+
+function closePostExportPrompt() {
+  document.getElementById('postExportOverlay').style.display = 'none';
+}
+
+async function deleteExportedEntries() {
+  const ids = new Set(_lastExportedIds);
+  // Collect photo dbKeys before mutating savedEntries
+  const dbKeys = [];
+  for (const e of savedEntries) {
+    if (!ids.has(e.id)) continue;
+    for (const slot of Object.keys(e.photos || {})) {
+      const info = e.photos[slot];
+      if (info && info.dbKey) dbKeys.push(info.dbKey);
+    }
+  }
+  // If the entry being edited is about to be deleted, exit edit mode first
+  if (editingIndex !== null && savedEntries[editingIndex] && ids.has(savedEntries[editingIndex].id)) {
+    editingIndex = null;
+    if (typeof setEditModeUI === 'function') setEditModeUI(false);
+  }
+  // Filter savedEntries
+  savedEntries = savedEntries.filter(e => !ids.has(e.id));
+  // If the in-progress draft was part of this export, clear the form too
+  if (currentEntryId && ids.has(currentEntryId)) {
+    clearEntryForm(false);
+  }
+  saveAll();
+  // Best-effort photo cleanup from IDB
+  if (idbAvailable) {
+    for (const k of dbKeys) {
+      try { await deletePhotoFromDB(k); } catch(e) {}
+    }
+  }
+  renderSavedPanel();
+  updateHeaderBadge();
+  closePostExportPrompt();
+  showToast(`Deleted ${ids.size} entr${ids.size === 1 ? 'y' : 'ies'}`);
+}
+
+// ---- Date filter for export ----
+let exportDateMode = 'all'; // 'all' | 'today' | 'yesterday' | 'custom'
+
+function _startOfDay(d) { const x = new Date(d); x.setHours(0,0,0,0); return x.getTime(); }
+function _endOfDay  (d) { const x = new Date(d); x.setHours(23,59,59,999); return x.getTime(); }
+
+function getExportDateRange() {
+  const today = new Date();
+  if (exportDateMode === 'today')     return { from: _startOfDay(today), to: _endOfDay(today) };
+  if (exportDateMode === 'yesterday') {
+    const y = new Date(today); y.setDate(y.getDate() - 1);
+    return { from: _startOfDay(y), to: _endOfDay(y) };
+  }
+  if (exportDateMode === 'custom') {
+    const f = document.getElementById('exportFromDate').value;
+    const t = document.getElementById('exportToDate').value;
+    return {
+      from: f ? _startOfDay(new Date(f + 'T00:00:00')) : null,
+      to:   t ? _endOfDay(new Date(t + 'T00:00:00'))   : null,
+    };
+  }
+  return { from: null, to: null }; // 'all'
+}
+
+function entryInRange(entry, range) {
+  if (range.from === null && range.to === null) return true;
+  const ts = entry.timestamp ? new Date(entry.timestamp).getTime() : Date.now();
+  if (isNaN(ts)) return false;
+  if (range.from !== null && ts < range.from) return false;
+  if (range.to   !== null && ts > range.to)   return false;
+  return true;
+}
+
+function _syncExportChips() {
+  document.querySelectorAll('#exportOverlay [data-export-mode]').forEach(b => {
+    b.classList.toggle('active', b.dataset.exportMode === exportDateMode);
+  });
+  document.getElementById('exportCustomRange').style.display = exportDateMode === 'custom' ? 'flex' : 'none';
+}
+
+function setExportDateMode(mode) {
+  exportDateMode = mode;
+  if (mode === 'custom') {
+    const t = new Date();
+    const ymd = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`;
+    if (!document.getElementById('exportFromDate').value) document.getElementById('exportFromDate').value = ymd;
+    if (!document.getElementById('exportToDate').value)   document.getElementById('exportToDate').value   = ymd;
+  }
+  _syncExportChips();
+  updateExportCount();
+}
+
+function updateExportCount() {
+  const el = document.getElementById('exportCount');
+  if (!el) return;
+  const range = getExportDateRange();
+  const all = savedEntries.slice();
+  const loc = document.getElementById('siteName').value.trim();
+  const det = document.getElementById('entryDetails').value.trim();
+  if (loc || det || Object.keys(currentPhotos).length > 0) {
+    all.push({ location: loc, timestamp: new Date().toISOString(), details: det });
+  }
+  const match = all.filter(e => entryInRange(e, range)).length;
+  el.textContent = (match === all.length)
+    ? `${match} entr${match === 1 ? 'y' : 'ies'} will be exported`
+    : `${match} of ${all.length} entr${all.length === 1 ? 'y' : 'ies'} match this filter`;
+}
+
+function updateRefPreview() {
+  const el = document.getElementById('refPreview');
+  // Build a preview from the first entry
+  let allEntries = JSON.parse(JSON.stringify(savedEntries));
+  const loc = document.getElementById('siteName').value.trim();
+  if (loc || Object.keys(currentPhotos).length > 0) {
+    allEntries.push({ location: loc, timestamp: new Date().toISOString() });
+  }
+  if (allEntries.length > 0) {
+    const e = allEntries[0];
+    const sample = buildPhotoName(e, 1);
+    el.textContent = `e.g. ${sample}.jpg`;
+    el.style.color = 'var(--text-dim)';
+  }
+}
+
+function sanitizeSegment(str) {
+  return (str || '').replace(/[^a-zA-Z0-9_\- ]/g, '').replace(/\s+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+}
+
+function extractDistrictAndLocation(str) {
+  // Split on common hierarchy delimiters: ->, >, –, —, |, /
+  const parts = (str || '').split(/\s*(?:->|→|>|–|—|\||\/)\s*/).map(s => s.trim()).filter(Boolean);
+  if (parts.length >= 2) {
+    // Last two segments = District + Location
+    const district = sanitizeSegment(parts[parts.length - 2]);
+    const location = sanitizeSegment(parts[parts.length - 1]);
+    return [district, location].filter(Boolean).join('_');
+  }
+  if (parts.length === 1) {
+    return sanitizeSegment(parts[0]);
+  }
+  return 'NoLocation';
+}
+
+function buildPhotoName(entry, seqNum) {
+  const d = entry.timestamp ? new Date(entry.timestamp) : new Date();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const yy = String(d.getFullYear()).slice(-2);
+  const datePart = mm + dd + yy;
+  const locPart = extractDistrictAndLocation(entry.location || entry.siteName) || 'NoLocation';
+  const numPart = String(seqNum).padStart(4, '0');
+  return `${datePart}_${locPart}_${numPart}`;
+}
+
+async function runExport() {
+  closeExportDialog();
+
+  let allEntries = JSON.parse(JSON.stringify(savedEntries));
+  const loc  = document.getElementById('siteName').value.trim();
+  const prot = document.getElementById('protocolArea').value.trim();
+  const tgc  = document.getElementById('teamGuideCitation').value.trim();
+  const scr  = document.getElementById('entryScore').value.trim();
+  const det  = document.getElementById('entryDetails').value.trim();
+  if (loc || det || Object.keys(currentPhotos).length > 0) {
+    allEntries.push({
+      id:        currentEntryId,
+      siteName:  loc,
+      location:  loc,
+      protocolArea: prot,
+      teamGuideCitation: tgc,
+      score:     scr,
+      details:   det,
+      latitude:  currentGPS ? currentGPS.latitude  : null,
+      longitude: currentGPS ? currentGPS.longitude : null,
+      gpsAccuracy: currentGPS ? currentGPS.accuracy : null,
+      timestamp: new Date().toISOString(),
+      photos:    Object.assign({}, currentPhotos)
+    });
+  }
+
+  // Apply the export-dialog date filter
+  const dateRange = getExportDateRange();
+  const beforeFilter = allEntries.length;
+  allEntries = allEntries.filter(e => entryInRange(e, dateRange));
+  if (allEntries.length === 0) {
+    showToast(beforeFilter === 0 ? 'Nothing to export' : 'No entries in selected date range', true);
+    return;
+  }
+  if (typeof ExcelJS === 'undefined') { showToast('ExcelJS not loaded \u2014 go online once first', true); return; }
+
+  showToast('Building export\u2026');
+
+  let globalSeq = 1;
+
+  const zip         = new JSZip();
+  const photosFolder = zip.folder('photos');
+  let photoCount    = 0;
+  let misses        = 0;
+  const missedKeys  = [];
+
+  async function getBytes(dbKey, mimeType) {
+    const r = await loadPhotoBytes(dbKey, mimeType);
+    if (r) return r;
+    misses++;
+    if (dbKey) missedKeys.push(dbKey);
+    return null;
+  }
+
+  const entryMaps = [];
+  for (const entry of allEntries) {
+    const map = {};
+    const allSlots = Object.keys(entry.photos || {}).sort((a, b) => {
+      const order = s => s === 'p_main' ? 0 : s === 'p_wide' ? 1 : 2 + parseInt(s.replace('p_extra_','') || 0);
+      return order(a) - order(b);
+    });
+    for (const slot of allSlots) {
+      const info = entry.photos[slot];
+      if (info && info.dbKey) {
+        const pd = await getBytes(info.dbKey, info.fileType || 'image/jpeg');
+        if (pd) {
+          const photoName = buildPhotoName(entry, globalSeq++);
+          const ext = pd.type.includes('png') ? '.png' : '.jpg';
+          photosFolder.file(photoName + ext, pd.bytes);
+          map[slot] = photoName + ext;
+          photoCount++;
+        } else {
+          map[slot] = null;
+        }
+      } else {
+        map[slot] = null;
+      }
+    }
+    entryMaps.push(map);
+  }
+
+  const maxPhotos = Math.max(2, ...entryMaps.map(m => Object.keys(m).length));
+
+  // CSV
+  const fmtCoord = v => v != null ? Number(v).toFixed(6) : '';
+  const fmtAcc   = v => v != null ? String(v) : '';
+  const photoHeaders = Array.from({length: maxPhotos}, (_, i) => `Photo ${i+1}`);
+  let csv = ['Entry #','Location','Latitude','Longitude','GPS Accuracy (m)','Protocol Area','Team Guide Citation','Score','Description','Timestamp',...photoHeaders].join(',') + '\n';
+  allEntries.forEach((e, i) => {
+    const m = entryMaps[i];
+    const sortedSlots = Object.keys(m).sort((a,b) => {
+      const order = s => s==='p_main'?0:s==='p_wide'?1:2+parseInt(s.replace('p_extra_','')||0);
+      return order(a)-order(b);
+    });
+    const photoVals = Array.from({length: maxPhotos}, (_, pi) => quote(m[sortedSlots[pi]] || ''));
+    csv += [
+      i + 1, quote(e.location),
+      quote(fmtCoord(e.latitude)), quote(fmtCoord(e.longitude)), quote(fmtAcc(e.gpsAccuracy)),
+      quote(e.protocolArea || ''),
+      quote(e.teamGuideCitation || ''),
+      quote(e.score || ''),
+      quote(e.details),
+      quote(e.timestamp ? new Date(e.timestamp).toLocaleString() : ''),
+      ...photoVals
+    ].join(',') + '\n';
+  });
+
+  // XLSX (ExcelJS) — two sheets:
+  //   1. "Findings Report" (styled, sheet 1 so it opens first)
+  //   2. "NPS Entries"     (raw data with GPS + photo columns, hidden by default)
+  const wb = new ExcelJS.Workbook();
+
+  // -- Helpers shared by both sheets --
+  const AREA_CODE = {
+    'Air Emissions':'AE','Cultural Resources':'CR','Environmental Management':'EM',
+    'Hazardous Materials':'HM','Hazardous Waste':'HW','Materials Management':'MM',
+    'Noise & Radiation':'NR','Oil Operations':'OO','Pesticide Management':'PM',
+    'Pollution Prevention':'PO','Storage Operations':'SO','Stormwater':'ST',
+    'Tanks & Transportation':'TT','Wastewater':'WA','Water Quality':'WQ',
+  };
+  const fmtFindingDate = ts => {
+    if (!ts) return '';
+    const d = new Date(ts);
+    if (isNaN(d)) return '';
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
+  const questionVal = e => {
+    const c = (e.teamGuideCitation || '').trim();
+    if (c) return c.split(' — ')[0]; // QID part only, no reg citation tail
+    const pa = (e.protocolArea || '').trim();
+    if (pa) return AREA_CODE[pa] || pa;
+    return '—';
+  };
+  // Pull the trailing sequence number out of a generated photo filename
+  // (e.g. "050526_..._0033.jpg" → 33). Returns null if no match.
+  const photoSeqOf = fn => {
+    if (!fn) return null;
+    const m = String(fn).match(/_(\d+)\.[a-zA-Z]+$/);
+    return m ? parseInt(m[1], 10) : null;
+  };
+  // Format a list of photo sequence numbers as "001, 003–005, 010".
+  // Within each row the numbers are sorted; consecutive runs collapse to ranges.
+  const formatPhotoNumbers = nums => {
+    if (!nums || !nums.length) return '';
+    const sorted = [...new Set(nums.filter(n => n != null))].sort((a, b) => a - b);
+    if (!sorted.length) return '';
+    const pad = n => String(n).padStart(3, '0');
+    const groups = [];
+    let start = sorted[0], prev = sorted[0];
+    for (let i = 1; i < sorted.length; i++) {
+      if (sorted[i] === prev + 1) { prev = sorted[i]; continue; }
+      groups.push(start === prev ? pad(start) : `${pad(start)}–${pad(prev)}`);
+      start = prev = sorted[i];
+    }
+    groups.push(start === prev ? pad(start) : `${pad(start)}–${pad(prev)}`);
+    return groups.join(', ');
+  };
+  const thinBorder = {
+    top:    { style:'thin', color:{ argb:'FFC8CDD9' } },
+    left:   { style:'thin', color:{ argb:'FFC8CDD9' } },
+    bottom: { style:'thin', color:{ argb:'FFC8CDD9' } },
+    right:  { style:'thin', color:{ argb:'FFC8CDD9' } },
+  };
+
+  // ===== Sheet 1: Findings Report (styled) =====
+  const fr = wb.addWorksheet('Findings Report', {
+    views: [{ state:'frozen', ySplit:1, showGridLines:false }],
+  });
+  const FR_HEADERS = ['Location','Condition','Score','FindingDate','Question','Photos'];
+  fr.addRow(FR_HEADERS);
+
+  // Sort: Findings first, then Observations, then unscored. Within each score
+  // group, citation-bearing entries first (alphanumeric by Question), then
+  // entries without a citation; original entry order as the tiebreak.
+  const SCORE_RANK = { finding: 0, observation: 1 };
+  const sortedEntries = allEntries.map((e,i) => ({e,i})).sort((a,b) => {
+    const ac = (a.e.teamGuideCitation || '').trim();
+    const bc = (b.e.teamGuideCitation || '').trim();
+    const as = (a.e.score || '').trim().toLowerCase();
+    const bs = (b.e.score || '').trim().toLowerCase();
+    const ar = as in SCORE_RANK ? SCORE_RANK[as] : 2;
+    const br = bs in SCORE_RANK ? SCORE_RANK[bs] : 2;
+    if (ar !== br) return ar - br;
+    const ab = ac ? 0 : 1;
+    const bb = bc ? 0 : 1;
+    if (ab !== bb) return ab - bb;
+    if (ac && bc && ac !== bc) return ac < bc ? -1 : 1;
+    return a.i - b.i;
+  });
+  for (const { e, i } of sortedEntries) {
+    const seqs = Object.values(entryMaps[i] || {}).map(photoSeqOf);
+    fr.addRow([
+      e.location || '',
+      e.details || '',
+      e.score || '',
+      fmtFindingDate(e.timestamp),
+      questionVal(e),
+      formatPhotoNumbers(seqs),
+    ]);
+  }
+
+  // Header styling
+  const frHeader = fr.getRow(1);
+  frHeader.height = 28;
+  frHeader.eachCell(c => {
+    c.font = { name:'Arial', size:10, bold:true, color:{ argb:'FFFFFFFF' } };
+    c.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF5C3B1E' } };
+    c.alignment = { horizontal:'center', vertical:'top', wrapText:true };
+    c.border = thinBorder;
+  });
+
+  // Data rows: Arial 10, wrap, Condition left-aligned, others centered, dynamic row height
+  for (let r = 2; r <= fr.rowCount; r++) {
+    const row = fr.getRow(r);
+    row.eachCell({ includeEmpty:true }, (c, colNum) => {
+      c.font = { name:'Arial', size:10 };
+      c.border = thinBorder;
+      c.alignment = colNum === 2
+        ? { horizontal:'left',   vertical:'top', wrapText:true }
+        : { horizontal:'center', vertical:'top', wrapText:true };
+    });
+    const condStr = String(row.getCell(2).value || '');
+    const locStr  = String(row.getCell(1).value || '');
+    const condLines = Math.max(1, Math.floor(condStr.length / 55) + condStr.split('\n').length);
+    const locLines  = Math.max(1, Math.floor(locStr.length  / 32) + 1);
+    row.height = Math.max(18, Math.max(condLines, locLines) * 15 + 6);
+  }
+
+  // Column widths
+  fr.getColumn(1).width = 36; // Location
+  fr.getColumn(2).width = 60; // Condition
+  fr.getColumn(3).width = 12; // Score
+  fr.getColumn(4).width = 13; // FindingDate
+  fr.getColumn(5).width = 16; // Question
+  fr.getColumn(6).width = 18; // Photos
+
+  // ===== Sheet 2: NPS Entries (raw data, hidden GPS + photo cols) =====
+  const raw = wb.addWorksheet('NPS Entries');
+  const xlsxPhotoCols = Array.from({length: maxPhotos}, (_, i) => `Photo ${i+1}`);
+  raw.addRow(['Entry #','Location','Latitude','Longitude','GPS Accuracy (m)','Protocol Area','Team Guide Citation','Score','Description','Timestamp', ...xlsxPhotoCols]);
+  allEntries.forEach((e, i) => {
+    const m = entryMaps[i];
+    const sortedSlots = Object.keys(m).sort((a,b) => {
+      const order = s => s==='p_main'?0:s==='p_wide'?1:2+parseInt(s.replace('p_extra_','')||0);
+      return order(a)-order(b);
+    });
+    const photoVals = Array.from({length: maxPhotos}, (_, pi) => m[sortedSlots[pi]] || '');
+    raw.addRow([
+      i + 1, e.location || '',
+      e.latitude != null ? e.latitude : '', e.longitude != null ? e.longitude : '', e.gpsAccuracy != null ? e.gpsAccuracy : '',
+      e.protocolArea || '',
+      e.teamGuideCitation || '',
+      e.score || '',
+      e.details || '',
+      e.timestamp ? new Date(e.timestamp).toLocaleString() : '',
+      ...photoVals
+    ]);
+  });
+  const rawCols = [
+    { w:8,  hidden:true },  // Entry #
+    { w:30 },               // Location
+    { w:14, hidden:true },  // Latitude
+    { w:14, hidden:true },  // Longitude
+    { w:16, hidden:true },  // GPS Accuracy
+    { w:20 },               // Protocol Area
+    { w:50 },               // Team Guide Citation
+    { w:10 },               // Score
+    { w:40 },               // Description
+    { w:20 },               // Timestamp
+  ];
+  rawCols.forEach((spec, i) => {
+    const col = raw.getColumn(i + 1);
+    col.width = spec.w;
+    if (spec.hidden) col.hidden = true;
+  });
+  for (let i = 0; i < maxPhotos; i++) {
+    const col = raw.getColumn(rawCols.length + 1 + i);
+    col.width = 14;
+    col.hidden = true;
+  }
+
+  const xlsxBuf = await wb.xlsx.writeBuffer();
+  zip.file('NPS_Report_' + datestamp() + '.xlsx', xlsxBuf);
+  zip.file('NPS_Data_'   + datestamp() + '.csv', csv);
+
+  // ---- INTEGRITY GUARD: never silently ship a short export ----
+  if (misses > 0) {
+    const missSet = new Set(missedKeys);
+    const affected = [];
+    allEntries.forEach(e => { const ph = e.photos || {}; if (Object.keys(ph).some(s => ph[s] && missSet.has(ph[s].dbKey))) affected.push(e.location || e.siteName || '(unnamed)'); });
+    const proceed = confirm('⚠️ ' + misses + ' photo(s) could NOT be found and will be MISSING from this export.\n\n' +
+      'Affected entries (' + affected.length + '): ' + (affected.slice(0, 12).join(', ') + (affected.length > 12 ? ', …' : '')) + '\n\n' +
+      'Those full-res photos are not in device storage. Do NOT rely on this export for them.\n\n' +
+      'OK = export anyway (incomplete)\nCancel = stop, keep everything on the device');
+    if (!proceed) { showToast('Export cancelled — ' + misses + ' photos missing', true); return; }
+  }
+
+  try {
+    const blob = await zip.generateAsync({ type: 'blob' });
+    await shareOrDownload(blob, 'NPS_Export_' + datestamp() + '.zip');
+    showToast(`Exported ${allEntries.length} entries, ${photoCount} photos${misses ? ' (⚠ ' + misses + ' missing)' : ''}`);
+
+    // Offer to batch-delete the just-exported entries from this device.
+    const exportedIds = allEntries.map(e => e.id).filter(Boolean);
+
+    // Stamp the live entries (allEntries are clones — match by id) so the
+    // saved list can show which entries have an export record.
+    const stampAt = new Date().toISOString();
+    const stampSet = new Set(exportedIds);
+    savedEntries.forEach(en => { if (stampSet.has(en.id)) en.exportedAt = stampAt; });
+    saveAll();
+    renderSavedPanel();
+
+    if (exportedIds.length > 0) showPostExportPrompt(exportedIds);
+
+    // Clean up localStorage fallback copies
+    try {
+      const fallbackKeys = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith('photo_full_')) fallbackKeys.push(k);
+      }
+      fallbackKeys.forEach(k => localStorage.removeItem(k));
+    } catch(e) {}
+  } catch(e) {
+    console.error('Export error:', e);
+    showToast('Export error \u2014 try again', true);
+  }
+}
+
+// ============================================================================
+// BACKUP / IMPORT
+// ============================================================================
+async function saveBackup() {
+  let all = JSON.parse(JSON.stringify(savedEntries));
+  const loc = document.getElementById('siteName').value.trim();
+  const prot = document.getElementById('protocolArea').value.trim();
+  const tgc  = document.getElementById('teamGuideCitation').value.trim();
+  const scr  = document.getElementById('entryScore').value.trim();
+  const det = document.getElementById('entryDetails').value.trim();
+  if (loc || det) {
+    all.push({
+      id: currentEntryId,
+      siteName: loc,
+      location: loc, protocolArea: prot, teamGuideCitation: tgc, score: scr, details: det,
+      latitude:  currentGPS ? currentGPS.latitude  : null,
+      longitude: currentGPS ? currentGPS.longitude : null,
+      gpsAccuracy: currentGPS ? currentGPS.accuracy : null,
+      timestamp: new Date().toISOString(),
+      photos: {}
+    });
+  }
+  if (all.length === 0) { showToast('Nothing to back up', true); return; }
+
+  const clean = all.map(({ photos, ...rest }) => rest);
+  const blob  = new Blob([JSON.stringify({ version:1, exported: new Date().toISOString(), entries: clean }, null, 2)], { type:'application/json' });
+  await shareOrDownload(blob, `NPS_Backup_${datestamp()}.json`);
+  showToast(`Backup saved \u2014 ${clean.length} entries`);
+}
+
+function importBackup() {
+  document.getElementById('backupFileInput').value = '';
+  document.getElementById('backupFileInput').click();
+}
+
+function handleBackupFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const parsed  = JSON.parse(e.target.result);
+      let entries   = Array.isArray(parsed) ? parsed : (parsed.entries || null);
+      if (!entries || !Array.isArray(entries)) throw new Error('Unrecognised format');
+      entries       = entries.filter(en => en && (en.location || en.details));
+
+      if (entries.length === 0) { showToast('No valid entries found', true); return; }
+
+      const action = confirm(
+        `Found ${entries.length} entries in backup.\n\n` +
+        `OK = MERGE with existing ${savedEntries.length} entries\n` +
+        `Cancel = REPLACE all current entries`
+      );
+
+      if (!action) {
+        savedEntries = entries.map(normaliseEntry);
+      } else {
+        const existing = new Set(savedEntries.map(e => e.location + '|' + e.timestamp));
+        let added = 0;
+        entries.forEach(en => {
+          const n  = normaliseEntry(en);
+          const key = n.location + '|' + n.timestamp;
+          if (!existing.has(key)) { savedEntries.push(n); existing.add(key); added++; }
+        });
+        showToast(`Merged: ${added} new, ${entries.length - added} skipped`);
+      }
+
+      try { localStorage.setItem(LS_SAVED, JSON.stringify(savedEntries)); } catch(e) {}
+      renderSavedPanel();
+      updateHeaderBadge();
+      if (!action) showToast(`Loaded ${entries.length} entries`);
+    } catch(err) {
+      showToast('Import failed: ' + err.message, true);
+    }
+  };
+  reader.readAsText(file);
+}
+
+function normaliseEntry(e) {
+  return {
+    id:        e.id        || genId(),
+    siteName:  e.siteName  || e.location || '',
+    location:  e.location  || e.siteName || '',
+    protocolArea: e.protocolArea || '',
+    teamGuideCitation: e.teamGuideCitation || '',
+    score: e.score || '',
+    details:   e.details   || '',
+    latitude:  e.latitude  != null ? e.latitude  : null,
+    longitude: e.longitude != null ? e.longitude : null,
+    gpsAccuracy: e.gpsAccuracy != null ? e.gpsAccuracy : null,
+    timestamp: e.timestamp || '',
+    photos:    {}
+  };
+}
+
+// ============================================================================
+// GEOLOCATION
+// ============================================================================
+function captureGPS(silent) {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      if (!silent) showToast('Geolocation not available on this device', true);
+      reject(new Error('no geolocation'));
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        const lat = pos.coords.latitude;
+        const lon = pos.coords.longitude;
+        const acc = Math.round(pos.coords.accuracy);
+        currentGPS = { latitude: lat, longitude: lon, accuracy: acc };
+        updateGPSDisplay();
+        autoDetectForest();
+        autoSuggestLocation();
+        autoSaveCurrent();
+        resolve(currentGPS);
+      },
+      err => {
+        if (!silent) {
+          const msgs = {
+            1: 'Location permission denied \u2014 check Settings > Privacy > Location',
+            2: 'Location unavailable \u2014 try again outdoors or near a window',
+            3: 'Location request timed out \u2014 try again'
+          };
+          const msg = msgs[err.code] || 'Location error';
+          const status = document.getElementById('gpsStatus');
+          status.textContent = msg;
+          status.style.color = 'var(--danger)';
+          status.style.display = 'block';
+          showToast(msg, true);
+        }
+        reject(err);
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
+  });
+}
+
+function updateGPSDisplay() {
+  const display = document.getElementById('gpsDisplay');
+  const status  = document.getElementById('gpsStatus');
+  const clearBtn = document.getElementById('gpsClearBtn');
+  if (currentGPS) {
+    const lat = currentGPS.latitude.toFixed(6);
+    const lonDir = currentGPS.longitude < 0 ? 'W' : 'E';
+    display.value = `${lat}\u00B0N, ${Math.abs(currentGPS.longitude).toFixed(6)}\u00B0${lonDir}`;
+    display.style.color = 'var(--text)';
+    status.textContent = `\u00B1${currentGPS.accuracy}m accuracy`;
+    status.style.color = currentGPS.accuracy <= 20 ? 'var(--success)' : currentGPS.accuracy <= 100 ? 'var(--warning)' : 'var(--danger)';
+    status.style.display = 'block';
+    clearBtn.style.display = 'block';
+  } else {
+    display.value = '';
+    display.style.color = 'var(--text-dim)';
+    status.style.display = 'none';
+    clearBtn.style.display = 'none';
+  }
+}
+
+function getGPS() {
+  const btn   = document.getElementById('gpsBtn');
+  const label = document.getElementById('gpsBtnLabel');
+  const icon  = document.getElementById('gpsBtnIcon');
+
+  btn.disabled = true;
+  label.textContent = 'Locating\u2026';
+  icon.innerHTML = '<circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="6 4"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/></circle>';
+
+  captureGPS(false)
+    .then(gps => showToast(`GPS captured (\u00B1${gps.accuracy}m)`))
+    .catch(() => {})
+    .finally(() => {
+      btn.disabled = false;
+      label.textContent = 'GPS';
+      icon.innerHTML = '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><path d="M12 7a5 5 0 1 0 0 10A5 5 0 0 0 12 7z"/>';
+    });
+}
+
+function clearGPS() {
+  currentGPS = null;
+  updateGPSDisplay();
+  autoSaveCurrent();
+}
+
+// ============================================================================
+// TEAM GUIDE CITATION SEARCH
+// ============================================================================
+let tgCitations = [];
+let tgLoaded = false;
+let tgRecent = []; // array of citation codes (most recent first)
+let tgAreaFilter = ''; // '' = all, otherwise prefix like 'HW'
+
+// Areas shown as filter chips (label + prefix). Ordered by usefulness in field audits.
+const TG_AREAS = [
+  { p: 'HW', label: 'Haz Waste' },
+  { p: 'HM', label: 'Haz Mat' },
+  { p: 'PO', label: 'POL/SPCC' },
+  { p: 'ST', label: 'Tanks' },
+  { p: 'SO', label: 'Solid Waste' },
+  { p: 'WA', label: 'Wastewater' },
+  { p: 'WQ', label: 'Water Qual' },
+  { p: 'AE', label: 'Air' },
+  { p: 'PM', label: 'Pesticides' },
+  { p: 'EM', label: 'EMS' },
+  { p: 'CR', label: 'Cultural' },
+  { p: 'NR', label: 'Nat Res' },
+];
+
+// Synonym groups: typing any term in a group will match citations containing any other term.
+// Keep terms lowercase. Multi-word phrases supported.
+const TG_SYNONYM_GROUPS = [
+  ['sds', 'safety data sheet', 'msds'],
+  ['drum', 'container', 'bottle', 'bucket', 'jug'],
+  ['flammable', 'ignitable', 'combustible'],
+  ['90-day', '90 day', 'accumulation start'],
+  ['unlabeled', 'unlabelled', 'no label', 'not labeled', 'missing label'],
+  ['hazcom', 'hazard communication', 'haz com'],
+  ['spcc', 'spill prevention'],
+  ['ust', 'underground storage tank'],
+  ['ast', 'aboveground storage tank', 'above-ground storage tank', 'above ground storage tank'],
+  ['stormwater', 'storm water', 'swppp'],
+  ['eyewash', 'eye wash', 'emergency wash', 'safety shower'],
+  ['used oil', 'waste oil'],
+  ['secondary containment', 'spill containment', 'berm'],
+  ['secondary container', 'satellite container'],
+  ['lbp', 'lead-based paint', 'lead based paint'],
+  ['acm', 'asbestos', 'asbestos-containing material'],
+  ['pcb', 'polychlorinated biphenyl'],
+  ['ods', 'ozone-depleting', 'ozone depleting', 'r-22', 'r22', 'refrigerant'],
+  ['pesticide', 'herbicide', 'insecticide', 'rodenticide'],
+  ['ipm', 'integrated pest management'],
+  ['epcra', 'sara title iii', 'tier ii', 'tier 2'],
+  ['npdes', 'discharge permit'],
+  ['sdwa', 'safe drinking water'],
+  ['neshap', 'national emission standard'],
+  ['fire extinguisher', 'fire suppression'],
+  ['boneyard', 'scrap yard', 'open dump'],
+  ['burn pile', 'burn piles', 'open burn', 'open burning', 'vegetative burn', 'vegetative burning', 'burning vegetation', 'slash burn', 'burn pit', 'outdoor burn', 'outdoor burning'],
+  ['universal waste', 'uw'],
+  ['hvac', 'air conditioning', 'refrigeration'],
+  ['fuel island', 'fuel dispenser', 'gas pump'],
+  ['septic', 'drain field', 'mound system'],
+  ['backflow', 'cross connection', 'cross-connection'],
+];
+
+// Build lookup: term -> [all synonyms in its groups]
+const TG_SYNONYM_MAP = (() => {
+  const m = new Map();
+  for (const grp of TG_SYNONYM_GROUPS) {
+    for (const t of grp) {
+      if (!m.has(t)) m.set(t, new Set());
+      for (const other of grp) m.get(t).add(other);
+    }
+  }
+  return m;
+})();
+
+// Phrase → protocol-area hints (ported from fs-reference-web field_notes.py PHRASE_PROTOCOL_HINTS).
+// When the user query matches the regex, citations whose code starts with `prefix` get +bonus.
+const TG_PROTOCOL_HINTS = [
+  // AE
+  [/r[\s-]?22|refrigerant|ozone.depleting|ods/, 'AE', 15],
+  [/hvac.{0,10}(unit|system|charge)/, 'AE', 10],
+  [/boiler|spray\s+paint|air\s+permit/, 'AE', 10],
+  [/emission|stack\s+test/, 'AE', 12],
+  [/combustion|incinerator/, 'AE', 10],
+  [/class\s+(i|ii)\s+(ods|substance)/, 'AE', 15],
+  [/voc|volatile\s+organic/, 'AE', 12],
+  [/air\s+quality|ambient\s+air/, 'AE', 10],
+  [/opacity|particulate/, 'AE', 10],
+  [/generator.{0,10}(engine|diesel|emergency)/, 'AE', 10],
+  [/burn\s*pile|open\s*burn|outdoor\s*burn|vegetative\s+burn|slash\s+burn|burning\s+vegetation/, 'AE', 15],
+  // CR
+  [/cultural|historic|nhpa|section\s+106/, 'CR', 12],
+  [/archaeological|artifact|nagpra/, 'CR', 15],
+  [/tribal\s+consult|sacred\s+site/, 'CR', 15],
+  [/historic\s+preserv/, 'CR', 12],
+  // EM
+  [/iso\s*14001|\bems\b/, 'EM', 15],
+  [/environmental\s+management\s+system/, 'EM', 15],
+  [/continual\s+improvement/, 'EM', 12],
+  // HM
+  [/hazcom|haz\s*com/, 'HM', 15],
+  [/sds|safety\s+data\s+sheet/, 'HM', 12],
+  [/incompatible\s+(storage|chemical|material)/, 'HM', 15],
+  [/dot\s+standard|dot\s+transport/, 'HM', 12],
+  [/flammable.{0,15}(liquid|storage|cabinet)/, 'HM', 10],
+  [/combustible\s+liquid/, 'HM', 10],
+  [/mobile\s+refuel/, 'HM', 12],
+  [/label(ed|ing)?.{0,10}(container|drum|bottle)/, 'HM', 10],
+  [/(unlabeled|unlabelled|not\s+labeled).{0,15}(container|drum|bottle|bucket)/, 'HM', 18],
+  [/secondary\s+container/, 'HM', 18],
+  [/food\s+grade\s+container/, 'HM', 12],
+  [/fire\s+(extinguisher|suppression|alarm|code)/, 'HM', 10],
+  [/eye\s*wash|shower\s+station|emergency\s+wash/, 'HM', 10],
+  [/tier\s+(ii|2)\s+report/, 'HM', 12],
+  [/epcra|sara\s+title|emergency\s+plan/, 'HM', 12],
+  [/asbestos|acm|abatement/, 'HM', 8],
+  [/lead[\s-]based\s+paint|lbp/, 'HM', 8],
+  [/pcb|polychlorinated/, 'HM', 8],
+  [/radon/, 'HM', 6],
+  [/noise|hearing\s+conservation/, 'HM', 6],
+  // HW
+  [/universal\s+waste/, 'HW', 15],
+  [/hazardous\s+waste\s+determin/, 'HW', 15],
+  [/90[\s-]?day/, 'HW', 12],
+  [/satellite\s+accumulation/, 'HW', 12],
+  [/accumulation\s+start\s+date/, 'HW', 12],
+  [/tsdf|treatment.*storage.*disposal/, 'HW', 12],
+  [/manifest|hazardous\s+waste\s+transport/, 'HW', 12],
+  [/biohazard|medical\s+waste|sharps/, 'HW', 10],
+  [/generator\s+status|sqg|lqg|vsqg/, 'HW', 12],
+  [/waste\s+characteriz/, 'HW', 12],
+  [/surface\s+impoundment/, 'HW', 12],
+  // NR
+  [/nepa|endangered\s+species|wetland/, 'NR', 12],
+  [/threatened\s+species|critical\s+habitat/, 'NR', 12],
+  [/migratory\s+bird|bald\s+eagle/, 'NR', 12],
+  [/wild\s+horse|burro/, 'NR', 10],
+  // PM
+  [/pest\s+(control|management)|ipm|pesticide/, 'PM', 12],
+  [/herbicide|insecticide|rodenticide/, 'PM', 12],
+  [/fumigat|fungicide/, 'PM', 10],
+  [/integrated\s+pest/, 'PM', 15],
+  [/applicator|spray.{0,10}(program|schedule)/, 'PM', 10],
+  // PO
+  [/spcc|spill\s+prevention/, 'PO', 15],
+  [/spcc.{0,20}inspect/, 'PO', 20],
+  [/oil\s+(storage|spill)/, 'PO', 10],
+  [/petroleum/, 'PO', 8],
+  [/secondary\s+containment/, 'PO', 12],
+  [/oil.{0,10}water\s+separator/, 'PO', 12],
+  [/spill\s+kit/, 'PO', 8],
+  [/used\s+oil/, 'PO', 12],
+  [/off[\s-]?specification\s+oil/, 'PO', 15],
+  [/oil\s+burn/, 'PO', 10],
+  // SO
+  [/solid\s+waste/, 'SO', 12],
+  [/bulky\s+waste/, 'SO', 18],
+  [/boneyard|scrap\s+yard|dump/, 'SO', 10],
+  [/recycl|landfill|dumpster/, 'SO', 8],
+  [/tire|metal\s+scrap|debris\s+pile/, 'SO', 10],
+  [/open\s+dump/, 'SO', 15],
+  [/mswlf|municipal\s+solid/, 'SO', 15],
+  [/medical\s+waste.{0,10}(container|label|storage)/, 'SO', 10],
+  [/putrescible|food\s+waste/, 'SO', 10],
+  // ST
+  [/ust|underground\s+storage\s+tank/, 'ST', 15],
+  [/ast|above[\s-]?ground\s+storage\s+tank/, 'ST', 12],
+  [/fuel\s+(tank|storage|island)/, 'ST', 10],
+  [/tank\s+(closure|removal|installation)/, 'ST', 12],
+  [/leak\s+detect|tank\s+integrity/, 'ST', 10],
+  [/cathodic\s+protection/, 'ST', 12],
+  // WA
+  [/waste\s*water|wwtp/, 'WA', 15],
+  [/septic|mound\s+system|drain\s+field/, 'WA', 10],
+  [/lift\s+station|lagoon|treatment\s+plant/, 'WA', 10],
+  [/potw|pretreatment/, 'WA', 12],
+  [/npdes\s+permit/, 'WA', 12],
+  [/effluent|discharge\s+permit/, 'WA', 10],
+  [/sewage|sludge/, 'WA', 10],
+  // WQ
+  [/storm\s*water|swppp/, 'WQ', 15],
+  [/erosion\s+control|sediment/, 'WQ', 10],
+  [/backflow|cross.connection/, 'WQ', 12],
+  [/drinking\s+water|potable/, 'WQ', 12],
+  [/well\s+(abandon|closure|decommission)/, 'WQ', 10],
+  [/sdwa|safe\s+drinking\s+water/, 'WQ', 15],
+  [/class\s+v|injection\s+well|uic/, 'WQ', 15],
+  [/large.capacity.septic/, 'WQ', 25],
+  [/disinfect|chlorinat/, 'WQ', 10],
+  [/coliform|water\s+test|water\s+sample/, 'WQ', 10],
+];
+
+// Direct question-level hints — boost a specific QID when the regex matches.
+const TG_QUESTION_HINTS = [
+  [/large.capacity.septic.*(register|notif)/, 'WQ.114.3', 40],
+  [/large.capacity.septic/, 'WQ.114.3', 30],
+  [/septic.*(class\s+v|injection|uic|register)/, 'WQ.114.3', 30],
+  [/spcc.{0,15}inspect/, 'PO.5.10', 25],
+  [/inspect.{0,15}spcc/, 'PO.5.10', 25],
+];
+
+async function loadCitations() {
+  if (tgLoaded) return;
+  try {
+    const resp = await fetch('./team_guide_citations.json');
+    tgCitations = await resp.json();
+    tgLoaded = true;
+    console.log(`Loaded ${tgCitations.length} Team Guide citations`);
+  } catch(e) {
+    console.warn('Could not load citations:', e);
+  }
+}
+
+function loadRecentTg() {
+  try {
+    const s = localStorage.getItem(LS_RECENT_TG);
+    if (s) tgRecent = JSON.parse(s) || [];
+  } catch(e) { tgRecent = []; }
+}
+
+function saveRecentTg() {
+  try { localStorage.setItem(LS_RECENT_TG, JSON.stringify(tgRecent.slice(0, 10))); } catch(e) {}
+}
+
+function pushRecent(code) {
+  tgRecent = tgRecent.filter(c => c !== code);
+  tgRecent.unshift(code);
+  if (tgRecent.length > 10) tgRecent.length = 10;
+  saveRecentTg();
+}
+
+// Load on startup
+loadCitations();
+loadRecentTg();
+
+let tgDebounce = null;
+function filterCitations() {
+  clearTimeout(tgDebounce);
+  tgDebounce = setTimeout(_filterCitations, 150);
+}
+
+// Expand a query term to include its synonyms (or just the term itself if no synonyms).
+// Also handles multi-word phrases by checking the original query.
+function _expandTerm(term, fullQuery) {
+  const variants = new Set([term]);
+  // Single-word synonyms
+  if (TG_SYNONYM_MAP.has(term)) {
+    for (const syn of TG_SYNONYM_MAP.get(term)) variants.add(syn);
+  }
+  // Phrase synonyms — if the full query contains a phrase key
+  for (const [key, set] of TG_SYNONYM_MAP.entries()) {
+    if (key.includes(' ') && fullQuery.includes(key)) {
+      for (const syn of set) variants.add(syn);
+    }
+  }
+  return [...variants];
+}
+
+function _renderChips() {
+  let html = '<div class="tg-chips">';
+  html += `<button type="button" class="tg-chip ${tgAreaFilter === '' ? 'active' : ''}" onclick="setTgAreaFilter('')">All</button>`;
+  for (const a of TG_AREAS) {
+    const active = tgAreaFilter === a.p ? 'active' : '';
+    html += `<button type="button" class="tg-chip ${active}" onclick="setTgAreaFilter('${a.p}')" title="${a.p}">${a.label}</button>`;
+  }
+  html += '</div>';
+  return html;
+}
+
+function setTgAreaFilter(prefix) {
+  tgAreaFilter = prefix || '';
+  _filterCitations();
+  document.getElementById('tgSearch').focus();
+}
+
+// Highlight matched terms in a string. `terms` is an array of lowercase strings.
+function _highlight(s, terms) {
+  if (!s) return '';
+  let safe = esc(s);
+  if (!terms || !terms.length) return safe;
+  // Sort longest first to avoid partial overlaps eating longer matches
+  const sorted = [...new Set(terms)].filter(Boolean).sort((a, b) => b.length - a.length);
+  for (const t of sorted) {
+    if (!t) continue;
+    const re = new RegExp('(' + t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+    safe = safe.replace(re, '<mark>$1</mark>');
+  }
+  return safe;
+}
+
+function _renderItem(idx, terms) {
+  const item = tgCitations[idx];
+  return `<div class="tg-item" tabindex="0" onclick="selectCitation(${idx})" onkeydown="if(event.key==='Enter')selectCitation(${idx})">
+    <div><span class="tg-item-code">${_highlight(item.c, terms)}</span><span class="tg-item-section">${esc(item.s)}</span></div>
+    <div class="tg-item-desc">${_highlight(item.d, terms)}</div>
+    ${item.r ? `<div class="tg-item-cite">${_highlight(item.r, terms)}</div>` : ''}
+  </div>`;
+}
+
+function _filterCitations() {
+  const query = document.getElementById('tgSearch').value.trim().toLowerCase();
+  const resultsDiv = document.getElementById('tgResults');
+
+  if (!tgLoaded) {
+    resultsDiv.innerHTML = _renderChips() + '<div class="tg-no-results">Loading citations...</div>';
+    resultsDiv.style.display = 'block';
+    loadCitations().then(() => _filterCitations());
+    return;
+  }
+
+  // Empty / very short query → show recent picks (or a hint), plus chips for area browsing.
+  if (!query || query.length < 2) {
+    let body = '';
+    // If an area chip is active, browse that area's citations.
+    if (tgAreaFilter) {
+      const list = [];
+      for (let i = 0; i < tgCitations.length; i++) {
+        if (tgCitations[i].c.split('.')[0] === tgAreaFilter) list.push(i);
+        if (list.length >= 50) break;
+      }
+      body = `<div class="tg-section-header">${esc(tgAreaFilter)} citations (${list.length}${list.length >= 50 ? '+' : ''})</div>`;
+      body += list.map(idx => _renderItem(idx, [])).join('');
+    } else if (tgRecent.length > 0) {
+      const items = [];
+      for (const code of tgRecent) {
+        const idx = tgCitations.findIndex(c => c.c === code);
+        if (idx >= 0) items.push(idx);
+      }
+      if (items.length) {
+        body = '<div class="tg-section-header">Recent picks</div>';
+        body += items.map(idx => _renderItem(idx, [])).join('');
+      }
+    }
+    if (!body) {
+      body = '<div class="tg-no-results">Type 2+ characters to search, or pick an area chip above.</div>';
+    }
+    resultsDiv.innerHTML = _renderChips() + body;
+    resultsDiv.style.display = 'block';
+    return;
+  }
+
+  // Build expanded term sets from the query
+  const rawTerms = query.split(/\s+/).filter(Boolean);
+  const termVariantSets = rawTerms.map(t => _expandTerm(t, query));
+  const allHighlightTerms = [];
+  for (const variants of termVariantSets) for (const v of variants) allHighlightTerms.push(v);
+
+  // Compute area bonuses from protocol hints
+  const areaBonus = {};
+  for (const [re, prefix, bonus] of TG_PROTOCOL_HINTS) {
+    if (re.test(query)) areaBonus[prefix] = (areaBonus[prefix] || 0) + bonus;
+  }
+  // Compute QID bonuses from question hints
+  const qidBonus = {};
+  for (const [re, qid, bonus] of TG_QUESTION_HINTS) {
+    if (re.test(query)) qidBonus[qid] = (qidBonus[qid] || 0) + bonus;
+  }
+
+  const scored = [];
+  for (let i = 0; i < tgCitations.length; i++) {
+    const item = tgCitations[i];
+    const prefix = item.c.split('.')[0];
+    if (tgAreaFilter && prefix !== tgAreaFilter) continue;
+
+    const haystack = (item.c + ' ' + item.s + ' ' + item.d + ' ' + item.r).toLowerCase();
+    let match = true;
+    let score = 0;
+
+    // Each query term must be present (in some synonym variant) in haystack
+    for (const variants of termVariantSets) {
+      let hit = false;
+      for (const v of variants) {
+        if (haystack.includes(v)) {
+          hit = true;
+          // Boost code matches and reg-citation matches
+          if (item.c.toLowerCase().includes(v)) score += 10;
+          if (item.r && item.r.toLowerCase().includes(v)) score += 5;
+          score += (v === variants[0] ? 2 : 1); // exact term beats synonym
+          break;
+        }
+      }
+      if (!hit) { match = false; break; }
+    }
+    if (!match) continue;
+
+    // Apply area + QID bonuses
+    if (areaBonus[prefix]) score += areaBonus[prefix];
+    if (qidBonus[item.c]) score += qidBonus[item.c];
+    // Also boost if the question's base id (strip trailing .US/.FS) matches a QID hint
+    const baseId = item.c.replace(/\.(US|FS)$/, '');
+    if (qidBonus[baseId]) score += qidBonus[baseId];
+
+    scored.push({ idx: i, score });
+  }
+
+  scored.sort((a, b) => b.score - a.score);
+  const top = scored.slice(0, 30);
+
+  let body;
+  if (top.length === 0) {
+    body = `<div class="tg-no-results">No matching citations${tgAreaFilter ? ' in ' + tgAreaFilter : ''}.${tgAreaFilter ? ' Tap "All" to broaden.' : ''}</div>`;
+  } else {
+    body = `<div class="tg-section-header">${top.length} match${top.length === 1 ? '' : 'es'}${tgAreaFilter ? ' · ' + tgAreaFilter + ' only' : ''}</div>`;
+    body += top.map(({ idx }) => _renderItem(idx, allHighlightTerms)).join('');
+  }
+  resultsDiv.innerHTML = _renderChips() + body;
+  resultsDiv.style.display = 'block';
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function selectCitation(idx) {
+  const item = tgCitations[idx];
+  const citText = item.r ? `${item.c} — ${item.r}` : item.c;
+
+  document.getElementById('teamGuideCitation').value = citText;
+  document.getElementById('tgSearch').value = '';
+  document.getElementById('tgResults').style.display = 'none';
+
+  pushRecent(item.c);
+
+  const sel = document.getElementById('tgSelected');
+  sel.innerHTML = `<div style="font-weight:600;color:var(--accent);font-family:monospace;">${esc(item.c)}</div>
+    <div style="color:var(--text);">${esc(item.d)}</div>
+    ${item.r ? `<div style="color:var(--text-label);font-style:italic;margin-top:2px;">${esc(item.r)}</div>` : ''}
+    <div style="color:var(--text-dim);margin-top:2px;">${esc(item.s)}</div>`;
+  sel.style.display = 'block';
+  document.getElementById('tgClearBtn').style.display = 'flex';
+
+  autoSaveCurrent();
+}
+
+function clearCitation() {
+  document.getElementById('teamGuideCitation').value = '';
+  document.getElementById('tgSearch').value = '';
+  document.getElementById('tgResults').style.display = 'none';
+  document.getElementById('tgSelected').style.display = 'none';
+  document.getElementById('tgClearBtn').style.display = 'none';
+  autoSaveCurrent();
+}
+
+function restoreCitationDisplay() {
+  const val = document.getElementById('teamGuideCitation').value;
+  if (!val) {
+    document.getElementById('tgSelected').style.display = 'none';
+    document.getElementById('tgClearBtn').style.display = 'none';
+    return;
+  }
+  // Try to find matching citation and show it
+  const code = val.split(' — ')[0].trim();
+  loadCitations().then(() => {
+    const idx = tgCitations.findIndex(c => c.c === code);
+    if (idx >= 0) {
+      const item = tgCitations[idx];
+      const sel = document.getElementById('tgSelected');
+      sel.innerHTML = `<div style="font-weight:600;color:var(--accent);font-family:monospace;">${esc(item.c)}</div>
+        <div style="color:var(--text);">${esc(item.d)}</div>
+        ${item.r ? `<div style="color:var(--text-label);font-style:italic;margin-top:2px;">${esc(item.r)}</div>` : ''}
+        <div style="color:var(--text-dim);margin-top:2px;">${esc(item.s)}</div>`;
+      sel.style.display = 'block';
+    } else {
+      const sel = document.getElementById('tgSelected');
+      sel.innerHTML = `<div style="font-weight:600;color:var(--accent);font-family:monospace;">${esc(val)}</div>`;
+      sel.style.display = 'block';
+    }
+    document.getElementById('tgClearBtn').style.display = 'flex';
+  });
+}
+
+// Close results when clicking outside
+document.addEventListener('click', e => {
+  const container = document.querySelector('.form-group:has(#tgSearch)');
+  if (container && !container.contains(e.target)) {
+    document.getElementById('tgResults').style.display = 'none';
+  }
+});
+
+// ============================================================================
+// COMMON CITATIONS (CHEAT SHEET)
+// ============================================================================
+const COMMON_CITATIONS = [
+  { cat: 'Hazardous Waste', items: [
+    { code: 'HW.10.1', desc: 'Waste determinations' },
+    { code: 'HW.290.1', desc: 'Universal waste batteries' },
+    { code: 'HW.290.6', desc: 'Universal waste lamps' },
+  ]},
+  { cat: 'Solid Waste', items: [
+    { code: 'SO.10.5', desc: 'Bulky waste stored longer than 90 days' },
+    { code: 'SO.10.1', desc: 'Food wastes not collected every 7 days' },
+  ]},
+  { cat: 'Hazardous Materials', items: [
+    { code: 'HM.30.2', desc: 'EPCRA Tier 2 Reporting not submitted' },
+    { code: 'HM.35.4', desc: 'Bungs missing from flammable storage cabinets' },
+    { code: 'HM.40.1', desc: 'Excess flammables stored outside of approved areas' },
+    { code: 'HM.35.9', desc: 'Incompatible materials stored together' },
+  ]},
+  { cat: 'HazCom', items: [
+    { code: 'HM.1.3', desc: 'Secondary containers not labeled' },
+  ]},
+  { cat: 'Used Oil / SPCC / POL', items: [
+    { code: 'PO.65.6', desc: 'Containers not labeled "Used Oil"' },
+    { code: 'PO.5.1', desc: 'SPCC Plan Missing/Incomplete' },
+    { code: 'PO.5.10', desc: 'SPCC Monthly/Annual Inspections Not Performed' },
+    { code: 'PO.5.7', desc: 'SPCC Plan Oil Handling Personnel Training Missing' },
+    { code: 'PO.5.3', desc: 'SPCC Plan 5 Year review missing' },
+  ]},
+  { cat: 'Wastewater', items: [
+    { code: 'WA.20.4', desc: 'O&M Plans not present (FS)' },
+  ]},
+  { cat: 'Water Quality', items: [
+    { code: 'WQ.10.1', desc: 'Backflow prevention devices not present' },
+    { code: 'WQ.114.3', desc: 'Large Capacity Septic Systems not registered' },
+  ]},
+];
+
+// Map Protocol Area values to which cheat sheet categories to show
+const PROTOCOL_TO_CATEGORIES = {
+  'Hazardous Waste':                ['Hazardous Waste'],
+  'Hazardous Materials':            ['Hazardous Materials', 'HazCom'],
+  'Petroleum, Oil and Lubricants':  ['Used Oil / SPCC / POL'],
+  'Solid Waste':                    ['Solid Waste'],
+  'Wastewater':                     ['Wastewater'],
+  'FS: Wastewater':                 ['Wastewater'],
+  'Water Quality':                  ['Water Quality'],
+  'FS: Water Quality':              ['Water Quality'],
+};
+
+function showCommonCitations() {
+  loadCitations(); // ensure full citations loaded for lookup
+  const proto = document.getElementById('protocolArea').value;
+  const allowedCats = PROTOCOL_TO_CATEGORIES[proto] || null; // null = show all
+
+  const container = document.getElementById('commonCitationsList');
+  let html = '';
+  let count = 0;
+  for (const group of COMMON_CITATIONS) {
+    if (allowedCats && !allowedCats.includes(group.cat)) continue;
+    html += `<div class="cc-category">${group.cat}</div>`;
+    for (const item of group.items) {
+      html += `<div class="cc-item" onclick="pickCommonCitation('${item.code}')">` +
+        `<span class="cc-code">${item.code}</span>` +
+        `<span class="cc-desc">${item.desc}</span></div>`;
+      count++;
+    }
+  }
+  if (count === 0) {
+    html = '<div style="padding:20px;text-align:center;color:var(--text-dim);">No common citations for this Protocol Area.<br>Use the search field instead.</div>';
+  }
+  if (proto && allowedCats) {
+    html = `<div style="padding:8px 14px;font-size:12px;color:var(--text-dim);border-bottom:1px solid var(--border);">Filtered for: ${proto}</div>` + html;
+  }
+  container.innerHTML = html;
+  document.getElementById('commonCitationsOverlay').style.display = 'flex';
+}
+
+function closeCommonCitations() {
+  document.getElementById('commonCitationsOverlay').style.display = 'none';
+}
+
+function pickCommonCitation(code) {
+  closeCommonCitations();
+  // Find in full citation list and select it
+  const idx = tgCitations.findIndex(c => c.c === code);
+  if (idx >= 0) {
+    selectCitation(idx);
+  } else {
+    // Fallback: set the code directly
+    document.getElementById('teamGuideCitation').value = code;
+    const sel = document.getElementById('tgSelected');
+    sel.innerHTML = `<div style="font-weight:600;color:var(--accent);font-family:monospace;">${code}</div>`;
+    sel.style.display = 'block';
+    document.getElementById('tgClearBtn').style.display = 'flex';
+    autoSaveCurrent();
+  }
+}
+
+// ============================================================================
+// PERSISTENCE
+// ============================================================================
+function autoSaveCurrent() {
+  try {
+    localStorage.setItem(LS_CURRENT, JSON.stringify({
+      siteName:      document.getElementById('siteName').value,
+      forest:        document.getElementById('forestSelect').value,
+      protocolArea:  document.getElementById('protocolArea').value,
+      teamGuideCitation: document.getElementById('teamGuideCitation').value,
+      score:         document.getElementById('entryScore').value,
+      entryDetails:  document.getElementById('entryDetails').value,
+      currentPhotos, currentEntryId, extraPhotoSlots, currentGPS
+    }));
+    checkStorage();
+  } catch(e) { showToast('Storage issue \u2014 export soon', true); }
+}
+
+function saveAll() {
+  try { localStorage.setItem(LS_SAVED, JSON.stringify(savedEntries)); checkStorage(); }
+  catch(e) { showToast('Storage error \u2014 export soon!', true); }
+}
+
+function loadAll() {
+  try {
+    const s = localStorage.getItem(LS_SAVED);
+    if (s) savedEntries = JSON.parse(s);
+  } catch(e) {}
+
+  try {
+    const c = localStorage.getItem(LS_CURRENT);
+    if (!c) return;
+    const state = JSON.parse(c);
+
+    document.getElementById('siteName').value      = state.siteName      || '';
+    document.getElementById('protocolArea').value  = state.protocolArea  || '';
+    document.getElementById('teamGuideCitation').value = state.teamGuideCitation || '';
+    setScoreButtons(state.score || '');
+    restoreCitationDisplay();
+    document.getElementById('entryDetails').value   = state.entryDetails  || '';
+
+    currentPhotos  = state.currentPhotos  || {};
+    currentEntryId = state.currentEntryId || genId();
+    currentGPS     = state.currentGPS    || null;
+    updateGPSDisplay();
+
+    // Restore any extra photo slots
+    extraPhotoSlots = [];
+    const extraSlotsContainer = document.getElementById('extraSlotsContainer');
+    if (extraSlotsContainer) extraSlotsContainer.innerHTML = '';
+    const savedExtra = state.extraPhotoSlots || [];
+    savedExtra.forEach(slotId => {
+      extraPhotoSlots.push(slotId);
+      const num = 2 + extraPhotoSlots.length;
+      const wrapper = document.createElement('div');
+      wrapper.className = 'photo-grid photo-slot-extra';
+      wrapper.id = 'wrapper_' + slotId;
+      wrapper.style.marginTop = '12px';
+      const ph = currentPhotos[slotId] && currentPhotos[slotId].thumbnail;
+      wrapper.innerHTML = `
+        <div class="photo-slot" style="grid-column:1/span 1;">
+          <label>Photo ${num}</label>
+          <div class="photo-capture ${ph ? 'has-photo' : ''}" onclick="takePhoto('${slotId}')" id="photo_${slotId}">
+            ${ph
+              ? `<img src="${ph}"><span class="retake-badge">Retake</span><span class="saved-badge">\u2713</span>`
+              : `<span class="placeholder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M9 2h6l1 3H8l1-3z"/></svg>Tap to capture</span>`}
+          </div>
+          <button class="browse-photo-btn" onclick="browsePhoto('${slotId}')" type="button">Browse Photo</button>
+          <input type="file" accept="image/*" capture="environment" id="file_${slotId}" onchange="handlePhoto(this,'${slotId}')">
+        </div>
+        <div style="display:flex;align-items:flex-end;padding-bottom:4px;">
+          <button class="btn btn-outline btn-sm" onclick="removePhotoSlot('${slotId}')"
+            style="color:var(--danger);border-color:var(--danger);padding:6px 12px;">\u2715 Remove</button>
+        </div>`;
+      if (extraSlotsContainer) extraSlotsContainer.appendChild(wrapper);
+    });
+
+    const PH = `<span class="placeholder">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="3" y="5" width="18" height="14" rx="2"/>
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M9 2h6l1 3H8l1-3z"/>
+      </svg>Tap to capture</span>`;
+
+    PHOTO_SLOTS.forEach(slot => {
+      if (currentPhotos[slot] && currentPhotos[slot].thumbnail) {
+        const el = document.getElementById('photo_' + slot);
+        if (el) {
+          el.classList.add('has-photo');
+          el.innerHTML = `<img src="${currentPhotos[slot].thumbnail}"><span class="retake-badge">Retake</span><span class="saved-badge">\u2713</span>`;
+        }
+      }
+    });
+  } catch(e) {}
+}
+
+const STORAGE_WARN_MB = 40;
+const STORAGE_LIMIT_MB = 80;
+let lastStorageWarnShown = 0;
+
+async function checkStorage() {
+  try {
+    // Estimate localStorage usage
+    let lsBytes = 0;
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && (k.startsWith('nps_') || k.startsWith('photo_full_')))
+        lsBytes += localStorage.getItem(k).length * 2;
+    }
+
+    // Estimate IndexedDB photo usage
+    let idbBytes = 0;
+    if (idbAvailable) {
+      try {
+        idbBytes = await estimateIDBSize();
+      } catch(e) {}
+    }
+
+    // Also try navigator.storage.estimate if available
+    let totalUsed = lsBytes + idbBytes;
+    let totalQuota = STORAGE_LIMIT_MB * 1024 * 1024;
+    if (navigator.storage && navigator.storage.estimate) {
+      try {
+        const est = await navigator.storage.estimate();
+        if (est.usage > totalUsed) totalUsed = est.usage;
+        if (est.quota) totalQuota = est.quota;
+      } catch(e) {}
+    }
+
+    const usedMB = totalUsed / (1024 * 1024);
+    const pct = Math.min(100, Math.round(usedMB / STORAGE_LIMIT_MB * 100));
+
+    const bar = document.getElementById('storageBarFill');
+    const msg = document.getElementById('storageMsg');
+
+    bar.style.width = pct + '%';
+    msg.textContent = usedMB.toFixed(1) + ' MB used';
+
+    if (usedMB >= STORAGE_WARN_MB) {
+      bar.style.background = usedMB >= (STORAGE_LIMIT_MB * 0.9) ? 'var(--danger)' : 'var(--warning)';
+      msg.style.color = usedMB >= (STORAGE_LIMIT_MB * 0.9) ? 'var(--danger)' : 'var(--warning)';
+
+      // Show toast warning, but not more than once every 5 minutes
+      const now = Date.now();
+      if (now - lastStorageWarnShown > 5 * 60 * 1000) {
+        lastStorageWarnShown = now;
+        if (usedMB >= (STORAGE_LIMIT_MB * 0.9)) {
+          showToast('\u26A0 Storage nearly full \u2014 export & clear entries now!', true);
+        } else {
+          showToast('\u26A0 Storage above ' + STORAGE_WARN_MB + ' MB \u2014 consider exporting soon', true);
+        }
+      }
+    } else {
+      bar.style.background = 'var(--success)';
+      msg.style.color = 'var(--text-dim)';
+    }
+  } catch(e) {}
+}
+
+function estimateIDBSize() {
+  return new Promise((resolve, reject) => {
+    if (!photoDB) { resolve(0); return; }
+    try {
+      const tx = photoDB.transaction('photos', 'readonly');
+      const store = tx.objectStore('photos');
+      let total = 0;
+      const cursor = store.openCursor();
+      cursor.onsuccess = e => {
+        const c = e.target.result;
+        if (c) {
+          const val = c.value;
+          if (val && val.data) total += val.data.byteLength || 0;
+          c.continue();
+        } else {
+          resolve(total);
+        }
+      };
+      cursor.onerror = () => resolve(0);
+    } catch(e) { resolve(0); }
+  });
+}
+
+function checkPreviousDayEntries() {
+  if (savedEntries.length === 0) return;
+  const today = new Date().toDateString();
+  const oldEntries = savedEntries.filter(e => {
+    if (!e.timestamp) return false;
+    return new Date(e.timestamp).toDateString() !== today;
+  });
+  if (oldEntries.length > 0) {
+    const days = [...new Set(oldEntries.map(e => new Date(e.timestamp).toLocaleDateString()))];
+    setTimeout(() => {
+      showToast(`\u{1F4CB} You have ${oldEntries.length} unsaved entr${oldEntries.length === 1 ? 'y' : 'ies'} from ${days.length === 1 ? days[0] : days.length + ' previous days'} \u2014 consider exporting`, true);
+    }, 1500);
+  }
+}
+
+// ============================================================================
+// UTILITIES
+// ============================================================================
+function quote(val) {
+  if (!val) return '';
+  val = String(val);
+  if (val.includes(',') || val.includes('"') || val.includes('\n'))
+    return `"${val.replace(/"/g,'""')}"`;
+  return val;
+}
+
+function datestamp() {
+  const d = new Date();
+  return `${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}${String(d.getFullYear()).slice(2)}`;
+}
+
+async function shareOrDownload(blob, filename) {
+  // Use Web Share API if available (Capacitor / iOS) — triggers native share sheet
+  if (navigator.canShare && navigator.canShare({ files: [new File([blob], filename)] })) {
+    try {
+      await navigator.share({
+        files: [new File([blob], filename, { type: blob.type })],
+        title: filename
+      });
+      return;
+    } catch(e) {
+      if (e.name === 'AbortError') return; // user cancelled share sheet
+      // Fall through to download
+    }
+  }
+  // Fallback: blob download (works in regular browsers)
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function showToast(msg, isWarn = false) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className   = 'toast show' + (isWarn ? ' toast-warn' : '');
+  setTimeout(() => { t.className = 'toast'; }, 2500);
+}
+
+// ============================================================================
+// OVERFLOW MENU
+// ============================================================================
+function toggleOverflow() {
+  document.getElementById('overflowDropdown').classList.toggle('open');
+}
+
+function closeOverflow() {
+  document.getElementById('overflowDropdown').classList.remove('open');
+}
+
+document.addEventListener('click', e => {
+  const wrapper = document.getElementById('overflowWrapper');
+  if (wrapper && !wrapper.contains(e.target)) closeOverflow();
+});
+
+// ============================================================================
+// START
+// ============================================================================
+init();
+</script>
+</body>
+</html>

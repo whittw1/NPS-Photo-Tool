@@ -1,0 +1,32 @@
+{
+  "name": "nps-photo-tool",
+  "version": "1.0.0",
+  "description": "A Progressive Web App (PWA) for National Park Service field photo documentation with GPS tracking, searchable Team Guide citation lookup, and offline support. Forked from the USFS Photo Collector (itself forked from the DLA Audit Photo Tool).",
+  "main": "build_citations.js",
+  "scripts": {
+    "build": "cp index.html sw.js manifest.json team_guide_citations.json nps_locations.json www/",
+    "sync": "npm run build && npx cap sync ios",
+    "open": "npx cap open ios"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/whittw1/NPS-Photo-Tool.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/whittw1/NPS-Photo-Tool/issues"
+  },
+  "homepage": "https://github.com/whittw1/NPS-Photo-Tool#readme",
+  "dependencies": {
+    "@capacitor/cli": "^8.3.0",
+    "@capacitor/core": "^8.3.0",
+    "@capacitor/filesystem": "^8.1.2",
+    "@capacitor/ios": "^8.3.0"
+  },
+  "devDependencies": {
+    "mammoth": "^1.12.0"
+  }
+}
