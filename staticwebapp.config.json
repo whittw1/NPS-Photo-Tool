@@ -21,7 +21,7 @@
       }
     },
     {
-      "route": "/team_guide_citations.json",
+      "route": "/envirocheck_checklists.json",
       "headers": {
         "Cache-Control": "public, no-cache"
       }

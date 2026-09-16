@@ -1,6 +1,6 @@
 # NPS Photo Collector — Architecture
 
-**Document date:** 2026-09-10 · reflects service-worker cache `nps-collector-v1.0`, iOS marketing version 1.0 / build 1 (scaffold only, never uploaded).
+**Document date:** 2026-09-16 · reflects service-worker cache `nps-collector-v1.2`, iOS marketing version 1.0 / build 1 (scaffold only, never uploaded).
 
 This is the deep-dive technical reference. Companion documents:
 - [README.md](README.md) — feature overview and the USFS-vs-NPS difference table
@@ -14,11 +14,11 @@ This is the deep-dive technical reference. Companion documents:
 
 ## 1. What this is
 
-A field data-collection app for National Park Service environmental audits, used by HGS Engineering auditors. An auditor walks a facility, and for each finding captures: park + location (GPS-assisted), protocol area, Team Guide citation, score (Finding or Observation), description, coordinates, and photos. Everything persists on-device with zero connectivity; at the end of the day the auditor exports a ZIP containing renamed photos, a CSV, and a styled Excel findings report, delivered through the iOS share sheet (native app) or a browser download (web).
+A field data-collection app for National Park Service environmental audits, used by HGS Engineering auditors. An auditor walks a facility, and for each finding captures: park + location (GPS-assisted), EnviroCheck sheet and question, score (Finding or Observation), description, coordinates, and photos. Everything persists on-device with zero connectivity; at the end of the day the auditor exports a ZIP containing renamed photos, a CSV, and a styled Excel findings report, delivered through the iOS share sheet (native app) or a browser download (web).
 
 All on-device keys are prefixed `nps_` so this app, the USFS app (`usfs_`) and the DLA app can coexist on one device without data collisions.
 
-**The sibling-sync rule:** the USFS and NPS apps are kept in sync by hand-porting fixes. Everything outside the NPS-specific sections (§4 item 4, §5 scores, §8, the export sort in §11, branding) is textually identical to the USFS `index.html` — no reformatting, renaming or restructuring — so a fix in one applies to the other as a clean copy-paste. The internal identifiers `forestData`, `selectedForest`, `loadForestData`, `onForestChange`, `autoDetectForest`, `populateForestDropdown`, `FOREST_TO_REGION`, `LS_FOREST` and the element ids `forestSelect` / `forestHint` are deliberately **unrenamed**; in this app they refer to NPS park units.
+**The sibling-sync rule:** the USFS and NPS apps are kept in sync by hand-porting fixes. Everything outside the NPS-specific sections (§4 item 4, §5 scores, §8, §9's data and hint tables, the export sort in §11, §11.1's Word log, branding) is textually identical to the USFS `index.html` — no reformatting, renaming or restructuring — so a fix in one applies to the other as a clean copy-paste. The internal identifiers `forestData`, `selectedForest`, `loadForestData`, `onForestChange`, `autoDetectForest`, `populateForestDropdown`, `FOREST_TO_REGION`, `LS_FOREST` and the element ids `forestSelect` / `forestHint` are deliberately **unrenamed**; in this app they refer to NPS park units.
 
 ## 2. System context
 
@@ -50,9 +50,9 @@ There is **no backend, no server, no authentication, and no telemetry**. Every b
 | `index.html` | **The entire application** — all HTML, CSS, and JavaScript (~3,850 lines). No build step, no framework, no modules. |
 | `sw.js` | Service worker: offline caching + update discipline (§12). |
 | `manifest.json` | PWA manifest (`display: browser`, brown theme `#5c3b1e`). |
-| `team_guide_citations.json` | 6,445 searchable citations (federal US + FS + 7 state supplements). Array of `{c, s, d, r}` (§9). **Byte-identical to the USFS copy.** |
+| `envirocheck_checklists.json` | 810 checklist questions from the 17 federal NPS EnviroCheck Sheets, with citation and P1–P4 priority. Array of `{c, s, d, r}` (§9). |
 | `nps_locations.json` | 449 park units → 43,026 named GPS locations. `{ "Park Name": [{n, t, d, lat, lng}, …] }` (§8). |
-| `build_citations.js` | Node script that regenerates the citations JSON from Team Guide markdown files (§14.1). Identical to USFS except `REPO_ROOT`. |
+| `build_envirocheck.js` | Node script that regenerates the question index from the EnviroCheck Sheet `.docx` files (§14.1). |
 | `build_locations.js` | Node script that regenerates `nps_locations.json` **and** the `REGION_MAP` literal in `index.html` from NPS GIS services (§14.2). |
 | `package.json` | Capacitor deps + the `build` / `sync` / `open` scripts. `@capacitor/filesystem` is the only plugin beyond core. |
 | `capacitor.config.json` | Bundle id, app name "NPS Photos", `webDir: www`. |
@@ -61,7 +61,6 @@ There is **no backend, no server, no authentication, and no telemetry**. Every b
 | `nps_raw/` | Git-ignored cache of the raw GIS service responses used by `build_locations.js`. |
 | `staticwebapp.config.json` | Azure routes/headers — cache-control per file (§13). |
 | `privacy.html` | Privacy policy page required for App Store review. |
-| `Team Guide Cheat Sheet.docx` | Source document for the hardcoded `COMMON_CITATIONS` list. |
 
 ## 4. Application structure inside index.html
 
@@ -81,10 +80,10 @@ One `<script>` block, organized into banner-commented sections in this order:
 12. **Export** — dialog, date filter, ZIP/CSV/XLSX build, integrity guard, post-export delete (§11)
 13. **Backup/Import** — metadata-only JSON
 14. **Geolocation** — `captureGPS()`, display, accuracy coloring
-15. **Team Guide citation search** — synonyms, hints, chips, recents (§9)
-16. **Common Citations** — cheat-sheet quick-pick modal
-17. **Persistence** — autosave, `saveAll()`/`loadAll()`, storage monitor
-18. **Utilities** — CSV quoting, datestamp, `shareOrDownload()`, toast, overflow menu
+15. **EnviroCheck question search** — synonyms, hints, sheet chips, recents (§9)
+16. **Persistence** — autosave, `saveAll()`/`loadAll()`, storage monitor
+17. **Utilities** — CSV quoting, datestamp, `shareOrDownload()`, toast, overflow menu
+18. **Word photo log** — the `.docx` export (§11.1). The only section in the file with no USFS counterpart.
 
 All UI event wiring is inline `onclick`/`oninput`/`onchange` attributes plus two document-level click listeners (close citation results, close overflow menu). All rendering is string-built `innerHTML`; user text is escaped through `esc()` (a div-textContent round-trip) before interpolation.
 
@@ -94,6 +93,7 @@ All UI event wiring is inline `onclick`/`oninput`/`onchange` attributes plus two
 |---|---|---|---|
 | JSZip | 3.10.1 | cdnjs | Building the export ZIP |
 | ExcelJS | 4.4.0 | cdnjs | The styled two-sheet XLSX (SheetJS was replaced in mid-2026 because its community edition cannot style cells) |
+| docx | 8.2.2 | jsDelivr | The Word photo log (§11.1). Pinned to 8.2.2 — docx 9.x ships only as `.cjs`, which jsDelivr serves with a content type browsers refuse to execute |
 
 Both are precached by the service worker so exports work offline. If ExcelJS never loaded (fresh install that has never been online), `runExport()` aborts with "ExcelJS not loaded — go online once first".
 
@@ -130,8 +130,8 @@ Module-level variables (the entire runtime state):
   id:                "e_1711234567890_a1b2",
   siteName:          "Old Faithful Visitor Education Center — YELL",  // duplicate of location (legacy)
   location:          "Old Faithful Visitor Education Center — YELL",
-  protocolArea:      "Water Quality",              // one of 18 dropdown values ('' allowed)
-  teamGuideCitation: "WQ.10.1.US — 40 CFR ...",    // "CODE — regulation" or bare code or ''
+  protocolArea:      "Used Oil Management",       // one of the 17 EnviroCheck sheets ('' allowed)
+  teamGuideCitation: "UO.05 — 40 CFR 279.22(c)",  // EnviroCheck question; field name kept for sibling parity
   score:             "Finding",                     // "Finding" | "Observation" — REQUIRED to save
   details:           "Observed sediment discharge…",
   latitude:  44.4605, longitude: -110.8281,        // null when no GPS
@@ -235,24 +235,35 @@ GPS-powered behaviors (all use `haversineMi()`, earth radius 3958.8 mi) — iden
 - **Auto-detect park** (`autoDetectForest`): if no park is selected when a fix arrives, scan *every* location in every park for the nearest one; adopt that park (and its region) when < 100 mi. Every unit is detectable because units with no mapped facilities still carry one "Park Unit" centroid location.
 - **Auto-suggest location** (`autoSuggestLocation`): if the location field is empty, fill it with the nearest location in the selected park when < 50 mi, with a toast showing the distance.
 
-## 9. Team Guide citation search
+## 9. EnviroCheck question search
 
-**Unchanged from USFS** — data file, build script logic, synonym map, protocol hints, chips, recents and Common Citations are all byte-for-byte the same; only the recents key (`nps_recent_tg`) differs.
+**NPS audits run off the NPS Environmental Audit Program EnviroCheck Sheets, not the Forest Service Team Guide.** The Team Guide index, its build script and the Common Citations quick-pick were removed on 2026-09-16; the search machinery around them is unchanged, so this section still diffs cleanly against the USFS app (the `tg*` identifiers are deliberately kept).
 
-**Data:** `team_guide_citations.json` — 6,445 records of `{c: code, s: section label, d: description, r: regulatory reference}`. Codes are `AREA.question.sub.JURISDICTION` (e.g. `HW.10.1.US`, `PM.1.1.FS`, `AE.10.1.MI`); jurisdictions are `US` (federal, Dec 2023), `FS` (Forest Service supplement, Sep 2008), and state supplements `KY MI MN MO OR TN WA`. The FS supplement and the three "FS:" Protocol Area options were kept on purpose (open item in Status.md). Loaded lazily on startup; fetched again on demand if the first fetch failed.
+**Data:** `envirocheck_checklists.json` — 810 records of `{c, s, d, r}` built by `build_envirocheck.js` (§14.1) from the 17 federal sheets (2017 editions):
 
-**Search algorithm** (`_filterCitations`, debounced 150 ms):
+| Field | Meaning | Example |
+|---|---|---|
+| `c` | Question code, `<SHEET>.<NN>`, following each sheet's own numbering | `UO.05` |
+| `s` | Sheet, section and priority | `Used Oil Management: Storage and Handling · P2` |
+| `d` | The checklist question | `Are containers and ASTs storing used oil … labeled or marked clearly with the words "Used Oil"?` |
+| `r` | Regulatory citation(s) pulled from the question's brackets | `40 CFR 279.22(c)` |
 
-1. Empty/1-char query → show the sticky **area chip row** plus either the active area's first 50 citations, or the **Recent picks** list (last 10 selected codes), or a hint.
-2. Query terms are split on whitespace; each term expands through `TG_SYNONYM_MAP` (~33 groups of field vocabulary — "msds"→"safety data sheet", the many "burn pile" variants, "ust"→"underground storage tank", etc.). Multi-word phrase keys match against the whole query.
-3. Every term (in some synonym variant) must appear in the citation's concatenated haystack (`c + s + d + r`, lowercased). Scoring per hit: +10 if the variant appears in the code, +5 if in the regulation reference, +2 for the exact typed term / +1 for a synonym.
-4. **Protocol-area hints** (`TG_PROTOCOL_HINTS`, ~100 regex→area→bonus rules ported from fs-reference-web's `field_notes.py`) add area-level bonuses — e.g. a query matching `/refrigerant/` boosts every `AE.*` citation by 15.
-5. **Question hints** (`TG_QUESTION_HINTS`) boost specific question ids hard — e.g. "large capacity septic" +30 on `WQ.114.3` (also matched with the `.US`/`.FS` suffix stripped).
-6. Active area chip filters to that code prefix. Top 30 by score render with `<mark>` highlighting of every matched variant (`_highlight` escapes regex chars, longest-first to protect longer matches).
+Sheet codes: `AQ` Air Quality, `EPP` Environmentally Preferable Purchasing, `EPR` Emergency Planning and Reporting, `FSM` Fuel Storage Management, `HC` Hazard Communication, `HM` Hazardous Materials and Toxic Substances, `HW` Hazardous Waste Management, `IPM` Integrated Pest Management, `LAB` Laboratory Chemicals, `ODS` Ozone Depleting Substances, `RP` Respiratory Protection, `SW` Solid Waste Management, `SPCC` Spill Prevention Control and Countermeasure, `STW` Storm Water Management, `UW` Universal Waste Management, `UO` Used Oil Management, `WW` Wastewater Management. The same 17 sheets are the Protocol Area dropdown, and `AREA_CODE` in `runExport()` maps a sheet name back to its code for the report's Question column.
 
-Selecting a citation writes `"CODE — regulation"` (or bare code) into the hidden `teamGuideCitation` input, renders the summary card, and pushes the code onto the recents list (capped at 10, persisted).
+**The code prefix is load-bearing:** the chips and the browse-by-sheet list both split `c` on the first dot, so a sheet code must never contain one.
 
-**Common Citations** (★ Common) is a separate hardcoded cheat-sheet modal (`COMMON_CITATIONS`, sourced from `Team Guide Cheat Sheet.docx`) of ~17 high-frequency codes grouped by category, filtered by the selected Protocol Area through `PROTOCOL_TO_CATEGORIES`; picking one routes through the normal `selectCitation` path when the code exists in the full index.
+**Search algorithm** (`_filterCitations`, debounced 150 ms) — unchanged from the USFS app apart from the data it ranks:
+
+1. Empty/1-char query → the sticky sheet chip row plus either the active sheet's first 50 questions, the **Recent picks** list (last 10 codes from `nps_recent_tg`), or a hint.
+2. Query terms split on whitespace; each expands through `TG_SYNONYM_MAP` (~34 groups of field vocabulary — "msds"→"safety data sheet", "unlabeled"→"label", "dumpster"→"refuse", "ust"→"underground storage tank"). Multi-word phrase keys match against the whole query.
+3. **Every** term (in some variant) must appear in `c + s + d + r`, lowercased. Scoring: +10 if the variant is in the code, +5 if in the citation, +2 for the typed term / +1 for a synonym.
+4. **Sheet hints** (`TG_PROTOCOL_HINTS`, ~60 regex→sheet→bonus rules rewritten for the EnviroCheck sheets) add sheet-level bonuses — e.g. `/refrigerant|r-22|ozone.depleting/` boosts every `ODS.*` question by 18.
+5. **Question hints** (`TG_QUESTION_HINTS`) boost a specific question — e.g. a query about labelling used oil boosts `UO.05` by 25.
+6. The active chip filters to that sheet. Top 30 by score render with `<mark>` highlighting of every matched variant.
+
+Selecting a question writes `"CODE — citation"` (or the bare code) into the hidden `teamGuideCitation` input, renders the summary card, and pushes the code onto the recents list.
+
+**Known gaps:** the set is federal-only — no state supplements — and it does not cover NPS-specific policy, so searches for things like bear-resistant containers find nothing. The sheets are the 2017 editions; re-run the build script when NPS reissues them.
 
 ## 10. Photo capture pipeline
 
@@ -282,7 +293,7 @@ NPS_Report_MMDDYY.xlsx
 NPS_Data_MMDDYY.csv
 ```
 
-**CSV** — columns: `Entry #, Location, Latitude, Longitude, GPS Accuracy (m), Protocol Area, Team Guide Citation, Score, Description, Timestamp, Photo 1…Photo N` (N = max photos on any entry, min 2). Coordinates fixed to 6 decimals; `quote()` handles commas/quotes/newlines.
+**CSV** — columns: `Entry #, Location, Latitude, Longitude, GPS Accuracy (m), EnviroCheck Sheet, EnviroCheck Question, Score, Description, Timestamp, Photo 1…Photo N` (N = max photos on any entry, min 2). Coordinates fixed to 6 decimals; `quote()` handles commas/quotes/newlines.
 
 **XLSX** (ExcelJS, two sheets):
 
@@ -300,12 +311,25 @@ NPS_Data_MMDDYY.csv
 
 Backups (`saveBackup`) are metadata-only JSON named `NPS_Backup_MMDDYY.json`; `importBackup` merges or replaces through `normaliseEntry()`.
 
+### 11.1 Word photo log (`generateWordReport`)
+
+A second, independent export behind the **Word Report** button in the same dialog. It is the only feature in this app with no USFS counterpart, and it lives in its own section at the bottom of the script so the shared export code above it stays diffable.
+
+- **Same selection as the ZIP:** the saved entries plus a non-empty draft, filtered by the same date chips, and the same missing-photo `confirm()` guard.
+- **Same photo numbers:** the global sequence is rebuilt with the identical slot ordering, and — as in `runExport()` — a photo that cannot be loaded does not consume a number. So "Photo 003" in the report is the file ending `_0003.jpg` in the ZIP and `003` in the Excel report.
+- **Layout:** letter portrait, 0.75 in margins, Arial. A brown banner (park, date span, Finding/Observation/photo counts), then one photo per row inside a single-cell `cantSplit` table so a caption can never break away from its photo. Each image keeps its aspect ratio, fitted into 640 × 330 px at 96 dpi, which puts two photos on a page. Captions carry `Photo NNN · F-1 Finding`, location, description, sheet + question, then GPS and capture time.
+- **Entry labels:** `F-1…`/`O-1…` numbered in Findings Report order (Findings first, then Observations, citation-bearing first within each), so the labels line up with that sheet.
+- **Report only:** it does **not** stamp `exportedAt` and does **not** offer the post-export delete. The ZIP remains the archival export — the same split the DLA tool uses.
+- **Delivery:** `shareOrDownload()` with `NPS_Photo_Log_<PARKCODE>_MMDDYY.docx`.
+
+Note: docx 8.2.2 names every embedded image `.png` inside the package whatever its real format. The bytes are the stored JPEGs and Word reads them (the DLA tool has shipped this combination for months), but re-check in Word if the library is ever upgraded.
+
 ## 12. Service worker (`sw.js`)
 
 Small but load-bearing — it has caused more field bugs than any other file in the sibling app.
 
-- `CACHE_NAME = 'nps-collector-v1.0'` — **must be bumped whenever any cached file changes** (`index.html`, `sw.js` itself, either data JSON). The bump is what makes installed PWAs and the iOS WebView pick up changes.
-- Precache list: `./`, `index.html`, `team_guide_citations.json`, `nps_locations.json`, JSZip, ExcelJS.
+- `CACHE_NAME = 'nps-collector-v1.2'` — **must be bumped whenever any cached file changes** (`index.html`, `sw.js` itself, either data JSON). The bump is what makes installed PWAs and the iOS WebView pick up changes.
+- Precache list: `./`, `index.html`, `envirocheck_checklists.json`, `nps_locations.json`, JSZip, ExcelJS, docx.
 - **Install:** `cache.addAll` with every request created as `new Request(url, {cache:'reload'})`. The `reload` is critical: without it the SW install reads through the **browser HTTP cache**, and a stale `max-age` copy of the data JSON gets baked into the brand-new SW cache — this exact bug shipped day-old citation data in the USFS app in July 2026 despite a cache bump. `skipWaiting()` activates immediately.
 - **Activate:** delete every cache whose name ≠ current, then `clients.claim()`.
 - **Fetch:** requests that are navigations or end in `.html`, `/`, or `.json` are **network-first** — fetched with `{cache:'no-cache'}` (forces conditional revalidation, cheap ETag 304s) — with the response copied into the cache and the cache as offline fallback. Everything else (CDN libs) is cache-first.
@@ -316,14 +340,16 @@ The Azure config (§13) is the server half of the same fix: the data JSONs are s
 
 **Web:** push to `main` → GitHub Actions (`azure-static-web-apps.yml`, `skip_app_build: true`) → Azure Static Web Apps (`nps-data-collector`, ~1 min deploys). `staticwebapp.config.json` additionally sets a navigation fallback to `index.html` (excluding JSON and images), JSON MIME types, `public, no-cache` on both data JSONs, and security headers (nosniff, DENY framing, strict referrer). No auth is configured; adding Entra ID in front of the URL is possible later.
 
-**iOS (not yet shipped):** `npm run sync` (copies the file list in package.json's `build` script — `index.html sw.js manifest.json team_guide_citations.json nps_locations.json` — into `www/`, then `npx cap sync ios` into `ios/App/App/public/`) → bump `CURRENT_PROJECT_VERSION` in **both** Debug and Release blocks of `project.pbxproj` (Apple rejects reused build numbers; `MARKETING_VERSION` is user-facing and bumped rarely) → Xcode Product → Archive → Distribute. Before the first upload the generated project still needs: camera / photo-library / location usage strings and `ITSAppUsesNonExemptEncryption=false` in `Info.plist`, `DEVELOPMENT_TEAM = QV4MJ85JSK` in both pbxproj configs, the NPS app icon in `Assets.xcassets/AppIcon.appiconset`, and an App Store Connect app record for the bundle id. Info.plist references the version fields via `$(MARKETING_VERSION)` / `$(CURRENT_PROJECT_VERSION)` — never hardcode there. Full checklist in the TestFlight playbook.
+**iOS (not yet shipped):** `npm run sync` (copies the file list in package.json's `build` script — `index.html sw.js manifest.json envirocheck_checklists.json nps_locations.json` — into `www/`, then `npx cap sync ios` into `ios/App/App/public/`) → bump `CURRENT_PROJECT_VERSION` in **both** Debug and Release blocks of `project.pbxproj` (Apple rejects reused build numbers; `MARKETING_VERSION` is user-facing and bumped rarely) → Xcode Product → Archive → Distribute. Before the first upload the generated project still needs: camera / photo-library / location usage strings and `ITSAppUsesNonExemptEncryption=false` in `Info.plist`, `DEVELOPMENT_TEAM = QV4MJ85JSK` in both pbxproj configs, the NPS app icon in `Assets.xcassets/AppIcon.appiconset`, and an App Store Connect app record for the bundle id. Info.plist references the version fields via `$(MARKETING_VERSION)` / `$(CURRENT_PROJECT_VERSION)` — never hardcode there. Full checklist in the TestFlight playbook.
 
 **The dual-channel skew rule:** the web app updates the moment a user reloads twice (SW update dance); the iOS app only updates when someone archives and uploads a new build. Between iOS builds the two channels intentionally run different versions of the same file — the SW cache-name discipline is what keeps each channel internally consistent.
 
 ## 14. Data build pipelines (developer-side, Node, no npm deps)
 
-### 14.1 `build_citations.js`
-Parses Team Guide markdown files from `~/Desktop/Claude Apps/fs-reference-web/backend/data/team_guide` (shared with the fs-reference-web project). Filenames like `usae-Dec-23`, `fspm-Sep-08`, `kyae-oct-23` encode jurisdiction (first 2 chars) + area code (rest) → the `AREA_NAMES` map produces section labels ("Air Emissions", "FS: Pesticide Management", "MI: Hazardous Waste", …). Writes `team_guide_citations.json` **and** the `www/` copy. Identical to the USFS script except `REPO_ROOT`. Run `node build_citations.js` after any Team Guide update, then bump the SW cache.
+### 14.1 `build_envirocheck.js`
+Parses the NPS EnviroCheck Sheets (`.docx`) into `envirocheck_checklists.json` (+ the `www/` copy). The sheets are NPS documents and live in SharePoint, not in this repo: `SRC_DIR` at the top of the script points at the local copy, and the folder can also be passed as the first argument. Each sheet is one topic; inside it, every checklist table carries a header row `[section name | (Y/N/NA) | Priority]`, which is where the section label comes from, and each following row is `[number | question + [citation] + guidance | answer | P1–P4]`. The parser pulls the bracketed citations into `r`, drops trailing `NOTE:`/`Auditors:` guidance, caps a question at 400 characters, and numbers each question `<SHEET>.<NN>` from the sheet's own numbering (falling back to a running counter where Word auto-numbered the list). Needs only Node and the system `unzip`. Run `node build_envirocheck.js` after any sheet update, then bump the SW cache.
+
+Current yield: 810 questions — AQ 108, FSM 130, HW 90, HM 76, ODS 62, EPR 50, SPCC 42, SW 38, LAB 31, EPP 29, IPM 29, UW 28, RP 23, HC 22, WW 21, UO 17, STW 15.
 
 ### 14.2 `build_locations.js` (NPS-specific)
 Fetches three **public, key-less** ArcGIS services directly (Node 18+ global `fetch`, 2,000-record pages, retries, raw pages cached under `nps_raw/`; `--refresh` re-downloads):

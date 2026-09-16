@@ -279,30 +279,6 @@ if ('serviceWorker' in navigator) {
   .loc-item:last-child { border-bottom: none; }
   .loc-item:hover, .loc-item:active { background: var(--card-alt); }
 
-  .cc-category {
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--accent);
-    padding: 10px 14px 4px;
-    background: var(--card);
-    position: sticky;
-    top: 0;
-    z-index: 1;
-  }
-  .cc-item {
-    padding: 10px 14px;
-    border-bottom: 1px solid var(--border);
-    cursor: pointer;
-    font-size: 14px;
-    color: var(--text);
-    transition: background 0.15s;
-  }
-  .cc-item:active { background: var(--card-alt); }
-  .cc-item .cc-code { font-family: monospace; font-weight: 600; color: var(--accent); margin-right: 8px; }
-  .cc-item .cc-desc { color: var(--text-dim); }
-
   .site-import-btn {
     flex-shrink: 0;
     background: transparent;
@@ -760,42 +736,30 @@ if ('serviceWorker' in navigator) {
     </div>
   </div>
 
-  <!-- -- COMMON CITATIONS MODAL -- -->
-  <div class="dialog-overlay" id="commonCitationsOverlay" style="display:none;" onclick="if(event.target===this)closeCommonCitations()">
-    <div class="dialog" style="max-width:500px;max-height:80vh;display:flex;flex-direction:column;">
-      <h3>&#9733; Common Citations</h3>
-      <div id="commonCitationsList" style="flex:1;overflow-y:auto;max-height:60vh;"></div>
-      <div class="dialog-actions" style="margin-top:10px;">
-        <button class="btn btn-outline btn-sm" onclick="closeCommonCitations()">Cancel</button>
-      </div>
-    </div>
-  </div>
-
   <!-- -- PROTOCOL AREA DROPDOWN -- -->
   <div class="site-section">
     <div class="site-section-row">
-      <label>Protocol Area</label>
+      <label>EnviroCheck Sheet</label>
       <select id="protocolArea" onchange="autoSaveCurrent()"
         style="flex:1;padding:12px 14px;background:var(--input-bg);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:15px;-webkit-appearance:none;appearance:none;">
-        <option value="">— Select Protocol Area —</option>
-        <option value="Air Emissions">Air Emissions</option>
-        <option value="Cultural Resources">Cultural Resources</option>
-        <option value="Environmental Management">Environmental Management</option>
-        <option value="Hazardous Materials">Hazardous Materials</option>
-        <option value="Hazardous Waste">Hazardous Waste</option>
-        <option value="Materials Management">Materials Management</option>
-        <option value="Noise & Radiation">Noise &amp; Radiation</option>
-        <option value="Petroleum, Oil and Lubricants">Petroleum, Oil and Lubricants</option>
-        <option value="Pesticide Management">Pesticide Management</option>
-        <option value="Pollution Prevention">Pollution Prevention</option>
-        <option value="Solid Waste">Solid Waste</option>
-        <option value="Stormwater">Stormwater</option>
-        <option value="Tanks & Transportation">Tanks &amp; Transportation</option>
-        <option value="Wastewater">Wastewater</option>
-        <option value="Water Quality">Water Quality</option>
-        <option value="FS: Pesticides">FS: Pesticides</option>
-        <option value="FS: Wastewater">FS: Wastewater</option>
-        <option value="FS: Water Quality">FS: Water Quality</option>
+        <option value="">— Select EnviroCheck Sheet —</option>
+        <option value="Air Quality">Air Quality</option>
+        <option value="Emergency Planning and Reporting">Emergency Planning and Reporting</option>
+        <option value="Environmentally Preferable Purchasing">Environmentally Preferable Purchasing</option>
+        <option value="Fuel Storage Management">Fuel Storage Management</option>
+        <option value="Hazard Communication">Hazard Communication</option>
+        <option value="Hazardous Materials and Toxic Substances">Hazardous Materials and Toxic Substances</option>
+        <option value="Hazardous Waste Management">Hazardous Waste Management</option>
+        <option value="Integrated Pest Management">Integrated Pest Management</option>
+        <option value="Laboratory Chemicals">Laboratory Chemicals</option>
+        <option value="Ozone Depleting Substances">Ozone Depleting Substances</option>
+        <option value="Respiratory Protection">Respiratory Protection</option>
+        <option value="Solid Waste Management">Solid Waste Management</option>
+        <option value="Spill Prevention, Control and Countermeasure">Spill Prevention, Control and Countermeasure</option>
+        <option value="Storm Water Management">Storm Water Management</option>
+        <option value="Universal Waste Management">Universal Waste Management</option>
+        <option value="Used Oil Management">Used Oil Management</option>
+        <option value="Wastewater Management">Wastewater Management</option>
       </select>
     </div>
   </div>
@@ -805,12 +769,10 @@ if ('serviceWorker' in navigator) {
     <h2 id="entryFormTitle">&#128269; New Entry</h2>
 
     <div class="form-group" style="position:relative;">
-      <label>Team Guide Citation</label>
+      <label>EnviroCheck Question</label>
       <div style="display:flex;gap:6px;align-items:stretch;">
-        <input type="text" id="tgSearch" placeholder="Search citations... (e.g. flammable, 1910, RCRA)"
+        <input type="text" id="tgSearch" placeholder="Search EnviroCheck questions... (e.g. used oil, SPCC, lamps)"
           autocomplete="off" oninput="filterCitations()" onfocus="filterCitations()">
-        <button class="btn btn-outline btn-sm" onclick="showCommonCitations()"
-          style="flex-shrink:0;padding:0 10px;white-space:nowrap;">&#9733; Common</button>
         <button class="btn btn-outline btn-sm" id="tgClearBtn" onclick="clearCitation()"
           style="flex-shrink:0;padding:0 10px;display:none;color:var(--danger);border-color:var(--danger);">&#10005;</button>
       </div>
@@ -1654,7 +1616,7 @@ function renderSavedPanel() {
         <div class="saved-item-info">
           <div class="saved-item-name">${e.location || '(No location)'}</div>
           ${e.protocolArea ? `<div class="saved-item-detail" style="font-size:11px;color:var(--text-dim);">${e.protocolArea}</div>` : ''}
-          ${e.teamGuideCitation ? `<div class="saved-item-detail" style="font-size:11px;color:var(--text-dim);font-style:italic;">TG: ${e.teamGuideCitation}</div>` : ''}
+          ${e.teamGuideCitation ? `<div class="saved-item-detail" style="font-size:11px;color:var(--text-dim);font-style:italic;">EC: ${e.teamGuideCitation}</div>` : ''}
           ${e.score ? `<div class="saved-item-detail" style="font-size:11px;color:var(--text-dim);">Score: ${e.score}</div>` : ''}
           ${e.latitude != null ? `<div style="font-size:10px;color:var(--text-dim);">${e.latitude.toFixed(6)}\u00B0N, ${Math.abs(e.longitude).toFixed(6)}\u00B0${e.longitude < 0 ? 'W' : 'E'}</div>` : ''}
           <div class="saved-item-detail">
@@ -2572,7 +2534,7 @@ async function runExport() {
   const fmtCoord = v => v != null ? Number(v).toFixed(6) : '';
   const fmtAcc   = v => v != null ? String(v) : '';
   const photoHeaders = Array.from({length: maxPhotos}, (_, i) => `Photo ${i+1}`);
-  let csv = ['Entry #','Location','Latitude','Longitude','GPS Accuracy (m)','Protocol Area','Team Guide Citation','Score','Description','Timestamp',...photoHeaders].join(',') + '\n';
+  let csv = ['Entry #','Location','Latitude','Longitude','GPS Accuracy (m)','EnviroCheck Sheet','EnviroCheck Question','Score','Description','Timestamp',...photoHeaders].join(',') + '\n';
   allEntries.forEach((e, i) => {
     const m = entryMaps[i];
     const sortedSlots = Object.keys(m).sort((a,b) => {
@@ -2598,12 +2560,17 @@ async function runExport() {
   const wb = new ExcelJS.Workbook();
 
   // -- Helpers shared by both sheets --
+  // EnviroCheck sheet → question-code prefix, used for the Question column when
+  // an entry has a sheet but no specific question picked.
   const AREA_CODE = {
-    'Air Emissions':'AE','Cultural Resources':'CR','Environmental Management':'EM',
-    'Hazardous Materials':'HM','Hazardous Waste':'HW','Materials Management':'MM',
-    'Noise & Radiation':'NR','Oil Operations':'OO','Pesticide Management':'PM',
-    'Pollution Prevention':'PO','Storage Operations':'SO','Stormwater':'ST',
-    'Tanks & Transportation':'TT','Wastewater':'WA','Water Quality':'WQ',
+    'Air Quality':'AQ','Emergency Planning and Reporting':'EPR',
+    'Environmentally Preferable Purchasing':'EPP','Fuel Storage Management':'FSM',
+    'Hazard Communication':'HC','Hazardous Materials and Toxic Substances':'HM',
+    'Hazardous Waste Management':'HW','Integrated Pest Management':'IPM',
+    'Laboratory Chemicals':'LAB','Ozone Depleting Substances':'ODS',
+    'Respiratory Protection':'RP','Solid Waste Management':'SW',
+    'Spill Prevention, Control and Countermeasure':'SPCC','Storm Water Management':'STW',
+    'Universal Waste Management':'UW','Used Oil Management':'UO','Wastewater Management':'WW',
   };
   const fmtFindingDate = ts => {
     if (!ts) return '';
@@ -2727,7 +2694,7 @@ async function runExport() {
   // ===== Sheet 2: NPS Entries (raw data, hidden GPS + photo cols) =====
   const raw = wb.addWorksheet('NPS Entries');
   const xlsxPhotoCols = Array.from({length: maxPhotos}, (_, i) => `Photo ${i+1}`);
-  raw.addRow(['Entry #','Location','Latitude','Longitude','GPS Accuracy (m)','Protocol Area','Team Guide Citation','Score','Description','Timestamp', ...xlsxPhotoCols]);
+  raw.addRow(['Entry #','Location','Latitude','Longitude','GPS Accuracy (m)','EnviroCheck Sheet','EnviroCheck Question','Score','Description','Timestamp', ...xlsxPhotoCols]);
   allEntries.forEach((e, i) => {
     const m = entryMaps[i];
     const sortedSlots = Object.keys(m).sort((a,b) => {
@@ -2753,7 +2720,7 @@ async function runExport() {
     { w:14, hidden:true },  // Longitude
     { w:16, hidden:true },  // GPS Accuracy
     { w:20 },               // Protocol Area
-    { w:50 },               // Team Guide Citation
+    { w:50 },               // EnviroCheck Question
     { w:10 },               // Score
     { w:40 },               // Description
     { w:20 },               // Timestamp
@@ -3003,27 +2970,38 @@ function clearGPS() {
 }
 
 // ============================================================================
-// TEAM GUIDE CITATION SEARCH
+// ENVIROCHECK QUESTION SEARCH
+// NPS audits run off the NPS Environmental Audit Program EnviroCheck Sheets,
+// not the Forest Service Team Guide. envirocheck_checklists.json holds the 810
+// checklist questions from the 17 federal sheets, in the same {c, s, d, r}
+// shape the search below was written for (build_envirocheck.js makes it).
+// The tg* names are kept so this code stays diffable against the USFS app.
 // ============================================================================
 let tgCitations = [];
 let tgLoaded = false;
 let tgRecent = []; // array of citation codes (most recent first)
 let tgAreaFilter = ''; // '' = all, otherwise prefix like 'HW'
 
-// Areas shown as filter chips (label + prefix). Ordered by usefulness in field audits.
+// EnviroCheck sheets shown as filter chips (label + question-code prefix).
+// Ordered by how often they come up in a park walk-through.
 const TG_AREAS = [
-  { p: 'HW', label: 'Haz Waste' },
-  { p: 'HM', label: 'Haz Mat' },
-  { p: 'PO', label: 'POL/SPCC' },
-  { p: 'ST', label: 'Tanks' },
-  { p: 'SO', label: 'Solid Waste' },
-  { p: 'WA', label: 'Wastewater' },
-  { p: 'WQ', label: 'Water Qual' },
-  { p: 'AE', label: 'Air' },
-  { p: 'PM', label: 'Pesticides' },
-  { p: 'EM', label: 'EMS' },
-  { p: 'CR', label: 'Cultural' },
-  { p: 'NR', label: 'Nat Res' },
+  { p: 'HW',   label: 'Haz Waste' },
+  { p: 'HM',   label: 'Haz Mat' },
+  { p: 'UO',   label: 'Used Oil' },
+  { p: 'UW',   label: 'Universal Waste' },
+  { p: 'SPCC', label: 'SPCC' },
+  { p: 'FSM',  label: 'Fuel Storage' },
+  { p: 'SW',   label: 'Solid Waste' },
+  { p: 'HC',   label: 'HazCom' },
+  { p: 'AQ',   label: 'Air Quality' },
+  { p: 'ODS',  label: 'Refrigerants' },
+  { p: 'STW',  label: 'Storm Water' },
+  { p: 'WW',   label: 'Wastewater' },
+  { p: 'IPM',  label: 'Pest Mgmt' },
+  { p: 'LAB',  label: 'Lab Chems' },
+  { p: 'RP',   label: 'Respirators' },
+  { p: 'EPR',  label: 'Emergency' },
+  { p: 'EPP',  label: 'Purchasing' },
 ];
 
 // Synonym groups: typing any term in a group will match citations containing any other term.
@@ -3033,7 +3011,8 @@ const TG_SYNONYM_GROUPS = [
   ['drum', 'container', 'bottle', 'bucket', 'jug'],
   ['flammable', 'ignitable', 'combustible'],
   ['90-day', '90 day', 'accumulation start'],
-  ['unlabeled', 'unlabelled', 'no label', 'not labeled', 'missing label'],
+  ['unlabeled', 'unlabelled', 'no label', 'not labeled', 'missing label', 'label', 'labeled', 'labeling'],
+  ['dumpster', 'refuse', 'trash', 'garbage', 'solid waste'],
   ['hazcom', 'hazard communication', 'haz com'],
   ['spcc', 'spill prevention'],
   ['ust', 'underground storage tank'],
@@ -3075,139 +3054,105 @@ const TG_SYNONYM_MAP = (() => {
   return m;
 })();
 
-// Phrase → protocol-area hints (ported from fs-reference-web field_notes.py PHRASE_PROTOCOL_HINTS).
-// When the user query matches the regex, citations whose code starts with `prefix` get +bonus.
+// Phrase → sheet hints. When the query matches the regex, questions whose code
+// starts with `prefix` get +bonus. Keyed to the EnviroCheck sheet codes.
 const TG_PROTOCOL_HINTS = [
-  // AE
-  [/r[\s-]?22|refrigerant|ozone.depleting|ods/, 'AE', 15],
-  [/hvac.{0,10}(unit|system|charge)/, 'AE', 10],
-  [/boiler|spray\s+paint|air\s+permit/, 'AE', 10],
-  [/emission|stack\s+test/, 'AE', 12],
-  [/combustion|incinerator/, 'AE', 10],
-  [/class\s+(i|ii)\s+(ods|substance)/, 'AE', 15],
-  [/voc|volatile\s+organic/, 'AE', 12],
-  [/air\s+quality|ambient\s+air/, 'AE', 10],
-  [/opacity|particulate/, 'AE', 10],
-  [/generator.{0,10}(engine|diesel|emergency)/, 'AE', 10],
-  [/burn\s*pile|open\s*burn|outdoor\s*burn|vegetative\s+burn|slash\s+burn|burning\s+vegetation/, 'AE', 15],
-  // CR
-  [/cultural|historic|nhpa|section\s+106/, 'CR', 12],
-  [/archaeological|artifact|nagpra/, 'CR', 15],
-  [/tribal\s+consult|sacred\s+site/, 'CR', 15],
-  [/historic\s+preserv/, 'CR', 12],
-  // EM
-  [/iso\s*14001|\bems\b/, 'EM', 15],
-  [/environmental\s+management\s+system/, 'EM', 15],
-  [/continual\s+improvement/, 'EM', 12],
-  // HM
-  [/hazcom|haz\s*com/, 'HM', 15],
-  [/sds|safety\s+data\s+sheet/, 'HM', 12],
-  [/incompatible\s+(storage|chemical|material)/, 'HM', 15],
-  [/dot\s+standard|dot\s+transport/, 'HM', 12],
-  [/flammable.{0,15}(liquid|storage|cabinet)/, 'HM', 10],
-  [/combustible\s+liquid/, 'HM', 10],
-  [/mobile\s+refuel/, 'HM', 12],
-  [/label(ed|ing)?.{0,10}(container|drum|bottle)/, 'HM', 10],
-  [/(unlabeled|unlabelled|not\s+labeled).{0,15}(container|drum|bottle|bucket)/, 'HM', 18],
-  [/secondary\s+container/, 'HM', 18],
-  [/food\s+grade\s+container/, 'HM', 12],
-  [/fire\s+(extinguisher|suppression|alarm|code)/, 'HM', 10],
-  [/eye\s*wash|shower\s+station|emergency\s+wash/, 'HM', 10],
-  [/tier\s+(ii|2)\s+report/, 'HM', 12],
-  [/epcra|sara\s+title|emergency\s+plan/, 'HM', 12],
-  [/asbestos|acm|abatement/, 'HM', 8],
-  [/lead[\s-]based\s+paint|lbp/, 'HM', 8],
-  [/pcb|polychlorinated/, 'HM', 8],
-  [/radon/, 'HM', 6],
-  [/noise|hearing\s+conservation/, 'HM', 6],
-  // HW
-  [/universal\s+waste/, 'HW', 15],
-  [/hazardous\s+waste\s+determin/, 'HW', 15],
-  [/90[\s-]?day/, 'HW', 12],
-  [/satellite\s+accumulation/, 'HW', 12],
-  [/accumulation\s+start\s+date/, 'HW', 12],
-  [/tsdf|treatment.*storage.*disposal/, 'HW', 12],
-  [/manifest|hazardous\s+waste\s+transport/, 'HW', 12],
-  [/biohazard|medical\s+waste|sharps/, 'HW', 10],
-  [/generator\s+status|sqg|lqg|vsqg/, 'HW', 12],
-  [/waste\s+characteriz/, 'HW', 12],
-  [/surface\s+impoundment/, 'HW', 12],
-  // NR
-  [/nepa|endangered\s+species|wetland/, 'NR', 12],
-  [/threatened\s+species|critical\s+habitat/, 'NR', 12],
-  [/migratory\s+bird|bald\s+eagle/, 'NR', 12],
-  [/wild\s+horse|burro/, 'NR', 10],
-  // PM
-  [/pest\s+(control|management)|ipm|pesticide/, 'PM', 12],
-  [/herbicide|insecticide|rodenticide/, 'PM', 12],
-  [/fumigat|fungicide/, 'PM', 10],
-  [/integrated\s+pest/, 'PM', 15],
-  [/applicator|spray.{0,10}(program|schedule)/, 'PM', 10],
-  // PO
-  [/spcc|spill\s+prevention/, 'PO', 15],
-  [/spcc.{0,20}inspect/, 'PO', 20],
-  [/oil\s+(storage|spill)/, 'PO', 10],
-  [/petroleum/, 'PO', 8],
-  [/secondary\s+containment/, 'PO', 12],
-  [/oil.{0,10}water\s+separator/, 'PO', 12],
-  [/spill\s+kit/, 'PO', 8],
-  [/used\s+oil/, 'PO', 12],
-  [/off[\s-]?specification\s+oil/, 'PO', 15],
-  [/oil\s+burn/, 'PO', 10],
-  // SO
-  [/solid\s+waste/, 'SO', 12],
-  [/bulky\s+waste/, 'SO', 18],
-  [/boneyard|scrap\s+yard|dump/, 'SO', 10],
-  [/recycl|landfill|dumpster/, 'SO', 8],
-  [/tire|metal\s+scrap|debris\s+pile/, 'SO', 10],
-  [/open\s+dump/, 'SO', 15],
-  [/mswlf|municipal\s+solid/, 'SO', 15],
-  [/medical\s+waste.{0,10}(container|label|storage)/, 'SO', 10],
-  [/putrescible|food\s+waste/, 'SO', 10],
-  // ST
-  [/ust|underground\s+storage\s+tank/, 'ST', 15],
-  [/ast|above[\s-]?ground\s+storage\s+tank/, 'ST', 12],
-  [/fuel\s+(tank|storage|island)/, 'ST', 10],
-  [/tank\s+(closure|removal|installation)/, 'ST', 12],
-  [/leak\s+detect|tank\s+integrity/, 'ST', 10],
-  [/cathodic\s+protection/, 'ST', 12],
-  // WA
-  [/waste\s*water|wwtp/, 'WA', 15],
-  [/septic|mound\s+system|drain\s+field/, 'WA', 10],
-  [/lift\s+station|lagoon|treatment\s+plant/, 'WA', 10],
-  [/potw|pretreatment/, 'WA', 12],
-  [/npdes\s+permit/, 'WA', 12],
-  [/effluent|discharge\s+permit/, 'WA', 10],
-  [/sewage|sludge/, 'WA', 10],
-  // WQ
-  [/storm\s*water|swppp/, 'WQ', 15],
-  [/erosion\s+control|sediment/, 'WQ', 10],
-  [/backflow|cross.connection/, 'WQ', 12],
-  [/drinking\s+water|potable/, 'WQ', 12],
-  [/well\s+(abandon|closure|decommission)/, 'WQ', 10],
-  [/sdwa|safe\s+drinking\s+water/, 'WQ', 15],
-  [/class\s+v|injection\s+well|uic/, 'WQ', 15],
-  [/large.capacity.septic/, 'WQ', 25],
-  [/disinfect|chlorinat/, 'WQ', 10],
-  [/coliform|water\s+test|water\s+sample/, 'WQ', 10],
+  // Hazardous waste
+  [/hazardous\s+waste\s+determin|waste\s+determinat/, 'HW', 18],
+  [/90[\s-]?day|satellite\s+accumulation|accumulation\s+start/, 'HW', 15],
+  [/manifest|land\s+disposal|ldr\b/, 'HW', 12],
+  [/sqg|lqg|vsqg|generator\s+status|epa\s+id/, 'HW', 12],
+  [/solvent[\s-]?contaminated\s+wipe|shop\s+rag/, 'HW', 15],
+  [/hazardous\s+waste/, 'HW', 10],
+  // Hazardous materials and toxic substances
+  [/asbestos|acm\b|abatement/, 'HM', 15],
+  [/lead[\s-]based\s+paint|lbp\b/, 'HM', 15],
+  [/pcb|polychlorinated/, 'HM', 15],
+  [/mercury|thermometer/, 'HM', 10],
+  [/incompatible\s+(storage|chemical|material)/, 'HM', 12],
+  [/radon|formaldehyde/, 'HM', 10],
+  // Hazard communication
+  [/hazcom|haz\s*com|hazard\s+communication/, 'HC', 18],
+  [/sds|safety\s+data\s+sheet|msds/, 'HC', 15],
+  [/(unlabeled|unlabelled|not\s+labeled|secondary)\s+(container|bottle|spray)/, 'HC', 12],
+  [/chemical\s+(list|inventory)/, 'HC', 10],
+  // Used oil
+  [/used\s*oil|waste\s*oil/, 'UO', 18],
+  [/oil\s+filter|terne/, 'UO', 15],
+  // Universal waste
+  [/universal\s+waste|\buw\b/, 'UW', 18],
+  [/(fluorescent|spent)\s+lamp|bulb|ballast/, 'UW', 15],
+  [/batter(y|ies)/, 'UW', 12],
+  // SPCC
+  [/spcc|spill\s+prevention/, 'SPCC', 18],
+  [/secondary\s+containment|berm/, 'SPCC', 12],
+  [/oil.{0,10}water\s+separator|discharge.{0,15}navigable/, 'SPCC', 12],
+  [/spill\s+kit|oil\s+spill/, 'SPCC', 10],
+  // Fuel storage
+  [/ust\b|underground\s+storage\s+tank/, 'FSM', 18],
+  [/ast\b|above[\s-]?ground\s+storage\s+tank/, 'FSM', 15],
+  [/fuel\s+(tank|storage|island|dispenser)|gas\s+pump|propane/, 'FSM', 15],
+  [/leak\s+detect|release\s+detect|cathodic\s+protection|overfill|spill\s+bucket/, 'FSM', 15],
+  [/tank\s+(closure|removal|installation|integrity|test)/, 'FSM', 12],
+  // Solid waste
+  [/solid\s+waste|dumpster|landfill|refuse/, 'SW', 15],
+  [/recycl|scrap\s+yard|boneyard|open\s+dump/, 'SW', 12],
+  [/compost|food\s+waste|putrescible/, 'SW', 10],
+  [/bear[\s-]?(proof|resistant)/, 'SW', 12],
+  // Air quality
+  [/air\s+permit|title\s+v|emission\s+(limit|standard)|opacity/, 'AQ', 15],
+  [/boiler|incinerator|generator.{0,10}(engine|diesel|emergency)|rice\b/, 'AQ', 12],
+  [/neshap|nsps|national\s+emission\s+standard/, 'AQ', 15],
+  [/open\s*burn|burn\s*pile|outdoor\s*burn|vegetative\s+burn|slash\s+burn/, 'AQ', 15],
+  [/spray\s+paint|surface\s+coating|voc|volatile\s+organic/, 'AQ', 12],
+  [/gasoline\s+dispensing|stage\s+(i|ii)\s+vapor/, 'AQ', 15],
+  // Ozone depleting substances
+  [/refrigerant|r[\s-]?22|ozone.depleting|\bods\b|freon/, 'ODS', 18],
+  [/chiller|hvac|air\s+conditioning|appliance\s+disposal|leak\s+rate/, 'ODS', 12],
+  [/technician\s+certif|section\s+608/, 'ODS', 15],
+  // Storm water
+  [/storm\s*water|swppp|swp3/, 'STW', 18],
+  [/ms4|municipal\s+separate/, 'STW', 15],
+  [/construction\s+(storm|permit)|no\s+exposure|notice\s+of\s+intent/, 'STW', 12],
+  [/erosion\s+control|sediment/, 'STW', 10],
+  // Wastewater
+  [/waste\s*water|wwtp|sewage|sludge/, 'WW', 18],
+  [/septic|drain\s+field|mound\s+system|leach\s+field/, 'WW', 15],
+  [/npdes|discharge\s+permit|effluent|outfall/, 'WW', 12],
+  [/lift\s+station|lagoon|treatment\s+plant|potw|pretreatment/, 'WW', 12],
+  [/grease\s+trap|dump\s+station/, 'WW', 10],
+  // Integrated pest management
+  [/pesticide|herbicide|insecticide|rodenticide|fungicide/, 'IPM', 18],
+  [/integrated\s+pest|ipm\b|applicator/, 'IPM', 15],
+  // Laboratory chemicals
+  [/laborator|lab\s+chemical|fume\s+hood|peroxide[\s-]forming/, 'LAB', 15],
+  // Respiratory protection
+  [/respirator|fit\s+test|cartridge|scba/, 'RP', 18],
+  // Emergency planning and reporting
+  [/epcra|sara\s+title|tier\s+(ii|2)/, 'EPR', 18],
+  [/emergency\s+(action|response|plan)|contingency\s+plan/, 'EPR', 15],
+  [/release\s+report|reportable\s+quantity|cercla|spill\s+report/, 'EPR', 15],
+  [/eyewash|eye\s*wash|emergency\s+shower/, 'EPR', 8],
+  // Environmentally preferable purchasing
+  [/recycled\s+content|biobased|epeat|energy\s+star|green\s+purchas/, 'EPP', 18],
+  [/comprehensive\s+procurement|cpg\b|water\s+conservation/, 'EPP', 12],
 ];
 
-// Direct question-level hints — boost a specific QID when the regex matches.
+// Direct question-level hints — boost a specific question when the regex matches.
 const TG_QUESTION_HINTS = [
-  [/large.capacity.septic.*(register|notif)/, 'WQ.114.3', 40],
-  [/large.capacity.septic/, 'WQ.114.3', 30],
-  [/septic.*(class\s+v|injection|uic|register)/, 'WQ.114.3', 30],
-  [/spcc.{0,15}inspect/, 'PO.5.10', 25],
-  [/inspect.{0,15}spcc/, 'PO.5.10', 25],
+  [/(used\s*oil.{0,20}(label|marked))|((label|marked).{0,20}used\s*oil)/, 'UO.05', 25],
+  [/waste\s+determinat|determine.{0,20}hazardous\s+waste/, 'HW.01', 20],
+  [/spcc\s+plan.{0,25}(on\s*site|available|maintain)/, 'SPCC.02', 20],
+  [/written\s+hazcom|hazcom\s+program/, 'HC.01', 20],
 ];
 
 async function loadCitations() {
   if (tgLoaded) return;
   try {
-    const resp = await fetch('./team_guide_citations.json');
+    const resp = await fetch('./envirocheck_checklists.json');
     tgCitations = await resp.json();
     tgLoaded = true;
-    console.log(`Loaded ${tgCitations.length} Team Guide citations`);
+    console.log(`Loaded ${tgCitations.length} EnviroCheck questions`);
   } catch(e) {
     console.warn('Could not load citations:', e);
   }
@@ -3480,105 +3425,6 @@ document.addEventListener('click', e => {
     document.getElementById('tgResults').style.display = 'none';
   }
 });
-
-// ============================================================================
-// COMMON CITATIONS (CHEAT SHEET)
-// ============================================================================
-const COMMON_CITATIONS = [
-  { cat: 'Hazardous Waste', items: [
-    { code: 'HW.10.1', desc: 'Waste determinations' },
-    { code: 'HW.290.1', desc: 'Universal waste batteries' },
-    { code: 'HW.290.6', desc: 'Universal waste lamps' },
-  ]},
-  { cat: 'Solid Waste', items: [
-    { code: 'SO.10.5', desc: 'Bulky waste stored longer than 90 days' },
-    { code: 'SO.10.1', desc: 'Food wastes not collected every 7 days' },
-  ]},
-  { cat: 'Hazardous Materials', items: [
-    { code: 'HM.30.2', desc: 'EPCRA Tier 2 Reporting not submitted' },
-    { code: 'HM.35.4', desc: 'Bungs missing from flammable storage cabinets' },
-    { code: 'HM.40.1', desc: 'Excess flammables stored outside of approved areas' },
-    { code: 'HM.35.9', desc: 'Incompatible materials stored together' },
-  ]},
-  { cat: 'HazCom', items: [
-    { code: 'HM.1.3', desc: 'Secondary containers not labeled' },
-  ]},
-  { cat: 'Used Oil / SPCC / POL', items: [
-    { code: 'PO.65.6', desc: 'Containers not labeled "Used Oil"' },
-    { code: 'PO.5.1', desc: 'SPCC Plan Missing/Incomplete' },
-    { code: 'PO.5.10', desc: 'SPCC Monthly/Annual Inspections Not Performed' },
-    { code: 'PO.5.7', desc: 'SPCC Plan Oil Handling Personnel Training Missing' },
-    { code: 'PO.5.3', desc: 'SPCC Plan 5 Year review missing' },
-  ]},
-  { cat: 'Wastewater', items: [
-    { code: 'WA.20.4', desc: 'O&M Plans not present (FS)' },
-  ]},
-  { cat: 'Water Quality', items: [
-    { code: 'WQ.10.1', desc: 'Backflow prevention devices not present' },
-    { code: 'WQ.114.3', desc: 'Large Capacity Septic Systems not registered' },
-  ]},
-];
-
-// Map Protocol Area values to which cheat sheet categories to show
-const PROTOCOL_TO_CATEGORIES = {
-  'Hazardous Waste':                ['Hazardous Waste'],
-  'Hazardous Materials':            ['Hazardous Materials', 'HazCom'],
-  'Petroleum, Oil and Lubricants':  ['Used Oil / SPCC / POL'],
-  'Solid Waste':                    ['Solid Waste'],
-  'Wastewater':                     ['Wastewater'],
-  'FS: Wastewater':                 ['Wastewater'],
-  'Water Quality':                  ['Water Quality'],
-  'FS: Water Quality':              ['Water Quality'],
-};
-
-function showCommonCitations() {
-  loadCitations(); // ensure full citations loaded for lookup
-  const proto = document.getElementById('protocolArea').value;
-  const allowedCats = PROTOCOL_TO_CATEGORIES[proto] || null; // null = show all
-
-  const container = document.getElementById('commonCitationsList');
-  let html = '';
-  let count = 0;
-  for (const group of COMMON_CITATIONS) {
-    if (allowedCats && !allowedCats.includes(group.cat)) continue;
-    html += `<div class="cc-category">${group.cat}</div>`;
-    for (const item of group.items) {
-      html += `<div class="cc-item" onclick="pickCommonCitation('${item.code}')">` +
-        `<span class="cc-code">${item.code}</span>` +
-        `<span class="cc-desc">${item.desc}</span></div>`;
-      count++;
-    }
-  }
-  if (count === 0) {
-    html = '<div style="padding:20px;text-align:center;color:var(--text-dim);">No common citations for this Protocol Area.<br>Use the search field instead.</div>';
-  }
-  if (proto && allowedCats) {
-    html = `<div style="padding:8px 14px;font-size:12px;color:var(--text-dim);border-bottom:1px solid var(--border);">Filtered for: ${proto}</div>` + html;
-  }
-  container.innerHTML = html;
-  document.getElementById('commonCitationsOverlay').style.display = 'flex';
-}
-
-function closeCommonCitations() {
-  document.getElementById('commonCitationsOverlay').style.display = 'none';
-}
-
-function pickCommonCitation(code) {
-  closeCommonCitations();
-  // Find in full citation list and select it
-  const idx = tgCitations.findIndex(c => c.c === code);
-  if (idx >= 0) {
-    selectCitation(idx);
-  } else {
-    // Fallback: set the code directly
-    document.getElementById('teamGuideCitation').value = code;
-    const sel = document.getElementById('tgSelected');
-    sel.innerHTML = `<div style="font-weight:600;color:var(--accent);font-family:monospace;">${code}</div>`;
-    sel.style.display = 'block';
-    document.getElementById('tgClearBtn').style.display = 'flex';
-    autoSaveCurrent();
-  }
-}
 
 // ============================================================================
 // PERSISTENCE

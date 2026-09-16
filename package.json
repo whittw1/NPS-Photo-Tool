@@ -1,10 +1,10 @@
 {
   "name": "nps-photo-tool",
   "version": "1.0.0",
-  "description": "A Progressive Web App (PWA) for National Park Service field photo documentation with GPS tracking, searchable Team Guide citation lookup, and offline support. Forked from the USFS Photo Collector (itself forked from the DLA Audit Photo Tool).",
-  "main": "build_citations.js",
+  "description": "A Progressive Web App (PWA) for National Park Service field photo documentation with GPS tracking, searchable EnviroCheck question lookup, and offline support. Forked from the USFS Photo Collector (itself forked from the DLA Audit Photo Tool).",
+  "main": "build_envirocheck.js",
   "scripts": {
-    "build": "cp index.html sw.js manifest.json team_guide_citations.json nps_locations.json www/",
+    "build": "cp index.html sw.js manifest.json envirocheck_checklists.json nps_locations.json www/",
     "sync": "npm run build && npx cap sync ios",
     "open": "npx cap open ios"
   },

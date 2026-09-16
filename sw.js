@@ -1,8 +1,8 @@
-const CACHE_NAME = 'nps-collector-v1.1';
+const CACHE_NAME = 'nps-collector-v1.2';
 const URLS_TO_CACHE = [
   './',
   './index.html',
-  './team_guide_citations.json',
+  './envirocheck_checklists.json',
   './nps_locations.json',
   'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js',
