@@ -1,11 +1,12 @@
-const CACHE_NAME = 'nps-collector-v1.0';
+const CACHE_NAME = 'nps-collector-v1.1';
 const URLS_TO_CACHE = [
   './',
   './index.html',
   './team_guide_citations.json',
   './nps_locations.json',
   'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js'
+  'https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js',
+  'https://cdn.jsdelivr.net/npm/docx@8.2.2/build/index.umd.js'
 ];
 
 // Install — cache the app shell.

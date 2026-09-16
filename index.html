@@ -7,6 +7,7 @@
 <link rel="manifest" href="manifest.json">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/docx@8.2.2/build/index.umd.js"></script>
 <title>NPS Photo Collector</title>
 <script>
 if ('serviceWorker' in navigator) {
@@ -919,7 +920,7 @@ if ('serviceWorker' in navigator) {
 
 <!-- -- EXPORT DIALOG -- -->
 <div class="dialog-overlay" id="exportOverlay" style="display:none;" onclick="if(event.target===this)closeExportDialog()">
-  <div class="dialog">
+  <div class="dialog" style="max-width:430px;">
     <h3>&#128230; Export</h3>
     <p>Photos will be named using the entry date and location.<br>Format: <strong>MMDDYY_Location_0001.jpg</strong></p>
     <div id="refPreview" style="font-size:12px;color:var(--text-dim);margin-top:4px;"></div>
@@ -940,8 +941,9 @@ if ('serviceWorker' in navigator) {
       <div id="exportCount" style="font-size:12px;color:var(--text-dim);margin-top:6px;"></div>
     </div>
 
-    <div class="dialog-actions">
+    <div class="dialog-actions" style="flex-wrap:wrap;">
       <button class="btn btn-outline btn-sm" onclick="closeExportDialog()">Cancel</button>
+      <button class="btn btn-accent btn-sm" onclick="generateWordReport()">&#128196; Word Report</button>
       <button class="btn btn-success btn-sm" onclick="runExport()">&#128230; Export ZIP</button>
     </div>
   </div>
@@ -3838,6 +3840,241 @@ document.addEventListener('click', e => {
   const wrapper = document.getElementById('overflowWrapper');
   if (wrapper && !wrapper.contains(e.target)) closeOverflow();
 });
+
+// ============================================================================
+// WORD PHOTO LOG (.docx)  — NPS only. Everything above this section is shared
+// with the USFS app and is untouched by this feature.
+// One photo per row at the same numbers the ZIP gives them, so a caption saying
+// "Photo 003" is the file ending _0003.jpg and the 003 in the Excel report.
+// This is a report: it never stamps entries as exported or offers to delete.
+// ============================================================================
+const WORD_MAX_W = 640;   // px at 96 dpi (~6.7 in) — fits the 7 in text column
+const WORD_MAX_H = 330;   // px at 96 dpi (~3.4 in) — two photos to a page
+
+function wordPhotoSlots(entry) {
+  return Object.keys(entry.photos || {}).sort((a, b) => {
+    const order = s => s === 'p_main' ? 0 : s === 'p_wide' ? 1 : 2 + parseInt(s.replace('p_extra_','') || 0);
+    return order(a) - order(b);
+  });
+}
+
+// F-1…/O-1… numbered in Findings Report order, so the labels match that sheet.
+function wordEntryLabels(entries) {
+  const RANK = { finding: 0, observation: 1 };
+  const labels = new Map();
+  let f = 0, o = 0;
+  entries.map((e, i) => ({ e, i })).sort((a, b) => {
+    const as = (a.e.score || '').trim().toLowerCase();
+    const bs = (b.e.score || '').trim().toLowerCase();
+    const ar = as in RANK ? RANK[as] : 2;
+    const br = bs in RANK ? RANK[bs] : 2;
+    if (ar !== br) return ar - br;
+    const ac = (a.e.teamGuideCitation || '').trim();
+    const bc = (b.e.teamGuideCitation || '').trim();
+    if (!!ac !== !!bc) return ac ? -1 : 1;
+    if (ac && bc && ac !== bc) return ac < bc ? -1 : 1;
+    return a.i - b.i;
+  }).forEach(({ e }) => {
+    const s = (e.score || '').trim().toLowerCase();
+    labels.set(e, s === 'finding' ? 'F-' + (++f) : s === 'observation' ? 'O-' + (++o) : '');
+  });
+  return labels;
+}
+
+// Natural pixel size of a stored photo, so the embedded image keeps its shape.
+function wordImageSize(bytes, type) {
+  return new Promise(resolve => {
+    try {
+      const url = URL.createObjectURL(new Blob([bytes], { type: type || 'image/jpeg' }));
+      const img = new Image();
+      img.onload  = () => { URL.revokeObjectURL(url); resolve({ w: img.naturalWidth  || 1600, h: img.naturalHeight || 1200 }); };
+      img.onerror = () => { URL.revokeObjectURL(url); resolve({ w: 1600, h: 1200 }); };
+      img.src = url;
+    } catch (e) { resolve({ w: 1600, h: 1200 }); }
+  });
+}
+
+async function generateWordReport() {
+  if (typeof docx === 'undefined') { showToast('Word library not loaded — go online once first', true); return; }
+  closeExportDialog();
+
+  // Same entry set, draft handling and date filter as the ZIP export.
+  let allEntries = JSON.parse(JSON.stringify(savedEntries));
+  const loc  = document.getElementById('siteName').value.trim();
+  const prot = document.getElementById('protocolArea').value.trim();
+  const tgc  = document.getElementById('teamGuideCitation').value.trim();
+  const scr  = document.getElementById('entryScore').value.trim();
+  const det  = document.getElementById('entryDetails').value.trim();
+  if (loc || det || Object.keys(currentPhotos).length > 0) {
+    allEntries.push({
+      id: currentEntryId, siteName: loc, location: loc, protocolArea: prot,
+      teamGuideCitation: tgc, score: scr, details: det,
+      latitude:    currentGPS ? currentGPS.latitude  : null,
+      longitude:   currentGPS ? currentGPS.longitude : null,
+      gpsAccuracy: currentGPS ? currentGPS.accuracy  : null,
+      timestamp: new Date().toISOString(),
+      photos: Object.assign({}, currentPhotos)
+    });
+  }
+  const dateRange = getExportDateRange();
+  const beforeFilter = allEntries.length;
+  allEntries = allEntries.filter(e => entryInRange(e, dateRange));
+  if (allEntries.length === 0) {
+    showToast(beforeFilter === 0 ? 'Nothing to export' : 'No entries in selected date range', true);
+    return;
+  }
+
+  showToast('Building Word report…');
+
+  // Photo numbering mirrors runExport(): a missing photo does not take a number.
+  const labels = wordEntryLabels(allEntries);
+  const items = [];
+  const missedKeys = [];
+  let seq = 1, misses = 0;
+  for (const entry of allEntries) {
+    for (const slot of wordPhotoSlots(entry)) {
+      const info = entry.photos[slot];
+      if (!info || !info.dbKey) continue;
+      const pd = await loadPhotoBytes(info.dbKey, info.fileType || 'image/jpeg');
+      if (!pd) { misses++; missedKeys.push(info.dbKey); continue; }
+      items.push({ entry, num: seq++, bytes: pd.bytes, type: pd.type, taken: info.timestamp, size: await wordImageSize(pd.bytes, pd.type) });
+    }
+  }
+  if (items.length === 0) { showToast('No photos to put in the report', true); return; }
+
+  const D = docx;
+  const BROWN = '5C3B1E', GRAY = '5A6470', RULE = 'C8CDD9', FONT = 'Arial';
+  const PAGE_W = 10080; // DXA — the 7 in text column
+  const noBorder  = { style: D.BorderStyle.NONE, size: 0, color: 'FFFFFF' };
+  const noBorders = { top: noBorder, bottom: noBorder, left: noBorder, right: noBorder };
+  const thin      = { style: D.BorderStyle.SINGLE, size: 1, color: RULE };
+  const thinAll   = { top: thin, bottom: thin, left: thin, right: thin };
+  const line = (text, opt) => new D.Paragraph({
+    alignment: D.AlignmentType.CENTER, spacing: { before: 0, after: 20 },
+    children: [new D.TextRun(Object.assign({ text, font: FONT, size: 19 }, opt || {}))]
+  });
+
+  const parkName = selectedForest || '';
+  const parkLocs = selectedForest && forestData[selectedForest];
+  const parkCode = (parkLocs && parkLocs.length && parkLocs[0].d) || '';
+  const nFind = allEntries.filter(e => (e.score || '').trim().toLowerCase() === 'finding').length;
+  const nObs  = allEntries.filter(e => (e.score || '').trim().toLowerCase() === 'observation').length;
+  const dates = allEntries.map(e => e.timestamp ? new Date(e.timestamp) : null).filter(d => d && !isNaN(d)).sort((a, b) => a - b);
+  const dfmt  = d => d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+  const span  = dates.length ? (dfmt(dates[0]) === dfmt(dates[dates.length - 1]) ? dfmt(dates[0]) : dfmt(dates[0]) + ' – ' + dfmt(dates[dates.length - 1])) : '';
+  const counts = `${nFind} Finding${nFind === 1 ? '' : 's'}  •  ${nObs} Observation${nObs === 1 ? '' : 's'}  •  ${items.length} photo${items.length === 1 ? '' : 's'}`;
+
+  const banner = new D.Table({
+    width: { size: PAGE_W, type: D.WidthType.DXA }, columnWidths: [PAGE_W],
+    borders: { top: noBorder, bottom: noBorder, left: noBorder, right: noBorder, insideH: noBorder, insideV: noBorder },
+    rows: [new D.TableRow({ children: [new D.TableCell({
+      width: { size: PAGE_W, type: D.WidthType.DXA }, borders: noBorders,
+      shading: { fill: BROWN, type: D.ShadingType.CLEAR },
+      margins: { top: 160, left: 200, bottom: 160, right: 200 },
+      children: [
+        line('PHOTO LOG', { bold: true, color: 'FFFFFF', size: 36 }),
+        line('Site Photographs', { color: 'F2EDE6', size: 26 }),
+        ...(parkName ? [line(parkName + (parkCode ? ' (' + parkCode + ')' : ''), { bold: true, color: 'EBDCC9', size: 22 })] : []),
+        line(span ? counts + '  •  ' + span : counts, { color: 'E8DCCD', size: 18 })
+      ]
+    })] })]
+  });
+
+  function card(item) {
+    const e = item.entry;
+    const label = labels.get(e) || '';
+    const score = (e.score || '').trim();
+    const head = 'Photo ' + String(item.num).padStart(3, '0')
+      + (label || score ? '   •   ' + [label, score].filter(Boolean).join(' ') : '');
+    const facts = [];
+    if (e.latitude != null && e.longitude != null) {
+      facts.push(`GPS: ${e.latitude.toFixed(6)}°N, ${Math.abs(e.longitude).toFixed(6)}°${e.longitude < 0 ? 'W' : 'E'}`
+        + (e.gpsAccuracy != null ? ` (±${e.gpsAccuracy} m)` : ''));
+    }
+    const when = item.taken || e.timestamp;
+    if (when && !isNaN(new Date(when))) {
+      facts.push(new Date(when).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }));
+    }
+    const ref = [e.protocolArea, e.teamGuideCitation].filter(Boolean).join('  •  ');
+    const scale = Math.min(WORD_MAX_W / item.size.w, WORD_MAX_H / item.size.h);
+    return new D.Table({
+      width: { size: PAGE_W, type: D.WidthType.DXA }, columnWidths: [PAGE_W],
+      borders: { top: thin, bottom: thin, left: thin, right: thin, insideH: thin, insideV: thin },
+      // cantSplit keeps the photo and its caption on one page.
+      rows: [new D.TableRow({ cantSplit: true, children: [new D.TableCell({
+        width: { size: PAGE_W, type: D.WidthType.DXA }, borders: thinAll,
+        margins: { top: 140, left: 160, bottom: 140, right: 160 },
+        children: [
+          new D.Paragraph({
+            alignment: D.AlignmentType.CENTER, spacing: { before: 0, after: 120 },
+            children: [new D.ImageRun({
+              type: (item.type || '').includes('png') ? 'png' : 'jpg',
+              data: item.bytes,
+              transformation: { width: Math.round(item.size.w * scale), height: Math.round(item.size.h * scale) },
+              altText: { title: 'Photo ' + item.num, description: e.details || e.location || 'Site photograph', name: 'Photo ' + item.num }
+            })]
+          }),
+          new D.Paragraph({
+            alignment: D.AlignmentType.CENTER, spacing: { before: 0, after: 20 },
+            border: { top: { style: D.BorderStyle.SINGLE, size: 4, color: RULE, space: 6 } },
+            children: [new D.TextRun({ text: head, font: FONT, bold: true, color: BROWN, size: 20 })]
+          }),
+          ...(e.location ? [line(e.location, { bold: true })] : []),
+          ...(e.details  ? [line(e.details)] : []),
+          ...(ref        ? [line(ref, { bold: true, color: BROWN, size: 18 })] : []),
+          ...(facts.length ? [line(facts.join('   •   '), { italics: true, color: GRAY, size: 17 })] : [])
+        ]
+      })] })]
+    });
+  }
+
+  const children = [banner, new D.Paragraph({ spacing: { after: 160 } })];
+  items.forEach((it, i) => {
+    children.push(card(it));
+    if (i < items.length - 1) children.push(new D.Paragraph({ spacing: { after: 160 } }));
+  });
+
+  const doc = new D.Document({
+    sections: [{
+      properties: { page: { size: { width: 12240, height: 15840 }, margin: { top: 1080, right: 1080, bottom: 1080, left: 1080, header: 708, footer: 708 } } },
+      headers: { default: new D.Header({ children: [new D.Paragraph({
+        alignment: D.AlignmentType.RIGHT, spacing: { after: 0 },
+        border: { bottom: { style: D.BorderStyle.SINGLE, size: 4, color: BROWN, space: 4 } },
+        children: [new D.TextRun({ text: (parkName || 'National Park Service') + ' – Photo Documentation', font: FONT, italics: true, color: GRAY, size: 16 })]
+      })] }) },
+      footers: { default: new D.Footer({ children: [new D.Paragraph({
+        alignment: D.AlignmentType.CENTER,
+        border: { top: { style: D.BorderStyle.SINGLE, size: 4, color: BROWN, space: 4 } },
+        children: [
+          new D.TextRun({ text: 'NPS Photo Collector  |  Page ', font: FONT, color: GRAY, size: 16 }),
+          new D.TextRun({ children: [D.PageNumber.CURRENT], font: FONT, bold: true, color: BROWN, size: 16 })
+        ]
+      })] }) },
+      children
+    }]
+  });
+
+  // ---- INTEGRITY GUARD: never silently ship a report missing photos ----
+  if (misses > 0) {
+    const missSet = new Set(missedKeys);
+    const affected = [];
+    allEntries.forEach(e => { const ph = e.photos || {}; if (Object.keys(ph).some(s => ph[s] && missSet.has(ph[s].dbKey))) affected.push(e.location || e.siteName || '(unnamed)'); });
+    const proceed = confirm('⚠️ ' + misses + ' photo(s) could NOT be found and will be MISSING from this report.\n\n' +
+      'Affected entries (' + affected.length + '): ' + (affected.slice(0, 12).join(', ') + (affected.length > 12 ? ', …' : '')) + '\n\n' +
+      'OK = build the report anyway (incomplete)\nCancel = stop');
+    if (!proceed) { showToast('Word report cancelled — ' + misses + ' photos missing', true); return; }
+  }
+
+  try {
+    const blob = await D.Packer.toBlob(doc);
+    const tag  = (parkCode || sanitizeSegment(parkName) || 'NPS').substring(0, 20);
+    await shareOrDownload(blob, 'NPS_Photo_Log_' + tag + '_' + datestamp() + '.docx');
+    showToast(`Word report: ${items.length} photo${items.length === 1 ? '' : 's'}${misses ? ' (⚠ ' + misses + ' missing)' : ''}`);
+  } catch (e) {
+    console.error('Word report error:', e);
+    showToast('Word report error — try again', true);
+  }
+}
 
 // ============================================================================
 // START
