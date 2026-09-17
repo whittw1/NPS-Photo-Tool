@@ -736,8 +736,8 @@ if ('serviceWorker' in navigator) {
     </div>
   </div>
 
-  <!-- -- PROTOCOL AREA DROPDOWN -- -->
-  <div class="site-section">
+  <!-- -- ENVIROCHECK SHEET DROPDOWN (hidden for Observations) -- -->
+  <div class="site-section" id="sheetSection">
     <div class="site-section-row">
       <label>EnviroCheck Sheet</label>
       <select id="protocolArea" onchange="autoSaveCurrent()"
@@ -1490,6 +1490,7 @@ function toggleScore(btn) {
     btn.classList.add('active');
     input.value = score;
   }
+  updateSheetVisibility();
   autoSaveCurrent();
 }
 
@@ -1498,6 +1499,16 @@ function setScoreButtons(value) {
     b.classList.toggle('active', b.dataset.score === value);
   });
   document.getElementById('entryScore').value = value || '';
+  updateSheetVisibility();
+}
+
+// NPS-only: observations are not written against an EnviroCheck sheet, so the
+// sheet picker is hidden while Observation is selected. A sheet chosen before
+// the switch is left in the field, so going back to Finding restores it.
+function updateSheetVisibility() {
+  const sec = document.getElementById('sheetSection');
+  if (!sec) return;
+  sec.style.display = document.getElementById('entryScore').value === 'Observation' ? 'none' : '';
 }
 
 // ============================================================================

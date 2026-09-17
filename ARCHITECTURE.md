@@ -1,6 +1,6 @@
 # NPS Photo Collector — Architecture
 
-**Document date:** 2026-09-16 · reflects service-worker cache `nps-collector-v1.2`, iOS marketing version 1.0 / build 1 (scaffold only, never uploaded).
+**Document date:** 2026-09-17 · reflects service-worker cache `nps-collector-v1.3`, iOS marketing version 1.0 / build 1 (scaffold only, never uploaded).
 
 This is the deep-dive technical reference. Companion documents:
 - [README.md](README.md) — feature overview and the USFS-vs-NPS difference table
@@ -72,7 +72,7 @@ One `<script>` block, organized into banner-commented sections in this order:
 4. **Region/Park data** — generated `REGION_MAP`, `loadForestData()`. **NPS:** no score-visibility logic (the USFS `updateScoreVisibility()` and its three call sites are gone).
 5. **Location list** — picker modal, haversine, GPS auto-suggest, `.txt` import
 6. **Dynamic photo slots** — add/remove/renumber Photos 3+
-7. **Score buttons** — `toggleScore()`, `setScoreButtons()`
+7. **Score buttons** — `toggleScore()`, `setScoreButtons()`, `updateSheetVisibility()`
 8. **Save & New / Clear / Saved panel / Edit** — entry CRUD
 9. **Photo handling** — capture/browse inputs, resize pipeline, IndexedDB layer
 10. **Durable photo storage** — Capacitor Filesystem layer, migration, integrity (§7)
@@ -151,7 +151,7 @@ Key details:
 - `photos[slot].dbKey` is the pointer to the full-resolution bytes: `photoDBKey(entryId, slotId)` = entryId with non-alphanumerics replaced by `_`, then `__`, then the slot id, e.g. `e_1711234567890_a1b2__p_main`. The same key addresses all three storage tiers.
 - `photos[slot].unsaved === true` means the durable write **failed verification** at capture time (§7).
 - **Score is mandatory**: `saveEntryAndNew()` and `saveEdit()` both refuse with the toast "Tap Finding or Observation to score this entry first" until a score button is selected.
-- **NPS scores:** exactly two buttons, `Finding` and `Observation`, always visible. The USFS `General` and the Region 9-only `Safety` / `Positive` / `Corrected On Site` buttons, the `data-r9-only` attributes, `updateScoreVisibility()`, the `.score-btn.hidden` rule and the dead `setGeneralPhoto()` helper were all removed. Entries imported from a USFS backup keep whatever score string they carry; the export sort treats anything other than Finding/Observation as unscored.
+- **NPS scores:** exactly two buttons, `Finding` and `Observation`, always visible. The USFS `General` and the Region 9-only `Safety` / `Positive` / `Corrected On Site` buttons, the `data-r9-only` attributes, `updateScoreVisibility()`, the `.score-btn.hidden` rule and the dead `setGeneralPhoto()` helper were all removed. Entries imported from a USFS backup keep whatever score string they carry; the export sort treats anything other than Finding/Observation as unscored. Selecting `Observation` hides the EnviroCheck sheet card — `updateSheetVisibility()`, called from `toggleScore()` and `setScoreButtons()` so draft restore, edit and clear all land in the right state. A sheet picked before the switch stays in the field and comes back with Finding, and is still saved if the entry is filed as an Observation.
 
 ### Complete on-device key inventory
 
@@ -328,7 +328,7 @@ Note: docx 8.2.2 names every embedded image `.png` inside the package whatever i
 
 Small but load-bearing — it has caused more field bugs than any other file in the sibling app.
 
-- `CACHE_NAME = 'nps-collector-v1.2'` — **must be bumped whenever any cached file changes** (`index.html`, `sw.js` itself, either data JSON). The bump is what makes installed PWAs and the iOS WebView pick up changes.
+- `CACHE_NAME = 'nps-collector-v1.3'` — **must be bumped whenever any cached file changes** (`index.html`, `sw.js` itself, either data JSON). The bump is what makes installed PWAs and the iOS WebView pick up changes.
 - Precache list: `./`, `index.html`, `envirocheck_checklists.json`, `nps_locations.json`, JSZip, ExcelJS, docx.
 - **Install:** `cache.addAll` with every request created as `new Request(url, {cache:'reload'})`. The `reload` is critical: without it the SW install reads through the **browser HTTP cache**, and a stale `max-age` copy of the data JSON gets baked into the brand-new SW cache — this exact bug shipped day-old citation data in the USFS app in July 2026 despite a cache bump. `skipWaiting()` activates immediately.
 - **Activate:** delete every cache whose name ≠ current, then `clients.claim()`.

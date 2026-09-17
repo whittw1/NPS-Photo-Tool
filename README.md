@@ -39,7 +39,7 @@ NPS-Photo-Tool/
 
 | Area | USFS | NPS |
 |---|---|---|
-| Score buttons | Finding, General (+ Region 9-only Safety/Observation/Positive/Corrected) | **Finding, Observation** — always both, no region logic |
+| Score buttons | Finding, General (+ Region 9-only Safety/Observation/Positive/Corrected) | **Finding, Observation** — always both, no region logic. Observation hides the EnviroCheck Sheet picker |
 | Reference data | Team Guide citations (6,445, incl. state supplements) with the ★ Common quick-pick | **NPS EnviroCheck Sheets** — 810 checklist questions from the 17 federal sheets, coded `UO.05`, `SPCC.02`, with each question's citation and P1–P4 priority. Common Citations removed. |
 | Protocol area | 18 Team Guide areas | The 17 EnviroCheck sheets |
 | Reports | ZIP (photos + CSV + XLSX) | ZIP, plus a **Word photo log** (`.docx`) |
@@ -91,6 +91,6 @@ The USFS and NPS apps are kept in sync by hand-porting fixes between them. Keep 
 | Native filesystem (iOS app) | Durable full-resolution photos | `DATA/nps_photos/<dbKey>.jpg` |
 | IndexedDB | Full-resolution photos (web build; redundancy on iOS) | db `nps_photos_v1`, store `photos` |
 | localStorage fallback | Last-resort photo copy | `photo_full_<dbKey>` |
-| Service worker cache | App shell, data JSON, JSZip, ExcelJS, docx | `nps-collector-v1.2` |
+| Service worker cache | App shell, data JSON, JSZip, ExcelJS, docx | `nps-collector-v1.3` |
 
 Unique `nps_*` keys let this app coexist with the USFS and DLA apps on the same device.

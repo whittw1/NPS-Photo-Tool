@@ -1,10 +1,10 @@
 # NPS Photo Collector — Status
 
-**Last updated:** 2026-09-16
+**Last updated:** 2026-09-17
 
 ## Status: ✅ Web app functional and deployed (iOS shell scaffolded, TestFlight deferred)
 
-- **Web (PWA):** Live at https://victorious-ocean-0a7852b10.3.azurestaticapps.net on Azure Static Web Apps (resource `nps-data-collector`, resource group `rg-fs-tools`, Central US, Free tier), auto-deploying on push to `main` via GitHub Actions. Works fully offline after first load via service worker (cache `nps-collector-v1.2`).
+- **Web (PWA):** Live at https://victorious-ocean-0a7852b10.3.azurestaticapps.net on Azure Static Web Apps (resource `nps-data-collector`, resource group `rg-fs-tools`, Central US, Free tier), auto-deploying on push to `main` via GitHub Actions. Works fully offline after first load via service worker (cache `nps-collector-v1.3`).
 - **Source:** https://github.com/whittw1/NPS-Photo-Tool — forked 2026-09-10 from the USFS Photo Collector. Shared code (photo storage, service worker, export pipeline, autosave, search engine) is kept textually identical to the USFS `index.html` so fixes port between the apps as clean copy-paste.
 - **Reference data (2026-09-16):** the app now runs off the **NPS EnviroCheck Sheets**, not the Forest Service Team Guide. `envirocheck_checklists.json` holds 810 checklist questions parsed from the 17 federal sheets (2017 editions) by `build_envirocheck.js`, with each question's regulatory citation and P1–P4 priority. The Team Guide index, its build script and the Common Citations quick-pick were removed.
 - **Locations:** `nps_locations.json` — 449 park units, 43,026 named locations (4.2 MB) built from the NPS Land Resources Division boundary centroids plus the NPS Public POIs and Public Buildings national datasets (no API key needed).
@@ -24,7 +24,7 @@ Two exports share the same date filter and missing-photo guard:
 - Offline-first PWA on Azure Static Web Apps (auto-deploy from GitHub `main`)
 - Region → Park → Location picker over 449 park units / 43,026 locations, GPS Nearby filtering, park auto-detect, nearest-location auto-suggest
 - EnviroCheck question search: 810 questions from the 17 federal sheets, sheet filter chips, synonym matching, phrase ranking hints, recent picks, priority (P1–P4) shown on every result
-- Finding / Observation scoring (required to save)
+- Finding / Observation scoring (required to save); choosing Observation hides the EnviroCheck Sheet picker to keep the form short
 - Photo capture/import with configurable compression, unlimited slots, verified three-tier durable storage, integrity badge
 - ZIP export (photos + CSV + styled XLSX) and Word photo log export, both date-filtered and both blocked on missing photos
 - Storage usage bar, previous-day reminder, JSON backup/restore
