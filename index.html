@@ -279,6 +279,53 @@ if ('serviceWorker' in navigator) {
   .loc-item:last-child { border-bottom: none; }
   .loc-item:hover, .loc-item:active { background: var(--card-alt); }
 
+  /* -- SPCC tank check + personnel (NPS only) -- */
+  .tk-group { margin-bottom: 14px; }
+  .tk-group h4 {
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--accent); margin-bottom: 6px;
+  }
+  .tk-row { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; background: var(--input-bg); overflow: hidden; }
+  .tk-head { display: flex; align-items: center; gap: 9px; padding: 9px 10px; cursor: pointer; }
+  .tk-dot { width: 11px; height: 11px; border-radius: 50%; background: var(--border); flex-shrink: 0; }
+  .tk-dot.ok { background: var(--success); }
+  .tk-dot.diff { background: var(--warning); }
+  .tk-dot.missing { background: var(--danger); }
+  .tk-label { flex: 1; min-width: 0; }
+  .tk-id { display: block; font-size: 13px; font-weight: 600; }
+  .tk-sub { display: block; font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+  .tk-flag { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--accent); }
+  .tk-body { display: none; padding: 10px; border-top: 1px solid var(--border); }
+  .tk-row.open .tk-body { display: block; }
+  .tk-stat { display: flex; gap: 6px; margin-bottom: 8px; }
+  .tk-stat button {
+    flex: 1; padding: 8px 4px; font: 600 12px inherit; font-family: inherit;
+    border: 1.5px solid var(--border); border-radius: 6px; background: var(--input-bg);
+    color: var(--text-dim); cursor: pointer; -webkit-tap-highlight-color: transparent;
+  }
+  .tk-stat button.on.ok      { background: var(--success); border-color: var(--success); color: #fff; }
+  .tk-stat button.on.diff    { background: var(--warning); border-color: var(--warning); color: #fff; }
+  .tk-stat button.on.missing { background: var(--danger);  border-color: var(--danger);  color: #fff; }
+  .tk-field {
+    width: 100%; padding: 8px 10px; margin-bottom: 6px; font-family: inherit; font-size: 13px;
+    border: 1.5px solid var(--border); border-radius: 6px; background: var(--input-bg); color: var(--text);
+  }
+  .tk-field:focus { outline: none; border-color: var(--accent); }
+  .tk-plan { font-size: 11px; color: var(--text-dim); line-height: 1.5; margin-bottom: 8px; }
+  .tk-plan b { color: var(--text); font-weight: 600; }
+  .tk-photos { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
+  .tk-thumb { position: relative; }
+  .tk-thumb img { width: 56px; height: 42px; object-fit: cover; border-radius: 5px; border: 1px solid var(--border); display: block; }
+  .tk-thumb button {
+    position: absolute; top: -5px; right: -5px; width: 18px; height: 18px; padding: 0; line-height: 1;
+    border: none; border-radius: 50%; background: var(--danger); color: #fff; font-size: 11px; cursor: pointer;
+  }
+  .tk-empty { padding: 26px 16px; text-align: center; color: var(--text-dim); font-size: 13px; line-height: 1.6; }
+  .pp-row { display: flex; align-items: center; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--border); }
+  .pp-row:last-child { border-bottom: none; }
+  .pp-name { font-size: 14px; font-weight: 600; }
+  .pp-title { font-size: 12px; color: var(--text-dim); }
+
   .site-import-btn {
     flex-shrink: 0;
     background: transparent;
@@ -641,6 +688,8 @@ if ('serviceWorker' in navigator) {
   </div>
   <div class="header-actions">
     <button class="btn btn-outline btn-sm header-btn-secondary" onclick="showSavedList()">&#128203; List</button>
+    <button class="btn btn-outline btn-sm header-btn-secondary" onclick="showTankList()">&#128738; Tanks</button>
+    <button class="btn btn-outline btn-sm header-btn-secondary" onclick="showPeople()">&#128101; People</button>
     <button class="btn btn-outline btn-sm header-btn-secondary" onclick="showSettings()">&#9881;</button>
     <button class="btn btn-outline btn-sm header-btn-secondary" onclick="importBackup()">&#128229; Import</button>
     <button class="btn btn-outline btn-sm header-btn-secondary" onclick="saveBackup()">&#128228; Backup</button>
@@ -650,6 +699,12 @@ if ('serviceWorker' in navigator) {
       <div class="overflow-dropdown" id="overflowDropdown">
         <button class="overflow-item" onclick="showSavedList();closeOverflow()">
           <span class="oi-icon">&#128203;</span> Saved List
+        </button>
+        <button class="overflow-item" onclick="showTankList();closeOverflow()">
+          <span class="oi-icon">&#128738;</span> SPCC Tank Check
+        </button>
+        <button class="overflow-item" onclick="showPeople();closeOverflow()">
+          <span class="oi-icon">&#128101;</span> Personnel
         </button>
         <button class="overflow-item" onclick="showSettings();closeOverflow()">
           <span class="oi-icon">&#9881;</span> Settings
@@ -901,6 +956,7 @@ if ('serviceWorker' in navigator) {
         <input type="date" id="exportToDate"   onchange="updateExportCount()" style="flex:1;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--input-bg);color:var(--text);">
       </div>
       <div id="exportCount" style="font-size:12px;color:var(--text-dim);margin-top:6px;"></div>
+      <div id="exportExtras" style="font-size:12px;color:var(--text-dim);margin-top:4px;"></div>
     </div>
 
     <div class="dialog-actions" style="flex-wrap:wrap;">
@@ -967,6 +1023,42 @@ if ('serviceWorker' in navigator) {
     <div class="dialog-actions">
       <button class="btn btn-outline btn-sm" onclick="resetPhotoSettings()">Reset</button>
       <button class="btn btn-accent btn-sm" onclick="savePhotoSettings()">Save Settings</button>
+    </div>
+  </div>
+</div>
+
+<!-- -- SPCC TANK CHECK (NPS only) -- -->
+<div class="dialog-overlay" id="tankOverlay" style="display:none;" onclick="if(event.target===this)closeTankList()">
+  <div class="dialog" style="max-width:560px;max-height:88vh;display:flex;flex-direction:column;">
+    <h3>&#128738; SPCC Tank Check</h3>
+    <div id="tankSource" style="font-size:12px;color:var(--text-dim);margin-bottom:8px;"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+      <button class="btn btn-outline btn-sm" onclick="importTankTables()">&#128196; Import Tables</button>
+      <button class="btn btn-outline btn-sm" onclick="addManualTank()">&#10133; Tank Found On Site</button>
+    </div>
+    <div id="tankList" style="flex:1;overflow-y:auto;"></div>
+    <div class="dialog-actions" style="margin-top:10px;">
+      <button class="btn btn-outline btn-sm" onclick="clearTankList()" style="margin-right:auto;color:var(--danger);border-color:var(--danger);">Clear List</button>
+      <button class="btn btn-accent btn-sm" onclick="closeTankList()">Done</button>
+    </div>
+  </div>
+</div>
+<input type="file" id="tankFileInput" accept=".docx" style="display:none" onchange="handleTankFile(event)">
+
+<!-- -- PERSONNEL (NPS only) -- -->
+<div class="dialog-overlay" id="peopleOverlay" style="display:none;" onclick="if(event.target===this)closePeople()">
+  <div class="dialog" style="max-width:460px;max-height:85vh;display:flex;flex-direction:column;">
+    <h3>&#128101; Personnel Contacted</h3>
+    <p style="font-size:13px;">Everyone you spoke with during this audit. Name and title go into the Excel workbook and the Word report.</p>
+    <div style="display:flex;gap:6px;margin-bottom:10px;">
+      <input type="text" id="personName"  class="tk-field" placeholder="Name"  style="flex:1;margin:0;" onkeydown="if(event.key==='Enter')addPerson()">
+      <input type="text" id="personTitle" class="tk-field" placeholder="Title" style="flex:1;margin:0;" onkeydown="if(event.key==='Enter')addPerson()">
+      <button class="btn btn-accent btn-sm" onclick="addPerson()" style="flex-shrink:0;">Add</button>
+    </div>
+    <div id="peopleList" style="flex:1;overflow-y:auto;"></div>
+    <div class="dialog-actions" style="margin-top:10px;">
+      <button class="btn btn-outline btn-sm" onclick="clearPeople()" style="margin-right:auto;color:var(--danger);border-color:var(--danger);">Clear List</button>
+      <button class="btn btn-accent btn-sm" onclick="closePeople()">Done</button>
     </div>
   </div>
 </div>
@@ -2105,6 +2197,8 @@ function allReferencedPhotoKeys() {
   const keys = [];
   savedEntries.forEach(e => { const ph = e.photos || {}; Object.keys(ph).forEach(s => { if (ph[s] && ph[s].dbKey) keys.push(ph[s].dbKey); }); });
   Object.keys(currentPhotos).forEach(s => { if (currentPhotos[s] && currentPhotos[s].dbKey) keys.push(currentPhotos[s].dbKey); });
+  // NPS-only: tank-check photos are watched by the integrity badge too.
+  if (typeof tankRows === 'function') tankRows().forEach(r => Object.values(r.photos || {}).forEach(p => { if (p && p.dbKey) keys.push(p.dbKey); }));
   return keys;
 }
 function paintIntegrityBadge(total, missing, checking) {
@@ -2539,6 +2633,11 @@ async function runExport() {
     entryMaps.push(map);
   }
 
+  // NPS-only: SPCC tank photos carry on the same numbering, after the entries.
+  const tankExport = await buildTankExport(photosFolder, globalSeq, getBytes, exportParkCode());
+  globalSeq   = tankExport.nextSeq;
+  photoCount += tankExport.photoCount;
+
   const maxPhotos = Math.max(2, ...entryMaps.map(m => Object.keys(m).length));
 
   // CSV
@@ -2747,6 +2846,10 @@ async function runExport() {
     col.hidden = true;
   }
 
+  // NPS-only sheets, both skipped when there is nothing in them.
+  addTankSheet(wb, tankExport);
+  addPersonnelSheet(wb);
+
   const xlsxBuf = await wb.xlsx.writeBuffer();
   zip.file('NPS_Report_' + datestamp() + '.xlsx', xlsxBuf);
   zip.file('NPS_Data_'   + datestamp() + '.csv', csv);
@@ -2756,6 +2859,7 @@ async function runExport() {
     const missSet = new Set(missedKeys);
     const affected = [];
     allEntries.forEach(e => { const ph = e.photos || {}; if (Object.keys(ph).some(s => ph[s] && missSet.has(ph[s].dbKey))) affected.push(e.location || e.siteName || '(unnamed)'); });
+    tankExport.missingLabels.forEach(l => affected.push(l));
     const proceed = confirm('⚠️ ' + misses + ' photo(s) could NOT be found and will be MISSING from this export.\n\n' +
       'Affected entries (' + affected.length + '): ' + (affected.slice(0, 12).join(', ') + (affected.length > 12 ? ', …' : '')) + '\n\n' +
       'Those full-res photos are not in device storage. Do NOT rely on this export for them.\n\n' +
@@ -2821,7 +2925,7 @@ async function saveBackup() {
   if (all.length === 0) { showToast('Nothing to back up', true); return; }
 
   const clean = all.map(({ photos, ...rest }) => rest);
-  const blob  = new Blob([JSON.stringify({ version:1, exported: new Date().toISOString(), entries: clean }, null, 2)], { type:'application/json' });
+  const blob  = new Blob([JSON.stringify({ version:1, exported: new Date().toISOString(), entries: clean, tanks: tankData, people: peopleList }, null, 2)], { type:'application/json' });
   await shareOrDownload(blob, `NPS_Backup_${datestamp()}.json`);
   showToast(`Backup saved \u2014 ${clean.length} entries`);
 }
@@ -2864,6 +2968,10 @@ function handleBackupFile(event) {
       }
 
       try { localStorage.setItem(LS_SAVED, JSON.stringify(savedEntries)); } catch(e) {}
+      // NPS-only: restore the tank list and personnel only when this device has
+      // none, so a backup can never wipe work in progress.
+      if (parsed.tanks && parsed.tanks.rows && !tankRows().length) { tankData = parsed.tanks; saveTankData(); }
+      if (Array.isArray(parsed.people) && !peopleList.length) { peopleList = parsed.people; savePeople(); }
       renderSavedPanel();
       updateHeaderBadge();
       if (!action) showToast(`Loaded ${entries.length} entries`);
@@ -3699,6 +3807,587 @@ document.addEventListener('click', e => {
 });
 
 // ============================================================================
+// SPCC TANK CHECK + PERSONNEL  (NPS only — no USFS counterpart)
+// The park's SPCC plan tables are imported straight from its "Tables 1-3" Word
+// file: a .docx is a zip and JSZip is already loaded for the export, so the
+// tables are read in the app with no conversion step. Each tank is marked
+// Confirmed / Discrepancy / Not found, carries notes, corrected values and
+// photos, and a problem becomes a normal finding only when you promote it.
+// ============================================================================
+const LS_TANKS  = 'nps_tanks';
+const LS_PEOPLE = 'nps_people';
+const TANK_STATUS = { ok: 'Confirmed', diff: 'Discrepancy', missing: 'Not found' };
+const TANK_BORDER = {
+  top:    { style:'thin', color:{ argb:'FFC8CDD9' } }, left:  { style:'thin', color:{ argb:'FFC8CDD9' } },
+  bottom: { style:'thin', color:{ argb:'FFC8CDD9' } }, right: { style:'thin', color:{ argb:'FFC8CDD9' } },
+};
+// Header text → the fields worth showing on a walk-through. First match wins,
+// so "container type" is tried before the looser "type".
+const TANK_FIELDS = {
+  id:          ['area and/or tank id', 'tank id', 'container id'],
+  location:    ['tank/container location', 'location'],
+  contents:    ['contents', 'content'],
+  capacity:    ['capacity'],
+  type:        ['container type', 'type'],
+  containment: ['secondary containment method', 'containment'],
+  reason:      ['reason not included'],
+  kind:        ['oil storage container'],
+};
+
+let tankData   = null;  // { source, importedAt, groups: [{title, headers}], rows: [...] }
+let peopleList = [];
+let openTankId = null;
+let _tankSaveTimer = null;
+
+function loadTankData() { try { tankData = JSON.parse(localStorage.getItem(LS_TANKS) || 'null'); } catch (e) { tankData = null; } }
+function saveTankData() {
+  try { localStorage.setItem(LS_TANKS, JSON.stringify(tankData)); }
+  catch (e) { showToast('Storage issue — export soon', true); }
+  updateExportExtrasNote();
+}
+function loadPeople() { try { peopleList = JSON.parse(localStorage.getItem(LS_PEOPLE) || '[]') || []; } catch (e) { peopleList = []; } }
+function savePeople() {
+  try { localStorage.setItem(LS_PEOPLE, JSON.stringify(peopleList)); } catch (e) {}
+  updateExportExtrasNote();
+}
+
+function tankRows() { return (tankData && tankData.rows) || []; }
+function tankRowById(id) { return tankRows().find(r => r.id === id) || null; }
+function checkedTankRows() {
+  return tankRows().filter(r => r.status || r.note || r.observed || Object.keys(r.photos || {}).length);
+}
+function tankField(row, field) {
+  const keys = Object.keys(row.cols || {});
+  for (const want of (TANK_FIELDS[field] || [])) {
+    const k = keys.find(h => h.toLowerCase().includes(want));
+    if (k && row.cols[k]) return row.cols[k];
+  }
+  return '';
+}
+function tankLabel(row) {
+  const id = tankField(row, 'id'), loc = tankField(row, 'location');
+  if (id && loc) return id + ' — ' + loc;
+  return id || loc || tankField(row, 'kind') || 'Tank';
+}
+function tankSub(row) {
+  const cap = tankField(row, 'capacity');
+  return [tankField(row, 'contents'), cap ? cap + ' gal' : '', tankField(row, 'type') || tankField(row, 'kind')]
+    .filter(Boolean).join('  ·  ');
+}
+function exportParkCode() {
+  const locs = selectedForest && forestData[selectedForest];
+  return (locs && locs.length && locs[0].d) || '';
+}
+function updateExportExtrasNote() {
+  const el = document.getElementById('exportExtras');
+  if (!el) return;
+  const bits = [];
+  const n = checkedTankRows().length;
+  if (n) bits.push(n + ' tank check' + (n === 1 ? '' : 's'));
+  if (peopleList.length) bits.push(peopleList.length + ' name' + (peopleList.length === 1 ? '' : 's'));
+  el.textContent = bits.length ? 'Also included, whatever the date filter: ' + bits.join(' and ') + '.' : '';
+}
+
+// ---- Import the SPCC tables out of the park's Word file ----
+function importTankTables() {
+  // Recreate the input; iOS hands back a stale file on a reused one.
+  const old = document.getElementById('tankFileInput');
+  const parent = (old && old.parentNode) || document.body;
+  if (old) old.remove();
+  const input = document.createElement('input');
+  input.type = 'file'; input.id = 'tankFileInput'; input.accept = '.docx';
+  input.style.display = 'none';
+  input.onchange = handleTankFile;
+  parent.appendChild(input);
+  input.click();
+}
+
+const _xmlText = s => String(s)
+  .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+  .replace(/&apos;/g, "'").replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n))
+  .replace(/&amp;/g, '&');
+
+function _docxCell(tc) {
+  const paras = tc.match(/<w:p(?:\s[^>]*)?>[\s\S]*?<\/w:p>|<w:p\/>/g) || [];
+  const txt = paras.map(p => (p.match(/<w:t(?:\s[^>]*)?>[\s\S]*?<\/w:t>/g) || [])
+    .map(t => t.replace(/<[^>]+>/g, '')).join('')).join(' ');
+  return _xmlText(txt).replace(/\s+/g, ' ').trim();
+}
+
+async function parseTankDocx(file) {
+  const zip = await JSZip.loadAsync(file);
+  const docFile = zip.file('word/document.xml');
+  if (!docFile) throw new Error('That is not a Word document.');
+  const xml = await docFile.async('string');
+  const groups = [], rows = [];
+  let seq = 0;
+  for (const tbl of (xml.match(/<w:tbl>[\s\S]*?<\/w:tbl>/g) || [])) {
+    const trs = (tbl.match(/<w:tr(?:\s[^>]*)?>[\s\S]*?<\/w:tr>/g) || [])
+      .map(tr => (tr.match(/<w:tc(?:\s[^>]*)?>[\s\S]*?<\/w:tc>/g) || []).map(_docxCell));
+    if (!trs.length) continue;
+    // A one-cell row is the table's caption; the first wide row is the header.
+    let title = '', headerIdx = -1;
+    for (let i = 0; i < trs.length && i < 5; i++) {
+      const filled = trs[i].filter(Boolean);
+      if (filled.length === 1 && !title) { title = filled[0]; continue; }
+      if (filled.length >= 4) { headerIdx = i; break; }
+    }
+    if (headerIdx < 0) continue;
+    const headers = trs[headerIdx].map((h, i) => h || 'Column ' + (i + 1));
+    const gIdx = groups.length;
+    const parsed = [];
+    for (let i = headerIdx + 1; i < trs.length; i++) {
+      const cells = trs[i];
+      if (!cells.filter(Boolean).length) continue;
+      // Identity cells blank means another discharge scenario for the tank
+      // above, not a new tank. Fold it into the row before it.
+      if (!cells.slice(0, 2).filter(Boolean).length && parsed.length) {
+        const prev = parsed[parsed.length - 1];
+        cells.forEach((c, ci) => {
+          if (!c) return;
+          const key = headers[ci];
+          prev.cols[key] = prev.cols[key] ? prev.cols[key] + '; ' + c : c;
+        });
+        continue;
+      }
+      const cols = {};
+      headers.forEach((h, ci) => { if (cells[ci]) cols[h] = cells[ci]; });
+      if (!Object.keys(cols).length) continue;
+      parsed.push({
+        id: 'tk_' + Date.now().toString(36) + '_' + (seq++) + '_' + Math.random().toString(36).slice(2, 5),
+        group: gIdx, cols, status: '', note: '', observed: '', photos: {}, added: false, checkedAt: null,
+      });
+    }
+    if (!parsed.length) continue;
+    groups.push({ title: title || ('Table ' + (groups.length + 1)), headers });
+    parsed.forEach(r => rows.push(r));
+  }
+  if (!rows.length) throw new Error('No tank tables found in that file.');
+  return { source: file.name, importedAt: new Date().toISOString(), groups, rows };
+}
+
+async function handleTankFile(event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+  showToast('Reading tables…');
+  let parsed;
+  try { parsed = await parseTankDocx(file); }
+  catch (e) { showToast(e.message || 'Could not read that file', true); return; }
+  const summary = parsed.groups
+    .map((g, i) => '• ' + g.title.slice(0, 58) + ': ' + parsed.rows.filter(r => r.group === i).length)
+    .join('\n');
+  const checked = checkedTankRows().length;
+  const warn = checked ? '\n\n⚠️ This REPLACES the current list, including ' + checked + ' checked tank' + (checked === 1 ? '' : 's') + ' and their photos.' : '';
+  if (!confirm(file.name + '\n\n' + parsed.rows.length + ' tanks in ' + parsed.groups.length + ' tables:\n' + summary + warn + '\n\nImport?')) return;
+  tankRows().forEach(r => Object.values(r.photos || {}).forEach(p => { if (p && p.dbKey) deletePhotoFromDB(p.dbKey); }));
+  tankData = parsed;
+  openTankId = null;
+  saveTankData();
+  renderTankList();
+  updateIntegrityBadge();
+  showToast('Imported ' + parsed.rows.length + ' tanks');
+}
+
+// ---- The tank list ----
+function showTankList() { renderTankList(); document.getElementById('tankOverlay').style.display = 'flex'; }
+function closeTankList() { document.getElementById('tankOverlay').style.display = 'none'; }
+
+function tankPlanHtml(r) {
+  if (r.added) return '<div class="tk-plan"><b>Not in the plan</b> — found on site.</div>';
+  const bits = [['Contents','contents'], ['Capacity','capacity'], ['Container type','type'],
+                ['Containment','containment'], ['Reason not included','reason']]
+    .map(([label, f]) => { const v = tankField(r, f); return v ? '<b>' + label + ':</b> ' + esc(v) : ''; })
+    .filter(Boolean);
+  return bits.length ? '<div class="tk-plan">Plan says — ' + bits.join('<br>') + '</div>' : '';
+}
+
+function tankRowHtml(r) {
+  const photos = Object.keys(r.photos || {});
+  const st = r.status || '';
+  return '<div class="tk-row' + (openTankId === r.id ? ' open' : '') + '">' +
+    '<div class="tk-head" onclick="toggleTankRow(\'' + r.id + '\')">' +
+      '<span class="tk-dot ' + st + '"></span>' +
+      '<span class="tk-label"><span class="tk-id">' + esc(tankLabel(r)) + '</span>' +
+      '<span class="tk-sub">' + esc(tankSub(r)) + (photos.length ? '  ·  ' + photos.length + ' photo' + (photos.length === 1 ? '' : 's') : '') + '</span></span>' +
+      (st ? '<span class="tk-flag">' + TANK_STATUS[st] + '</span>' : '') +
+    '</div>' +
+    '<div class="tk-body">' + tankPlanHtml(r) +
+      '<div class="tk-stat">' + ['ok','diff','missing'].map(k =>
+        '<button type="button" class="' + k + (st === k ? ' on ' + k : '') + '" onclick="setTankStatus(\'' + r.id + '\',\'' + k + '\')">' + TANK_STATUS[k] + '</button>').join('') + '</div>' +
+      '<input type="text" class="tk-field" placeholder="What it actually is — capacity, contents, containment" value="' + esc(r.observed || '') + '" oninput="setTankText(\'' + r.id + '\',\'observed\',this.value)">' +
+      '<textarea class="tk-field" rows="2" placeholder="Notes" oninput="setTankText(\'' + r.id + '\',\'note\',this.value)">' + esc(r.note || '') + '</textarea>' +
+      '<div class="tk-photos">' + photos.map(s =>
+        '<span class="tk-thumb"><img src="' + (r.photos[s].thumbnail || '') + '">' +
+        '<button onclick="removeTankPhoto(\'' + r.id + '\',\'' + s + '\')" title="Remove photo">✕</button></span>').join('') +
+        '<button class="btn btn-outline btn-sm" onclick="addTankPhoto(\'' + r.id + '\')">&#128247; Photo</button></div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+        '<button class="btn btn-accent btn-sm" onclick="promoteTank(\'' + r.id + '\')">&#9998; Make a finding</button>' +
+        (r.added ? '<button class="btn btn-outline btn-sm" style="color:var(--danger);border-color:var(--danger);" onclick="deleteTankRow(\'' + r.id + '\')">Remove</button>' : '') +
+      '</div>' +
+      (r.promotedAt ? '<div class="tk-sub" style="margin-top:6px;">Finding started ' + new Date(r.promotedAt).toLocaleString([], { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' }) + '</div>' : '') +
+    '</div></div>';
+}
+
+function renderTankList() {
+  const src = document.getElementById('tankSource');
+  const list = document.getElementById('tankList');
+  if (!list) return;
+  const rows = tankRows();
+  if (!rows.length) {
+    src.textContent = '';
+    list.innerHTML = '<div class="tk-empty">No tank list loaded.<br>Tap <b>Import Tables</b> and pick the park’s <b>Tables 1-3</b> Word file.</div>';
+    return;
+  }
+  const done = rows.filter(r => r.status).length;
+  src.innerHTML = esc(tankData.source || 'Imported list') + ' · <b>' + done + ' of ' + rows.length + '</b> checked';
+  let html = '';
+  (tankData.groups || []).forEach((g, gi) => {
+    const gr = rows.filter(r => r.group === gi);
+    if (gr.length) html += '<div class="tk-group"><h4>' + esc(g.title) + '</h4>' + gr.map(tankRowHtml).join('') + '</div>';
+  });
+  const added = rows.filter(r => r.added);
+  if (added.length) html += '<div class="tk-group"><h4>Found on site, not in the plan</h4>' + added.map(tankRowHtml).join('') + '</div>';
+  list.innerHTML = html;
+}
+
+function toggleTankRow(id) { openTankId = openTankId === id ? null : id; renderTankList(); }
+
+function setTankStatus(id, status) {
+  const r = tankRowById(id); if (!r) return;
+  r.status = r.status === status ? '' : status;
+  r.checkedAt = r.status ? new Date().toISOString() : null;
+  saveTankData();
+  renderTankList();
+}
+
+// Text fields save on a debounce and never re-render, so the field keeps focus.
+function setTankText(id, field, value) {
+  const r = tankRowById(id); if (!r) return;
+  r[field] = value;
+  clearTimeout(_tankSaveTimer);
+  _tankSaveTimer = setTimeout(saveTankData, 400);
+}
+
+function addManualTank() {
+  const label = prompt('Tank or container found on site (ID and location):');
+  if (!label || !label.trim()) return;
+  if (!tankData) tankData = { source: 'Added on site', importedAt: new Date().toISOString(), groups: [], rows: [] };
+  const row = {
+    id: 'tk_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6),
+    group: -1, cols: { 'Area and/or Tank ID #': label.trim() },
+    status: 'diff', note: '', observed: '', photos: {}, added: true, checkedAt: new Date().toISOString(),
+  };
+  tankData.rows.push(row);
+  openTankId = row.id;
+  saveTankData();
+  renderTankList();
+}
+
+function deleteTankRow(id) {
+  const r = tankRowById(id); if (!r) return;
+  if (!confirm('Remove "' + tankLabel(r) + '" from the list?')) return;
+  Object.values(r.photos || {}).forEach(p => { if (p && p.dbKey) deletePhotoFromDB(p.dbKey); });
+  tankData.rows = tankRows().filter(x => x.id !== id);
+  saveTankData();
+  renderTankList();
+  updateIntegrityBadge();
+}
+
+function clearTankList() {
+  if (!tankRows().length) return;
+  if (!confirm('Clear the whole tank list, including checks and tank photos?')) return;
+  tankRows().forEach(r => Object.values(r.photos || {}).forEach(p => { if (p && p.dbKey) deletePhotoFromDB(p.dbKey); }));
+  tankData = null;
+  openTankId = null;
+  saveTankData();
+  renderTankList();
+  updateIntegrityBadge();
+  showToast('Tank list cleared');
+}
+
+// ---- Tank photos: same resize settings and durable write as entry photos ----
+function addTankPhoto(rowId) {
+  const id = 'tankphoto_' + rowId;
+  const old = document.getElementById(id);
+  if (old) old.remove();
+  const input = document.createElement('input');
+  input.type = 'file'; input.accept = 'image/*';
+  input.setAttribute('capture', 'environment');
+  input.id = id; input.style.display = 'none';
+  input.onchange = function () { handleTankPhoto(this, rowId); };
+  document.body.appendChild(input);
+  input.click();
+}
+
+function handleTankPhoto(input, rowId) {
+  const file = input.files[0];
+  if (!file) return;
+  const r = tankRowById(rowId);
+  if (!r) return;
+  const settings = getPhotoSettings();
+  const slot = 'p_tank_' + Object.keys(r.photos || {}).length + '_' + Math.random().toString(36).slice(2, 5);
+  const dbKey = photoDBKey(r.id, slot);
+  const reader = new FileReader();
+  reader.onload = e => {
+    const img = new Image();
+    img.onload = async () => {
+      let w = img.width, h = img.height;
+      if (w > settings.maxWidth || h > settings.maxHeight) {
+        const ratio = Math.min(settings.maxWidth / w, settings.maxHeight / h);
+        w = Math.round(w * ratio); h = Math.round(h * ratio);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      const dataUrl = canvas.toDataURL('image/jpeg', settings.quality);
+      const tc = document.createElement('canvas');
+      const ts = Math.min(80 / w, 1);
+      tc.width = Math.round(w * ts); tc.height = Math.round(h * ts);
+      tc.getContext('2d').drawImage(canvas, 0, 0, tc.width, tc.height);
+      const res = await storePhotoBytes(dbKey, dataUrl);
+      r.photos = r.photos || {};
+      r.photos[slot] = {
+        timestamp: new Date().toISOString(), thumbnail: tc.toDataURL('image/jpeg', 0.4),
+        fileType: 'image/jpeg', dbKey, unsaved: !res.ok,
+      };
+      openTankId = r.id;
+      saveTankData();
+      renderTankList();
+      updateIntegrityBadge();
+      showToast(res.ok ? 'Tank photo saved' : '⚠ Photo did NOT save — storage problem', !res.ok);
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeTankPhoto(rowId, slot) {
+  const r = tankRowById(rowId);
+  if (!r || !r.photos || !r.photos[slot]) return;
+  if (!confirm('Remove this photo?')) return;
+  const key = r.photos[slot].dbKey;
+  delete r.photos[slot];
+  if (key) deletePhotoFromDB(key);
+  openTankId = r.id;
+  saveTankData();
+  renderTankList();
+  updateIntegrityBadge();
+}
+
+// ---- Promote a tank problem into a normal finding (only on request) ----
+async function promoteTank(rowId) {
+  const r = tankRowById(rowId);
+  if (!r) return;
+  const loc = document.getElementById('siteName').value.trim();
+  const det = document.getElementById('entryDetails').value.trim();
+  if ((loc || det || Object.keys(currentPhotos).length > 0) &&
+      !confirm('Start a finding from this tank? The entry in progress will be replaced.')) return;
+  if (editingIndex !== null) { editingIndex = null; setEditModeUI(false); }
+  clearEntryForm(false);
+
+  document.getElementById('siteName').value = tankLabel(r);
+  document.getElementById('protocolArea').value = 'Spill Prevention, Control and Countermeasure';
+  const plan = [tankField(r, 'contents'), tankField(r, 'capacity') ? tankField(r, 'capacity') + ' gal' : '',
+                tankField(r, 'type'), tankField(r, 'containment') ? 'containment: ' + tankField(r, 'containment') : '']
+    .filter(Boolean).join(', ');
+  const sentence = s => { const t = String(s).trim().replace(/[.\s]+$/, ''); return t ? t + '.' : ''; };
+  const parts = [];
+  if (r.added) parts.push('Container found on site is not listed in the SPCC plan.');
+  else if (r.status === 'missing') parts.push('Tank listed in the SPCC plan was not found on site.');
+  else if (plan) parts.push(sentence('SPCC plan lists ' + plan));
+  if (r.observed) parts.push(sentence('Observed: ' + r.observed));
+  if (r.note) parts.push(sentence(r.note));
+  document.getElementById('entryDetails').value = parts.filter(Boolean).join(' ');
+  setScoreButtons('Finding');
+
+  // The finding carries its own copy of the evidence, so the tank sheet and the
+  // photo log each stand alone.
+  let copied = 0;
+  for (const slot of Object.keys(r.photos || {})) {
+    const p = r.photos[slot];
+    if (!p || !p.dbKey) continue;
+    const pd = await loadPhotoBytes(p.dbKey, p.fileType || 'image/jpeg');
+    if (!pd) continue;
+    let slotId;
+    if (copied === 0) slotId = 'p_main';
+    else if (copied === 1) slotId = 'p_wide';
+    else { addPhotoSlot(); slotId = extraPhotoSlots[extraPhotoSlots.length - 1]; }
+    const newKey = photoDBKey(currentEntryId, slotId);
+    const res = await storePhotoBytes(newKey, 'data:image/jpeg;base64,' + uint8ToBase64(pd.bytes));
+    currentPhotos[slotId] = {
+      timestamp: new Date().toISOString(), thumbnail: p.thumbnail || '',
+      fileType: 'image/jpeg', dbKey: newKey, unsaved: !res.ok,
+    };
+    const el = document.getElementById('photo_' + slotId);
+    if (el) {
+      el.classList.add('has-photo');
+      el.innerHTML = '<img src="' + (p.thumbnail || '') + '"><span class="retake-badge">Retake</span><span class="saved-badge">✓</span>';
+    }
+    copied++;
+  }
+
+  r.promotedAt = new Date().toISOString();
+  if (!r.status) { r.status = 'diff'; r.checkedAt = r.promotedAt; }
+  saveTankData();
+  autoSaveCurrent();
+  updateIntegrityBadge();
+  closeTankList();
+  document.getElementById('entryFormTitle').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  showToast('Finding started from ' + tankLabel(r).slice(0, 40) + (copied ? ' with ' + copied + ' photo' + (copied === 1 ? '' : 's') : '') + ' — pick a question, then Save');
+}
+
+// ---- Personnel ----
+function showPeople() {
+  renderPeople();
+  document.getElementById('peopleOverlay').style.display = 'flex';
+  setTimeout(() => document.getElementById('personName').focus(), 100);
+}
+function closePeople() { document.getElementById('peopleOverlay').style.display = 'none'; }
+
+function renderPeople() {
+  const el = document.getElementById('peopleList');
+  if (!el) return;
+  el.innerHTML = peopleList.length
+    ? peopleList.map((p, i) =>
+        '<div class="pp-row"><div style="flex:1;min-width:0;">' +
+        '<div class="pp-name">' + esc(p.name) + '</div>' +
+        '<div class="pp-title">' + esc(p.title || '') + '</div></div>' +
+        '<button class="btn btn-outline btn-sm" style="color:var(--danger);border-color:var(--danger);padding:5px 10px;" onclick="removePerson(' + i + ')">✕</button></div>').join('')
+    : '<div class="tk-empty">Nobody added yet.</div>';
+}
+
+function addPerson() {
+  const n = document.getElementById('personName');
+  const t = document.getElementById('personTitle');
+  const name = n.value.trim();
+  if (!name) { n.focus(); return; }
+  peopleList.push({ name, title: t.value.trim() });
+  savePeople();
+  renderPeople();
+  n.value = ''; t.value = ''; n.focus();
+}
+function removePerson(i) { peopleList.splice(i, 1); savePeople(); renderPeople(); }
+function clearPeople() {
+  if (peopleList.length && confirm('Clear the personnel list?')) { peopleList = []; savePeople(); renderPeople(); }
+}
+
+// ---- Export pieces, called from runExport() and generateWordReport() ----
+// Tank photos continue the export's own numbering, so a tank photo numbered 041
+// is the file ending _0041.jpg, same as any finding photo.
+async function buildTankExport(photosFolder, startSeq, getBytes, parkCode) {
+  const out = { rows: [], nextSeq: startSeq, photoCount: 0, missingLabels: [] };
+  for (const r of checkedTankRows()) {
+    const nums = [];
+    for (const slot of Object.keys(r.photos || {}).sort()) {
+      const info = r.photos[slot];
+      if (!info || !info.dbKey) continue;
+      const pd = await getBytes(info.dbKey, info.fileType || 'image/jpeg');
+      if (!pd) { out.missingLabels.push(tankLabel(r)); continue; }
+      const seq = out.nextSeq++;
+      const name = buildPhotoName({
+        location: tankLabel(r) + (parkCode ? ' — ' + parkCode : ''),
+        timestamp: info.timestamp || r.checkedAt || new Date().toISOString(),
+      }, seq);
+      photosFolder.file(name + (pd.type.includes('png') ? '.png' : '.jpg'), pd.bytes);
+      nums.push(seq);
+      out.photoCount++;
+    }
+    out.rows.push({ row: r, nums });
+  }
+  return out;
+}
+
+function addTankSheet(wb, tankExport) {
+  if (!tankExport || !tankExport.rows.length) return;
+  const ws = wb.addWorksheet('SPCC Tank Check', { views: [{ state:'frozen', ySplit:1, showGridLines:false }] });
+  ws.addRow(['Table','Tank / ID','Contents','Capacity (gal)','Container Type','Secondary Containment',
+             'In Plan','Status','Observed / Correction','Notes','Photos']);
+  tankExport.rows.forEach(({ row, nums }) => {
+    ws.addRow([
+      row.added ? 'Found on site' : (((tankData.groups || [])[row.group] || {}).title || ''),
+      tankLabel(row), tankField(row, 'contents'), tankField(row, 'capacity'),
+      tankField(row, 'type') || tankField(row, 'kind'),
+      tankField(row, 'containment') || tankField(row, 'reason'),
+      row.added ? 'Not listed' : 'Listed',
+      TANK_STATUS[row.status] || 'Not checked',
+      row.observed || '', row.note || '',
+      nums.map(n => String(n).padStart(3, '0')).join(', '),
+    ]);
+  });
+  const head = ws.getRow(1);
+  head.height = 28;
+  head.eachCell(c => {
+    c.font = { name:'Arial', size:10, bold:true, color:{ argb:'FFFFFFFF' } };
+    c.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF5C3B1E' } };
+    c.alignment = { horizontal:'center', vertical:'top', wrapText:true };
+    c.border = TANK_BORDER;
+  });
+  for (let r = 2; r <= ws.rowCount; r++) {
+    const row = ws.getRow(r);
+    row.eachCell({ includeEmpty:true }, (c, n) => {
+      c.font = { name:'Arial', size:10 };
+      c.border = TANK_BORDER;
+      c.alignment = { horizontal: (n === 2 || n === 9 || n === 10) ? 'left' : 'center', vertical:'top', wrapText:true };
+    });
+    const longest = Math.max(
+      String(row.getCell(2).value || '').length / 30,
+      String(row.getCell(9).value || '').length / 34,
+      String(row.getCell(10).value || '').length / 34);
+    row.height = Math.max(18, Math.ceil(longest) * 15 + 6);
+  }
+  [24, 34, 16, 13, 18, 26, 10, 13, 30, 30, 14].forEach((w, i) => { ws.getColumn(i + 1).width = w; });
+}
+
+function addPersonnelSheet(wb) {
+  if (!peopleList.length) return;
+  const ws = wb.addWorksheet('Personnel');
+  ws.addRow(['Name','Title']);
+  peopleList.forEach(p => ws.addRow([p.name || '', p.title || '']));
+  const head = ws.getRow(1);
+  head.height = 24;
+  head.eachCell(c => {
+    c.font = { name:'Arial', size:10, bold:true, color:{ argb:'FFFFFFFF' } };
+    c.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF5C3B1E' } };
+    c.alignment = { horizontal:'left', vertical:'middle' };
+    c.border = TANK_BORDER;
+  });
+  for (let r = 2; r <= ws.rowCount; r++) {
+    ws.getRow(r).eachCell({ includeEmpty:true }, c => { c.font = { name:'Arial', size:10 }; c.border = TANK_BORDER; });
+  }
+  ws.getColumn(1).width = 32;
+  ws.getColumn(2).width = 44;
+}
+
+// "Personnel Contacted" table for the end of the Word photo log.
+function wordPersonnelBlock(D, PAGE_W, FONT, BROWN, RULE) {
+  if (!peopleList.length) return [];
+  const thin = { style: D.BorderStyle.SINGLE, size: 1, color: RULE };
+  const cell = (text, bold, fill) => new D.TableCell({
+    width: { size: PAGE_W / 2, type: D.WidthType.DXA },
+    borders: { top: thin, bottom: thin, left: thin, right: thin },
+    shading: fill ? { fill, type: D.ShadingType.CLEAR } : undefined,
+    margins: { top: 60, left: 120, bottom: 60, right: 120 },
+    children: [new D.Paragraph({ spacing: { before: 0, after: 0 },
+      children: [new D.TextRun({ text, font: FONT, size: 19, bold: !!bold, color: bold ? 'FFFFFF' : '1A1A1A' })] })],
+  });
+  return [
+    new D.Paragraph({ spacing: { before: 240, after: 120 },
+      children: [new D.TextRun({ text: 'Personnel Contacted', font: FONT, bold: true, size: 24, color: BROWN })] }),
+    new D.Table({
+      width: { size: PAGE_W, type: D.WidthType.DXA }, columnWidths: [PAGE_W / 2, PAGE_W / 2],
+      rows: [
+        new D.TableRow({ children: [cell('Name', true, BROWN), cell('Title', true, BROWN)] }),
+        ...peopleList.map(p => new D.TableRow({ children: [cell(p.name || ''), cell(p.title || '')] })),
+      ],
+    }),
+  ];
+}
+
+loadTankData();
+loadPeople();
+updateExportExtrasNote();
+
+// ============================================================================
 // WORD PHOTO LOG (.docx)  — NPS only. Everything above this section is shared
 // with the USFS app and is untouched by this feature.
 // One photo per row at the same numbers the ZIP gives them, so a caption saying
@@ -3890,6 +4579,7 @@ async function generateWordReport() {
     children.push(card(it));
     if (i < items.length - 1) children.push(new D.Paragraph({ spacing: { after: 160 } }));
   });
+  wordPersonnelBlock(D, PAGE_W, FONT, BROWN, RULE).forEach(c => children.push(c));
 
   const doc = new D.Document({
     sections: [{

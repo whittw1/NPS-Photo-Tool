@@ -1,6 +1,6 @@
 # NPS Photo Collector — Architecture
 
-**Document date:** 2026-09-17 · reflects service-worker cache `nps-collector-v1.3`, iOS marketing version 1.0 / build 1 (scaffold only, never uploaded).
+**Document date:** 2026-09-17 · reflects service-worker cache `nps-collector-v1.4`, iOS marketing version 1.0 / build 1 (scaffold only, never uploaded).
 
 This is the deep-dive technical reference. Companion documents:
 - [README.md](README.md) — feature overview and the USFS-vs-NPS difference table
@@ -83,7 +83,8 @@ One `<script>` block, organized into banner-commented sections in this order:
 15. **EnviroCheck question search** — synonyms, hints, sheet chips, recents (§9)
 16. **Persistence** — autosave, `saveAll()`/`loadAll()`, storage monitor
 17. **Utilities** — CSV quoting, datestamp, `shareOrDownload()`, toast, overflow menu
-18. **Word photo log** — the `.docx` export (§11.1). The only section in the file with no USFS counterpart.
+18. **SPCC tank check + personnel** — the tank verification module and the personnel roster (§18). NPS-only.
+19. **Word photo log** — the `.docx` export (§11.1). NPS-only.
 
 All UI event wiring is inline `onclick`/`oninput`/`onchange` attributes plus two document-level click listeners (close citation results, close overflow menu). All rendering is string-built `innerHTML`; user text is escaped through `esc()` (a div-textContent round-trip) before interpolation.
 
@@ -162,7 +163,9 @@ Key details:
 | localStorage | `nps_photo_settings` | `{maxWidth, maxHeight, quality, preset}` |
 | localStorage | `nps_site_list` | Imported `.txt` location list (fallback when no park selected) |
 | localStorage | `nps_selected_park` | Park name, restored on launch (constant `LS_FOREST`) |
-| localStorage | `nps_recent_tg` | Last 10 selected citation codes, most recent first |
+| localStorage | `nps_recent_tg` | Last 10 selected question codes, most recent first |
+| localStorage | `nps_tanks` | The imported SPCC tank list with each row's status, notes, corrections and photo pointers (§18) |
+| localStorage | `nps_people` | Personnel contacted: `[{name, title}]` (§18) |
 | localStorage | `photo_full_<dbKey>` | **Fallback-only** full-res photo as data URL (§7 tier 3) — note: not `nps_`-prefixed, same as USFS; the two apps only collide here if the same entry id is generated twice, which `genId()` makes practically impossible |
 | IndexedDB | db `nps_photos_v1`, store `photos` | `{data: ArrayBuffer, type, size}` keyed by dbKey |
 | Native FS | `DATA/nps_photos/<sanitized dbKey>.jpg` | Durable full-res JPEG (native app only) |
@@ -328,7 +331,7 @@ Note: docx 8.2.2 names every embedded image `.png` inside the package whatever i
 
 Small but load-bearing — it has caused more field bugs than any other file in the sibling app.
 
-- `CACHE_NAME = 'nps-collector-v1.3'` — **must be bumped whenever any cached file changes** (`index.html`, `sw.js` itself, either data JSON). The bump is what makes installed PWAs and the iOS WebView pick up changes.
+- `CACHE_NAME = 'nps-collector-v1.4'` — **must be bumped whenever any cached file changes** (`index.html`, `sw.js` itself, either data JSON). The bump is what makes installed PWAs and the iOS WebView pick up changes.
 - Precache list: `./`, `index.html`, `envirocheck_checklists.json`, `nps_locations.json`, JSZip, ExcelJS, docx.
 - **Install:** `cache.addAll` with every request created as `new Request(url, {cache:'reload'})`. The `reload` is critical: without it the SW install reads through the **browser HTTP cache**, and a stale `max-age` copy of the data JSON gets baked into the brand-new SW cache — this exact bug shipped day-old citation data in the USFS app in July 2026 despite a cache bump. `skipWaiting()` activates immediately.
 - **Activate:** delete every cache whose name ≠ current, then `clients.claim()`.
@@ -395,3 +398,25 @@ Region labels come from the boundary data's `REGION` field (`AKR IMR MWR NCR NER
 - New photo behavior → preserve the verify-after-write contract and the three-tier delete.
 - Anything touching citations/locations data → regenerate via the build scripts, never hand-edit the JSON or the generated `REGION_MAP`.
 - New score value → add the button, extend `SCORE_RANK` in `runExport()`, and update the two validation toasts.
+
+## 18. SPCC tank check and personnel (NPS only)
+
+Two audit needs the photo pipeline alone could not cover. Both live in one section at the bottom of `index.html`, next to the Word log, and both are invisible in the exports until they hold something.
+
+### 18.1 Tank verification
+
+**Import.** The park's SPCC plan tables arrive as a Word file ("MDI Tables 1-3.docx"). A `.docx` is a zip and JSZip is already loaded for the export, so `parseTankDocx()` reads `word/document.xml` in the app and no conversion step is asked of the auditor. Per table it takes the one-cell caption row as the group title, the first row with four or more filled cells as the header, and every row after that as a tank. **Rows whose first two cells are blank are continuation rows** — the plan gives each tank a second row for another discharge scenario — and are folded into the tank above rather than counted as tanks. On the Acadia MDI file that turns 48, 8 and 17 table rows into 24 covered tanks, 6 oil-filled units and 15 excluded containers.
+
+**Field mapping.** `TANK_FIELDS` matches on header text, longest-specific first, so `container type` wins over the looser `type` before `Type of failure (discharge scenario)` can claim it. Every original column is kept in `row.cols` and carried into the export, whatever the plan's vintage; only the six fields worth checking on a walk are shown on screen.
+
+**Checking.** Each row takes one of three states — `ok` Confirmed, `diff` Discrepancy, `missing` Not found — plus a corrected-values field, free notes, and any number of photos through the same verified three-tier write the findings use. `addManualTank()` covers a container found on site that the plan never listed; those rows land in their own group and start as a discrepancy.
+
+**Promotion.** A tank problem becomes a finding only when the auditor asks. `promoteTank()` clears the draft, fills in the location, the SPCC sheet and a description built from the plan's values, the observation and the note, sets the score to Finding, and **copies** the tank's photo bytes into fresh keys under the draft entry, so the tank sheet and the photo log each stand alone. It stamps `promotedAt` on the row and leaves the citation for the auditor to pick.
+
+**Export.** `buildTankExport()` appends tank photos to the same `photos/` folder, continuing the export's own numbering after the entry photos, so "Photo 041" in the tank sheet is the file ending `_0041.jpg`. `addTankSheet()` adds an **SPCC Tank Check** sheet carrying the plan's values beside the status, corrections, notes and photo numbers. Tank photos are counted by the integrity badge and by the export's missing-photo guard. The tank check is **not** date-filtered: a list belongs to the park visit that imported it.
+
+### 18.2 Personnel
+
+A flat `[{name, title}]` roster in `nps_people`, kept at audit level rather than per entry, because that is how the reports read: name then title. It becomes a **Personnel** sheet in the workbook and a "Personnel Contacted" table at the end of the Word log. It does not carry over between audits by design; the dialog has a Clear List button.
+
+Both lists ride along in the JSON backup and are restored only when the device has none, so a backup can never overwrite work in progress.

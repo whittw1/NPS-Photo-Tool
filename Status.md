@@ -4,7 +4,7 @@
 
 ## Status: ✅ Web app functional and deployed (iOS shell scaffolded, TestFlight deferred)
 
-- **Web (PWA):** Live at https://victorious-ocean-0a7852b10.3.azurestaticapps.net on Azure Static Web Apps (resource `nps-data-collector`, resource group `rg-fs-tools`, Central US, Free tier), auto-deploying on push to `main` via GitHub Actions. Works fully offline after first load via service worker (cache `nps-collector-v1.3`).
+- **Web (PWA):** Live at https://victorious-ocean-0a7852b10.3.azurestaticapps.net on Azure Static Web Apps (resource `nps-data-collector`, resource group `rg-fs-tools`, Central US, Free tier), auto-deploying on push to `main` via GitHub Actions. Works fully offline after first load via service worker (cache `nps-collector-v1.4`).
 - **Source:** https://github.com/whittw1/NPS-Photo-Tool — forked 2026-09-10 from the USFS Photo Collector. Shared code (photo storage, service worker, export pipeline, autosave, search engine) is kept textually identical to the USFS `index.html` so fixes port between the apps as clean copy-paste.
 - **Reference data (2026-09-16):** the app now runs off the **NPS EnviroCheck Sheets**, not the Forest Service Team Guide. `envirocheck_checklists.json` holds 810 checklist questions parsed from the 17 federal sheets (2017 editions) by `build_envirocheck.js`, with each question's regulatory citation and P1–P4 priority. The Team Guide index, its build script and the Common Citations quick-pick were removed.
 - **Locations:** `nps_locations.json` — 449 park units, 43,026 named locations (4.2 MB) built from the NPS Land Resources Division boundary centroids plus the NPS Public POIs and Public Buildings national datasets (no API key needed).
@@ -17,7 +17,7 @@ NPS Photo Collector is a single-file Progressive Web App (all HTML/CSS/JS in `in
 Two exports share the same date filter and missing-photo guard:
 
 - **Export ZIP** — renamed photos (`MMDDYY_Location_PARKCODE_NNNN.jpg`), a CSV, and a styled two-sheet Excel workbook whose Findings Report sorts Findings before Observations. Stamps entries as exported and offers a post-export batch delete.
-- **Word Report** — a `.docx` photo log: one photo per row at the same numbers the ZIP gives them, with captions carrying the F-1/O-1 label, location, description, sheet, question, GPS and time. A report only: it never stamps entries or offers deletion.
+- **Word Report** — a `.docx` photo log: one photo per row at the same numbers the ZIP gives them, with captions carrying the F-1/O-1 label, location, description, sheet, question, GPS and time, and a Personnel Contacted table at the end. A report only: it never stamps entries or offers deletion.
 
 ## Current Capabilities
 
@@ -27,7 +27,9 @@ Two exports share the same date filter and missing-photo guard:
 - Finding / Observation scoring (required to save); choosing Observation hides the EnviroCheck Sheet picker to keep the form short
 - Photo capture/import with configurable compression, unlimited slots, verified three-tier durable storage, integrity badge
 - ZIP export (photos + CSV + styled XLSX) and Word photo log export, both date-filtered and both blocked on missing photos
-- Storage usage bar, previous-day reminder, JSON backup/restore
+- **SPCC tank check:** import the park's Tables 1-3 Word file straight into the app, then mark each tank Confirmed / Discrepancy / Not found with corrections, notes and photos, add containers found on site, and promote a problem to a finding by hand. Exports as an SPCC Tank Check sheet with photo numbers continuing the ZIP's own sequence
+- **Personnel contacted:** a name-and-title roster that exports as its own sheet and as a table at the end of the Word report
+- Storage usage bar, previous-day reminder, JSON backup/restore (tank list and personnel included)
 - NPS brown header/accent so it is visually distinct from the green USFS app on the same device
 
 ## Open Items / Decisions to Confirm
