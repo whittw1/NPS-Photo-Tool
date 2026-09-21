@@ -366,8 +366,8 @@ if ('serviceWorker' in navigator) {
   }
   .score-btn {
     flex: 1 1 auto;
-    min-width: 80px;
-    padding: 10px 6px;
+    min-width: 50px;
+    padding: 8px 4px;
     font-size: 13px;
     font-weight: 600;
     font-family: inherit;
@@ -385,6 +385,21 @@ if ('serviceWorker' in navigator) {
     background: var(--accent);
     color: #fff;
   }
+  /* NPS priorities: 1/2a/2b/3 require corrective action (red), 4 is a BMP
+     recommendation (orange), P is a positive practice already in place (green). */
+  .score-btn b { display: block; font-size: 15px; line-height: 1.1; }
+  .score-btn small { display: block; font-size: 9px; font-weight: 500; letter-spacing: 0.02em; margin-top: 2px; opacity: 0.85; white-space: nowrap; }
+  .score-btn.pri-req.active { background: var(--danger);  border-color: var(--danger); }
+  .score-btn.pri-rec.active { background: #ea580c;        border-color: #ea580c; }
+  .score-btn.pri-pos.active { background: var(--success); border-color: var(--success); }
+  .form-hint { font-size: 11px; color: var(--text-dim); display: none; }
+  .form-hint.visible { display: block; }
+  .form-group select {
+    padding: 12px 14px; background: var(--input-bg); border: 1.5px solid var(--border);
+    border-radius: 8px; color: var(--text); font-size: 15px; font-family: inherit;
+    -webkit-appearance: none; appearance: none;
+  }
+  .form-group select:focus { outline: none; border-color: var(--accent); }
   .form-group label {
     font-size: 12px;
     font-weight: 600;
@@ -689,6 +704,7 @@ if ('serviceWorker' in navigator) {
   <div class="header-actions">
     <button class="btn btn-outline btn-sm header-btn-secondary" onclick="showSavedList()">&#128203; List</button>
     <button class="btn btn-outline btn-sm header-btn-secondary" onclick="showTankList()">&#128738; Tanks</button>
+    <button class="btn btn-outline btn-sm header-btn-secondary" onclick="showPriorAudit()">&#128257; Prior</button>
     <button class="btn btn-outline btn-sm header-btn-secondary" onclick="showPeople()">&#128101; People</button>
     <button class="btn btn-outline btn-sm header-btn-secondary" onclick="showSettings()">&#9881;</button>
     <button class="btn btn-outline btn-sm header-btn-secondary" onclick="importBackup()">&#128229; Import</button>
@@ -703,8 +719,11 @@ if ('serviceWorker' in navigator) {
         <button class="overflow-item" onclick="showTankList();closeOverflow()">
           <span class="oi-icon">&#128738;</span> SPCC Tank Check
         </button>
+        <button class="overflow-item" onclick="showPriorAudit();closeOverflow()">
+          <span class="oi-icon">&#128257;</span> Prior Audit
+        </button>
         <button class="overflow-item" onclick="showPeople();closeOverflow()">
-          <span class="oi-icon">&#128101;</span> Personnel
+          <span class="oi-icon">&#128101;</span> Team &amp; Personnel
         </button>
         <button class="overflow-item" onclick="showSettings();closeOverflow()">
           <span class="oi-icon">&#9881;</span> Settings
@@ -791,26 +810,29 @@ if ('serviceWorker' in navigator) {
     </div>
   </div>
 
-  <!-- -- ENVIROCHECK SHEET DROPDOWN (hidden for Observations) -- -->
+  <!-- -- ENVIROCHECK SHEET DROPDOWN -- -->
+  <!-- Values are the sheet titles exactly as the WASO findings spreadsheet
+       pulldown spells them, so the export can be pasted into it unchanged.
+       Picking a question fills this in when it is still blank. -->
   <div class="site-section" id="sheetSection">
     <div class="site-section-row">
       <label>EnviroCheck Sheet</label>
       <select id="protocolArea" onchange="autoSaveCurrent()"
         style="flex:1;padding:12px 14px;background:var(--input-bg);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-size:15px;-webkit-appearance:none;appearance:none;">
         <option value="">— Select EnviroCheck Sheet —</option>
-        <option value="Air Quality">Air Quality</option>
+        <option value="Air Quality Management">Air Quality Management</option>
         <option value="Emergency Planning and Reporting">Emergency Planning and Reporting</option>
-        <option value="Environmentally Preferable Purchasing">Environmentally Preferable Purchasing</option>
+        <option value="Environmental Purchasing and Executive Order 13693">Environmental Purchasing and Executive Order 13693</option>
         <option value="Fuel Storage Management">Fuel Storage Management</option>
-        <option value="Hazard Communication">Hazard Communication</option>
-        <option value="Hazardous Materials and Toxic Substances">Hazardous Materials and Toxic Substances</option>
+        <option value="Hazard Communication (HAZCOM)">Hazard Communication (HAZCOM)</option>
+        <option value="Hazardous Materials and Toxic Substances Management">Hazardous Materials and Toxic Substances Management</option>
         <option value="Hazardous Waste Management">Hazardous Waste Management</option>
         <option value="Integrated Pest Management">Integrated Pest Management</option>
-        <option value="Laboratory Chemicals">Laboratory Chemicals</option>
+        <option value="Laboratory Chemical and Waste Management">Laboratory Chemical and Waste Management</option>
         <option value="Ozone Depleting Substances">Ozone Depleting Substances</option>
         <option value="Respiratory Protection">Respiratory Protection</option>
         <option value="Solid Waste Management">Solid Waste Management</option>
-        <option value="Spill Prevention, Control and Countermeasure">Spill Prevention, Control and Countermeasure</option>
+        <option value="SPCC Planning">SPCC Planning</option>
         <option value="Storm Water Management">Storm Water Management</option>
         <option value="Universal Waste Management">Universal Waste Management</option>
         <option value="Used Oil Management">Used Oil Management</option>
@@ -838,12 +860,44 @@ if ('serviceWorker' in navigator) {
     </div>
 
     <div class="form-group">
-      <label>Score</label>
+      <label>Priority</label>
       <input type="hidden" id="entryScore" value="">
       <div class="score-buttons">
-        <button type="button" class="score-btn" data-score="Finding" onclick="toggleScore(this)">Finding</button>
-        <button type="button" class="score-btn" data-score="Observation" onclick="toggleScore(this)">Observation</button>
+        <button type="button" class="score-btn pri-req" data-score="1"  onclick="toggleScore(this)" title="Priority 1 — immediate threat to health, safety or the environment. Correct immediately."><b>1</b><small>Immediate</small></button>
+        <button type="button" class="score-btn pri-req" data-score="2a" onclick="toggleScore(this)" title="Priority 2a — non-compliance that is a repeat of the last audit, was cited by a regulator, or involves a release. Corrective action required."><b>2a</b><small>Repeat</small></button>
+        <button type="button" class="score-btn pri-req" data-score="2b" onclick="toggleScore(this)" title="Priority 2b — non-compliance with a regulation, executive order or DOI/NPS policy. Corrective action required."><b>2b</b><small>Non-compliance</small></button>
+        <button type="button" class="score-btn pri-req" data-score="3"  onclick="toggleScore(this)" title="Priority 3 — inconsistent with NPS guidance, or likely to become non-compliance. Corrective action required."><b>3</b><small>Guidance</small></button>
+        <button type="button" class="score-btn pri-rec" data-score="4"  onclick="toggleScore(this)" title="Priority 4 — best management practice. Corrective action recommended."><b>4</b><small>BMP</small></button>
+        <button type="button" class="score-btn pri-pos" data-score="P"  onclick="toggleScore(this)" title="Priority P — positive practice already in place, beyond compliance."><b>P</b><small>Positive</small></button>
       </div>
+      <div class="form-hint" id="scoreHint"></div>
+    </div>
+
+    <div class="form-group">
+      <label>Repeat Finding</label>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <div id="repeatDisplay" style="flex:1;min-width:0;font-size:13px;color:var(--text-dim);line-height:1.35;">Not a repeat of the last audit</div>
+        <button class="btn btn-outline btn-sm" onclick="showPriorPicker()" title="Mark this as a repeat of a finding from the previous audit" style="flex-shrink:0;white-space:nowrap;">&#128257; Prior</button>
+        <button class="btn btn-outline btn-sm" id="repeatClearBtn" onclick="clearRepeat()" title="Not a repeat" style="flex-shrink:0;padding:0 10px;display:none;color:var(--danger);border-color:var(--danger);">&#10005;</button>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Description Code</label>
+      <select id="entryDescCode" onchange="descCodeManual()">
+        <option value="">— Select —</option>
+        <option value="Discharge/Releases">Discharge/Releases</option>
+        <option value="Documentation/Recordkeeping">Documentation/Recordkeeping</option>
+        <option value="Implementation">Implementation</option>
+        <option value="Improper Disposal">Improper Disposal</option>
+        <option value="Label/Signs">Label/Signs</option>
+        <option value="Monitoring">Monitoring</option>
+        <option value="Plans">Plans</option>
+        <option value="Reporting">Reporting</option>
+        <option value="Storage">Storage</option>
+        <option value="Training">Training</option>
+      </select>
+      <div class="form-hint" id="descCodeHint"></div>
     </div>
 
     <div class="form-group">
@@ -1045,23 +1099,62 @@ if ('serviceWorker' in navigator) {
 </div>
 <input type="file" id="tankFileInput" accept=".docx" style="display:none" onchange="handleTankFile(event)">
 
-<!-- -- PERSONNEL (NPS only) -- -->
+<!-- -- AUDIT TEAM + PERSONNEL (NPS only) -- -->
 <div class="dialog-overlay" id="peopleOverlay" style="display:none;" onclick="if(event.target===this)closePeople()">
-  <div class="dialog" style="max-width:460px;max-height:85vh;display:flex;flex-direction:column;">
-    <h3>&#128101; Personnel Contacted</h3>
-    <p style="font-size:13px;">Everyone you spoke with during this audit. Name and title go into the Excel workbook and the Word report.</p>
-    <div style="display:flex;gap:6px;margin-bottom:10px;">
-      <input type="text" id="personName"  class="tk-field" placeholder="Name"  style="flex:1;margin:0;" onkeydown="if(event.key==='Enter')addPerson()">
-      <input type="text" id="personTitle" class="tk-field" placeholder="Title" style="flex:1;margin:0;" onkeydown="if(event.key==='Enter')addPerson()">
-      <button class="btn btn-accent btn-sm" onclick="addPerson()" style="flex-shrink:0;">Add</button>
+  <div class="dialog" style="max-width:460px;max-height:88vh;display:flex;flex-direction:column;">
+    <h3>&#128101; Team &amp; Personnel</h3>
+    <div style="flex:1;overflow-y:auto;min-height:0;">
+      <div class="tk-group">
+        <h4>Audit team</h4>
+        <div style="display:flex;gap:6px;margin-bottom:6px;">
+          <input type="text" id="teamName" class="tk-field" placeholder="Auditor" style="flex:1;margin:0;" onkeydown="if(event.key==='Enter')addTeamMember()">
+          <input type="text" id="teamOrg"  class="tk-field" placeholder="Organization" style="flex:1;margin:0;" onkeydown="if(event.key==='Enter')addTeamMember()">
+          <button class="btn btn-accent btn-sm" onclick="addTeamMember()" style="flex-shrink:0;">Add</button>
+        </div>
+        <div id="teamList"></div>
+      </div>
+      <div class="tk-group">
+        <h4>NPS regional environmental coordinator</h4>
+        <div style="display:flex;gap:6px;">
+          <input type="text" id="coordName"  class="tk-field" placeholder="Name"  style="flex:1;margin:0;" oninput="setCoordinator()">
+          <input type="text" id="coordTitle" class="tk-field" placeholder="Title / region" style="flex:1;margin:0;" oninput="setCoordinator()">
+        </div>
+      </div>
+      <div class="tk-group">
+        <h4>Park personnel contacted</h4>
+        <div style="display:flex;gap:6px;margin-bottom:6px;">
+          <input type="text" id="personName"  class="tk-field" placeholder="Name"  style="flex:1;margin:0;" onkeydown="if(event.key==='Enter')addPerson()">
+          <input type="text" id="personTitle" class="tk-field" placeholder="Title" style="flex:1;margin:0;" onkeydown="if(event.key==='Enter')addPerson()">
+          <button class="btn btn-accent btn-sm" onclick="addPerson()" style="flex-shrink:0;">Add</button>
+        </div>
+        <div id="peopleList"></div>
+      </div>
     </div>
-    <div id="peopleList" style="flex:1;overflow-y:auto;"></div>
     <div class="dialog-actions" style="margin-top:10px;">
-      <button class="btn btn-outline btn-sm" onclick="clearPeople()" style="margin-right:auto;color:var(--danger);border-color:var(--danger);">Clear List</button>
+      <button class="btn btn-outline btn-sm" onclick="clearPeople()" style="margin-right:auto;color:var(--danger);border-color:var(--danger);">Clear All</button>
       <button class="btn btn-accent btn-sm" onclick="closePeople()">Done</button>
     </div>
   </div>
 </div>
+
+<!-- -- PRIOR AUDIT (NPS only): the previous audit's findings spreadsheet -- -->
+<div class="dialog-overlay" id="priorOverlay" style="display:none;" onclick="if(event.target===this)closePriorAudit()">
+  <div class="dialog" style="max-width:560px;max-height:88vh;display:flex;flex-direction:column;">
+    <h3 id="priorTitle">&#128257; Prior Audit</h3>
+    <div id="priorSource" style="font-size:12px;color:var(--text-dim);margin-bottom:8px;"></div>
+    <div style="display:flex;gap:6px;margin-bottom:8px;">
+      <input type="text" id="priorSearch" class="tk-field" placeholder="Filter prior findings…" style="flex:1;margin:0;" oninput="renderPriorList()">
+      <button class="btn btn-outline btn-sm" onclick="importPriorAudit()" style="flex-shrink:0;white-space:nowrap;">&#128196; Import</button>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;" id="priorChips"></div>
+    <div id="priorList" style="flex:1;overflow-y:auto;min-height:0;"></div>
+    <div class="dialog-actions" style="margin-top:10px;">
+      <button class="btn btn-outline btn-sm" onclick="clearPriorAudit()" style="margin-right:auto;color:var(--danger);border-color:var(--danger);">Clear</button>
+      <button class="btn btn-accent btn-sm" onclick="closePriorAudit()">Done</button>
+    </div>
+  </div>
+</div>
+<input type="file" id="priorFileInput" accept=".xlsx" style="display:none" onchange="handlePriorFile(event)">
 
 <div class="toast" id="toast"></div>
 
@@ -1582,7 +1675,9 @@ function toggleScore(btn) {
     btn.classList.add('active');
     input.value = score;
   }
-  updateSheetVisibility();
+  // NPS-only: a tap is a decision, so a later question pick no longer overrides it.
+  scoreAuto = false;
+  setHint('scoreHint', '');
   autoSaveCurrent();
 }
 
@@ -1591,16 +1686,6 @@ function setScoreButtons(value) {
     b.classList.toggle('active', b.dataset.score === value);
   });
   document.getElementById('entryScore').value = value || '';
-  updateSheetVisibility();
-}
-
-// NPS-only: observations are not written against an EnviroCheck sheet, so the
-// sheet picker is hidden while Observation is selected. A sheet chosen before
-// the switch is left in the field, so going back to Finding restores it.
-function updateSheetVisibility() {
-  const sec = document.getElementById('sheetSection');
-  if (!sec) return;
-  sec.style.display = document.getElementById('entryScore').value === 'Observation' ? 'none' : '';
 }
 
 // ============================================================================
@@ -1617,7 +1702,7 @@ function saveEntryAndNew() {
     return;
   }
   if (!score) {
-    showToast('Tap Finding or Observation to score this entry first', true);
+    showToast('Tap a priority (1, 2a, 2b, 3, 4 or P) to score this entry first', true);
     return;
   }
 
@@ -1625,9 +1710,12 @@ function saveEntryAndNew() {
     id:        currentEntryId,
     siteName:  location,
     location:  location,
+    park:      currentParkCode(location),
     protocolArea: document.getElementById('protocolArea').value.trim(),
     teamGuideCitation: document.getElementById('teamGuideCitation').value.trim(),
     score: document.getElementById('entryScore').value.trim(),
+    descCode: document.getElementById('entryDescCode').value,
+    repeatOf: currentRepeatOf,
     details:   details,
     latitude:  currentGPS ? currentGPS.latitude  : null,
     longitude: currentGPS ? currentGPS.longitude : null,
@@ -1666,6 +1754,7 @@ function clearEntryForm(confirmFirst = true) {
   document.getElementById('teamGuideCitation').value = '';
   setScoreButtons('');
   clearCitation();
+  resetNpsFields();
   updateGPSDisplay();
 
   const PH = `<span class="placeholder">
@@ -1720,7 +1809,7 @@ function renderSavedPanel() {
           <div class="saved-item-name">${e.location || '(No location)'}</div>
           ${e.protocolArea ? `<div class="saved-item-detail" style="font-size:11px;color:var(--text-dim);">${e.protocolArea}</div>` : ''}
           ${e.teamGuideCitation ? `<div class="saved-item-detail" style="font-size:11px;color:var(--text-dim);font-style:italic;">EC: ${e.teamGuideCitation}</div>` : ''}
-          ${e.score ? `<div class="saved-item-detail" style="font-size:11px;color:var(--text-dim);">Score: ${e.score}</div>` : ''}
+          ${e.score ? `<div class="saved-item-detail" style="font-size:11px;color:var(--text-dim);">Priority ${e.score}${e.descCode ? ' • ' + e.descCode : ''}${e.repeatOf ? ' • repeat of ' + repeatCitation(e.repeatOf) : ''}</div>` : ''}
           ${e.latitude != null ? `<div style="font-size:10px;color:var(--text-dim);">${e.latitude.toFixed(6)}\u00B0N, ${Math.abs(e.longitude).toFixed(6)}\u00B0${e.longitude < 0 ? 'W' : 'E'}</div>` : ''}
           <div class="saved-item-detail">
             ${photoCount} photo${photoCount !== 1 ? 's' : ''}
@@ -1791,6 +1880,7 @@ function editEntry(index) {
   document.getElementById('teamGuideCitation').value = entry.teamGuideCitation || '';
   setScoreButtons(entry.score || '');
   restoreCitationDisplay();
+  loadNpsFields(entry);
   document.getElementById('entryDetails').value  = entry.details  || '';
 
   // Restore GPS
@@ -1880,7 +1970,7 @@ function saveEdit() {
     return;
   }
   if (!score) {
-    showToast('Tap Finding or Observation to score this entry first', true);
+    showToast('Tap a priority (1, 2a, 2b, 3, 4 or P) to score this entry first', true);
     return;
   }
 
@@ -1888,9 +1978,12 @@ function saveEdit() {
     id:          currentEntryId,
     siteName:    location,
     location:    location,
+    park:        currentParkCode(location),
     protocolArea: document.getElementById('protocolArea').value.trim(),
     teamGuideCitation: document.getElementById('teamGuideCitation').value.trim(),
     score: document.getElementById('entryScore').value.trim(),
+    descCode: document.getElementById('entryDescCode').value,
+    repeatOf: currentRepeatOf,
     details:     details,
     latitude:    currentGPS ? currentGPS.latitude  : null,
     longitude:   currentGPS ? currentGPS.longitude : null,
@@ -2367,10 +2460,7 @@ function resetPhotoSettings() {
 // EXPORT (ZIP with photos + CSV + XLSX — no Photo Log)
 // ============================================================================
 function showExportDialog() {
-  const total = savedEntries.length +
-    (document.getElementById('siteName').value.trim() ||
-     document.getElementById('entryDetails').value.trim()  ||
-     Object.keys(currentPhotos).length > 0 ? 1 : 0);
+  const total = savedEntries.length + (draftIsExportable() ? 1 : 0);
   if (total === 0) { showToast('Nothing to export yet', true); return; }
   exportDateMode = 'all';
   document.getElementById('exportFromDate').value = '';
@@ -2497,7 +2587,7 @@ function updateExportCount() {
   const all = savedEntries.slice();
   const loc = document.getElementById('siteName').value.trim();
   const det = document.getElementById('entryDetails').value.trim();
-  if (loc || det || Object.keys(currentPhotos).length > 0) {
+  if (draftIsExportable()) {
     all.push({ location: loc, timestamp: new Date().toISOString(), details: det });
   }
   const match = all.filter(e => entryInRange(e, range)).length;
@@ -2561,14 +2651,19 @@ async function runExport() {
   const tgc  = document.getElementById('teamGuideCitation').value.trim();
   const scr  = document.getElementById('entryScore').value.trim();
   const det  = document.getElementById('entryDetails').value.trim();
-  if (loc || det || Object.keys(currentPhotos).length > 0) {
+  // NPS-only: the location carries over between entries, so a draft counts
+  // only once it has a description or a photo.
+  if (draftIsExportable()) {
     allEntries.push({
       id:        currentEntryId,
       siteName:  loc,
       location:  loc,
+      park:      currentParkCode(loc),
       protocolArea: prot,
       teamGuideCitation: tgc,
       score:     scr,
+      descCode:  document.getElementById('entryDescCode').value,
+      repeatOf:  currentRepeatOf,
       details:   det,
       latitude:  currentGPS ? currentGPS.latitude  : null,
       longitude: currentGPS ? currentGPS.longitude : null,
@@ -2587,6 +2682,8 @@ async function runExport() {
     return;
   }
   if (typeof ExcelJS === 'undefined') { showToast('ExcelJS not loaded \u2014 go online once first', true); return; }
+  // NPS-only: finding numbers are assigned per park after the WASO sort.
+  const numbers = findingNumbers(allEntries);
 
   showToast('Building export\u2026');
 
@@ -2606,8 +2703,11 @@ async function runExport() {
     return null;
   }
 
+  // NPS-only: photos are numbered in finding order (park, priority, sheet,
+  // citation, location), so photo 001 belongs to finding 001.
   const entryMaps = [];
-  for (const entry of allEntries) {
+  for (const ei of findingOrder(allEntries)) {
+    const entry = allEntries[ei];
     const map = {};
     const allSlots = Object.keys(entry.photos || {}).sort((a, b) => {
       const order = s => s === 'p_main' ? 0 : s === 'p_wide' ? 1 : 2 + parseInt(s.replace('p_extra_','') || 0);
@@ -2630,11 +2730,11 @@ async function runExport() {
         map[slot] = null;
       }
     }
-    entryMaps.push(map);
+    entryMaps[ei] = map;
   }
 
   // NPS-only: SPCC tank photos carry on the same numbering, after the entries.
-  const tankExport = await buildTankExport(photosFolder, globalSeq, getBytes, exportParkCode());
+  const tankExport = await buildTankExport(photosFolder, globalSeq, getBytes, (tankData && tankData.park) || exportParkCode());
   globalSeq   = tankExport.nextSeq;
   photoCount += tankExport.photoCount;
 
@@ -2644,7 +2744,8 @@ async function runExport() {
   const fmtCoord = v => v != null ? Number(v).toFixed(6) : '';
   const fmtAcc   = v => v != null ? String(v) : '';
   const photoHeaders = Array.from({length: maxPhotos}, (_, i) => `Photo ${i+1}`);
-  let csv = ['Entry #','Location','Latitude','Longitude','GPS Accuracy (m)','EnviroCheck Sheet','EnviroCheck Question','Score','Description','Timestamp',...photoHeaders].join(',') + '\n';
+  const numLabel = e => { const n = numbers.get(e); return n ? n.str : ''; };
+  let csv = ['Entry #','Park','Finding #','Location','Latitude','Longitude','GPS Accuracy (m)','EnviroCheck Sheet','EnviroCheck Question','Priority','Description Code','Repeat Of','Description','Timestamp',...photoHeaders].join(',') + '\n';
   allEntries.forEach((e, i) => {
     const m = entryMaps[i];
     const sortedSlots = Object.keys(m).sort((a,b) => {
@@ -2653,51 +2754,26 @@ async function runExport() {
     });
     const photoVals = Array.from({length: maxPhotos}, (_, pi) => quote(m[sortedSlots[pi]] || ''));
     csv += [
-      i + 1, quote(e.location),
+      i + 1, quote(entryParkCode(e)), quote(numLabel(e)), quote(e.location),
       quote(fmtCoord(e.latitude)), quote(fmtCoord(e.longitude)), quote(fmtAcc(e.gpsAccuracy)),
       quote(e.protocolArea || ''),
       quote(e.teamGuideCitation || ''),
       quote(e.score || ''),
+      quote(e.descCode || ''),
+      quote(e.repeatOf ? repeatCitation(e.repeatOf) : ''),
       quote(e.details),
       quote(e.timestamp ? new Date(e.timestamp).toLocaleString() : ''),
       ...photoVals
     ].join(',') + '\n';
   });
 
-  // XLSX (ExcelJS) — two sheets:
-  //   1. "Findings Report" (styled, sheet 1 so it opens first)
-  //   2. "NPS Entries"     (raw data with GPS + photo columns, hidden by default)
+  // XLSX (ExcelJS) — NPS-only layout:
+  //   1. "Audit Summary"        per-park counts by priority and citation source
+  //   2. "Audit Report <PARK>"  one per park, the WASO findings columns A–S
+  //   3. "NPS Entries"          raw data with GPS + photo columns, hidden by default
+  //   4. "SPCC Tank Check" and "Personnel" when there is anything in them
   const wb = new ExcelJS.Workbook();
 
-  // -- Helpers shared by both sheets --
-  // EnviroCheck sheet → question-code prefix, used for the Question column when
-  // an entry has a sheet but no specific question picked.
-  const AREA_CODE = {
-    'Air Quality':'AQ','Emergency Planning and Reporting':'EPR',
-    'Environmentally Preferable Purchasing':'EPP','Fuel Storage Management':'FSM',
-    'Hazard Communication':'HC','Hazardous Materials and Toxic Substances':'HM',
-    'Hazardous Waste Management':'HW','Integrated Pest Management':'IPM',
-    'Laboratory Chemicals':'LAB','Ozone Depleting Substances':'ODS',
-    'Respiratory Protection':'RP','Solid Waste Management':'SW',
-    'Spill Prevention, Control and Countermeasure':'SPCC','Storm Water Management':'STW',
-    'Universal Waste Management':'UW','Used Oil Management':'UO','Wastewater Management':'WW',
-  };
-  const fmtFindingDate = ts => {
-    if (!ts) return '';
-    const d = new Date(ts);
-    if (isNaN(d)) return '';
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
-    return `${yyyy}-${mm}-${dd}`;
-  };
-  const questionVal = e => {
-    const c = (e.teamGuideCitation || '').trim();
-    if (c) return c.split(' — ')[0]; // QID part only, no reg citation tail
-    const pa = (e.protocolArea || '').trim();
-    if (pa) return AREA_CODE[pa] || pa;
-    return '—';
-  };
   // Pull the trailing sequence number out of a generated photo filename
   // (e.g. "050526_..._0033.jpg" → 33). Returns null if no match.
   const photoSeqOf = fn => {
@@ -2722,89 +2798,16 @@ async function runExport() {
     groups.push(start === prev ? pad(start) : `${pad(start)}–${pad(prev)}`);
     return groups.join(', ');
   };
-  const thinBorder = {
-    top:    { style:'thin', color:{ argb:'FFC8CDD9' } },
-    left:   { style:'thin', color:{ argb:'FFC8CDD9' } },
-    bottom: { style:'thin', color:{ argb:'FFC8CDD9' } },
-    right:  { style:'thin', color:{ argb:'FFC8CDD9' } },
-  };
+  const photosOf = e => formatPhotoNumbers(Object.values(entryMaps[allEntries.indexOf(e)] || {}).map(photoSeqOf));
 
-  // ===== Sheet 1: Findings Report (styled) =====
-  const fr = wb.addWorksheet('Findings Report', {
-    views: [{ state:'frozen', ySplit:1, showGridLines:false }],
-  });
-  const FR_HEADERS = ['Location','Condition','Score','FindingDate','Question','Photos'];
-  fr.addRow(FR_HEADERS);
+  // ===== Sheets 1–2: Audit Summary, then one WASO "Audit Report" per park =====
+  addAuditSummarySheet(wb, allEntries, numbers, tankExport);
+  addWasoSheets(wb, allEntries, numbers, photosOf);
 
-  // Sort: Findings first, then Observations, then unscored. Within each score
-  // group, citation-bearing entries first (alphanumeric by Question), then
-  // entries without a citation; original entry order as the tiebreak.
-  const SCORE_RANK = { finding: 0, observation: 1 };
-  const sortedEntries = allEntries.map((e,i) => ({e,i})).sort((a,b) => {
-    const ac = (a.e.teamGuideCitation || '').trim();
-    const bc = (b.e.teamGuideCitation || '').trim();
-    const as = (a.e.score || '').trim().toLowerCase();
-    const bs = (b.e.score || '').trim().toLowerCase();
-    const ar = as in SCORE_RANK ? SCORE_RANK[as] : 2;
-    const br = bs in SCORE_RANK ? SCORE_RANK[bs] : 2;
-    if (ar !== br) return ar - br;
-    const ab = ac ? 0 : 1;
-    const bb = bc ? 0 : 1;
-    if (ab !== bb) return ab - bb;
-    if (ac && bc && ac !== bc) return ac < bc ? -1 : 1;
-    return a.i - b.i;
-  });
-  for (const { e, i } of sortedEntries) {
-    const seqs = Object.values(entryMaps[i] || {}).map(photoSeqOf);
-    fr.addRow([
-      e.location || '',
-      e.details || '',
-      e.score || '',
-      fmtFindingDate(e.timestamp),
-      questionVal(e),
-      formatPhotoNumbers(seqs),
-    ]);
-  }
-
-  // Header styling
-  const frHeader = fr.getRow(1);
-  frHeader.height = 28;
-  frHeader.eachCell(c => {
-    c.font = { name:'Arial', size:10, bold:true, color:{ argb:'FFFFFFFF' } };
-    c.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF5C3B1E' } };
-    c.alignment = { horizontal:'center', vertical:'top', wrapText:true };
-    c.border = thinBorder;
-  });
-
-  // Data rows: Arial 10, wrap, Condition left-aligned, others centered, dynamic row height
-  for (let r = 2; r <= fr.rowCount; r++) {
-    const row = fr.getRow(r);
-    row.eachCell({ includeEmpty:true }, (c, colNum) => {
-      c.font = { name:'Arial', size:10 };
-      c.border = thinBorder;
-      c.alignment = colNum === 2
-        ? { horizontal:'left',   vertical:'top', wrapText:true }
-        : { horizontal:'center', vertical:'top', wrapText:true };
-    });
-    const condStr = String(row.getCell(2).value || '');
-    const locStr  = String(row.getCell(1).value || '');
-    const condLines = Math.max(1, Math.floor(condStr.length / 55) + condStr.split('\n').length);
-    const locLines  = Math.max(1, Math.floor(locStr.length  / 32) + 1);
-    row.height = Math.max(18, Math.max(condLines, locLines) * 15 + 6);
-  }
-
-  // Column widths
-  fr.getColumn(1).width = 36; // Location
-  fr.getColumn(2).width = 60; // Condition
-  fr.getColumn(3).width = 12; // Score
-  fr.getColumn(4).width = 13; // FindingDate
-  fr.getColumn(5).width = 16; // Question
-  fr.getColumn(6).width = 18; // Photos
-
-  // ===== Sheet 2: NPS Entries (raw data, hidden GPS + photo cols) =====
+  // ===== Sheet 3: NPS Entries (raw data, hidden GPS + photo cols) =====
   const raw = wb.addWorksheet('NPS Entries');
   const xlsxPhotoCols = Array.from({length: maxPhotos}, (_, i) => `Photo ${i+1}`);
-  raw.addRow(['Entry #','Location','Latitude','Longitude','GPS Accuracy (m)','EnviroCheck Sheet','EnviroCheck Question','Score','Description','Timestamp', ...xlsxPhotoCols]);
+  raw.addRow(['Entry #','Park','Finding #','Location','Latitude','Longitude','GPS Accuracy (m)','EnviroCheck Sheet','EnviroCheck Question','Priority','Description Code','Repeat Of','Description','Timestamp', ...xlsxPhotoCols]);
   allEntries.forEach((e, i) => {
     const m = entryMaps[i];
     const sortedSlots = Object.keys(m).sort((a,b) => {
@@ -2813,11 +2816,13 @@ async function runExport() {
     });
     const photoVals = Array.from({length: maxPhotos}, (_, pi) => m[sortedSlots[pi]] || '');
     raw.addRow([
-      i + 1, e.location || '',
+      i + 1, entryParkCode(e), numLabel(e), e.location || '',
       e.latitude != null ? e.latitude : '', e.longitude != null ? e.longitude : '', e.gpsAccuracy != null ? e.gpsAccuracy : '',
       e.protocolArea || '',
       e.teamGuideCitation || '',
       e.score || '',
+      e.descCode || '',
+      e.repeatOf ? repeatCitation(e.repeatOf) : '',
       e.details || '',
       e.timestamp ? new Date(e.timestamp).toLocaleString() : '',
       ...photoVals
@@ -2825,13 +2830,17 @@ async function runExport() {
   });
   const rawCols = [
     { w:8,  hidden:true },  // Entry #
+    { w:8 },                // Park
+    { w:10 },               // Finding #
     { w:30 },               // Location
     { w:14, hidden:true },  // Latitude
     { w:14, hidden:true },  // Longitude
     { w:16, hidden:true },  // GPS Accuracy
-    { w:20 },               // Protocol Area
+    { w:26 },               // EnviroCheck Sheet
     { w:50 },               // EnviroCheck Question
-    { w:10 },               // Score
+    { w:9 },                // Priority
+    { w:22 },               // Description Code
+    { w:18 },               // Repeat Of
     { w:40 },               // Description
     { w:20 },               // Timestamp
   ];
@@ -2914,7 +2923,8 @@ async function saveBackup() {
     all.push({
       id: currentEntryId,
       siteName: loc,
-      location: loc, protocolArea: prot, teamGuideCitation: tgc, score: scr, details: det,
+      location: loc, park: currentParkCode(loc), protocolArea: prot, teamGuideCitation: tgc, score: scr,
+      descCode: document.getElementById('entryDescCode').value, repeatOf: currentRepeatOf, details: det,
       latitude:  currentGPS ? currentGPS.latitude  : null,
       longitude: currentGPS ? currentGPS.longitude : null,
       gpsAccuracy: currentGPS ? currentGPS.accuracy : null,
@@ -2925,7 +2935,7 @@ async function saveBackup() {
   if (all.length === 0) { showToast('Nothing to back up', true); return; }
 
   const clean = all.map(({ photos, ...rest }) => rest);
-  const blob  = new Blob([JSON.stringify({ version:1, exported: new Date().toISOString(), entries: clean, tanks: tankData, people: peopleList }, null, 2)], { type:'application/json' });
+  const blob  = new Blob([JSON.stringify({ version:1, exported: new Date().toISOString(), entries: clean, tanks: tankData, people: peopleList, audit: auditInfo, prior: priorAudit }, null, 2)], { type:'application/json' });
   await shareOrDownload(blob, `NPS_Backup_${datestamp()}.json`);
   showToast(`Backup saved \u2014 ${clean.length} entries`);
 }
@@ -2972,6 +2982,8 @@ function handleBackupFile(event) {
       // none, so a backup can never wipe work in progress.
       if (parsed.tanks && parsed.tanks.rows && !tankRows().length) { tankData = parsed.tanks; saveTankData(); }
       if (Array.isArray(parsed.people) && !peopleList.length) { peopleList = parsed.people; savePeople(); }
+      if (parsed.audit && !auditInfoFilled()) { auditInfo = normaliseAuditInfo(parsed.audit); saveAuditInfo(); }
+      if (parsed.prior && parsed.prior.findings && !priorFindings().length) { priorAudit = parsed.prior; savePriorAudit(); }
       renderSavedPanel();
       updateHeaderBadge();
       if (!action) showToast(`Loaded ${entries.length} entries`);
@@ -2987,9 +2999,12 @@ function normaliseEntry(e) {
     id:        e.id        || genId(),
     siteName:  e.siteName  || e.location || '',
     location:  e.location  || e.siteName || '',
-    protocolArea: e.protocolArea || '',
+    park:      e.park || entryParkCode(e),
+    protocolArea: normaliseSheet(e.protocolArea || ''),
     teamGuideCitation: e.teamGuideCitation || '',
-    score: e.score || '',
+    score: normalisePriority(e.score || ''),
+    descCode:  e.descCode || '',
+    repeatOf:  e.repeatOf || null,
     details:   e.details   || '',
     latitude:  e.latitude  != null ? e.latitude  : null,
     longitude: e.longitude != null ? e.longitude : null,
@@ -3488,6 +3503,7 @@ function selectCitation(idx) {
   document.getElementById('tgResults').style.display = 'none';
 
   pushRecent(item.c);
+  applyQuestionDefaults(item);
 
   const sel = document.getElementById('tgSelected');
   sel.innerHTML = `<div style="font-weight:600;color:var(--accent);font-family:monospace;">${esc(item.c)}</div>
@@ -3556,6 +3572,8 @@ function autoSaveCurrent() {
       protocolArea:  document.getElementById('protocolArea').value,
       teamGuideCitation: document.getElementById('teamGuideCitation').value,
       score:         document.getElementById('entryScore').value,
+      descCode:      document.getElementById('entryDescCode').value,
+      scoreAuto, descCodeAuto, repeatOf: currentRepeatOf,
       entryDetails:  document.getElementById('entryDetails').value,
       currentPhotos, currentEntryId, extraPhotoSlots, currentGPS
     }));
@@ -3573,6 +3591,7 @@ function loadAll() {
     const s = localStorage.getItem(LS_SAVED);
     if (s) savedEntries = JSON.parse(s);
   } catch(e) {}
+  migrateSavedEntries();
 
   try {
     const c = localStorage.getItem(LS_CURRENT);
@@ -3580,10 +3599,11 @@ function loadAll() {
     const state = JSON.parse(c);
 
     document.getElementById('siteName').value      = state.siteName      || '';
-    document.getElementById('protocolArea').value  = state.protocolArea  || '';
+    document.getElementById('protocolArea').value  = normaliseSheet(state.protocolArea  || '');
     document.getElementById('teamGuideCitation').value = state.teamGuideCitation || '';
-    setScoreButtons(state.score || '');
+    setScoreButtons(normalisePriority(state.score || ''));
     restoreCitationDisplay();
+    loadNpsFields(state);
     document.getElementById('entryDetails').value   = state.entryDetails  || '';
 
     currentPhotos  = state.currentPhotos  || {};
@@ -3807,6 +3827,604 @@ document.addEventListener('click', e => {
 });
 
 // ============================================================================
+// NPS AUDIT DATA  (NPS only — no USFS counterpart)
+// Everything the WASO findings spreadsheet needs beyond a photo and a note:
+// the 1/2a/2b/3/4/P priority, the description code, the park alpha code, the
+// audit team, and the previous audit's findings so a repeat can be marked in
+// the field. Finding numbers are never stored — they are assigned per park at
+// export time, after the WASO sort (priority, sheet, citation, location).
+// ============================================================================
+const LS_AUDIT = 'nps_audit';
+const LS_PRIOR = 'nps_prior';
+
+// The 17 EnviroCheck sheets, named exactly as the WASO spreadsheet pulldown
+// spells them. `re` recognises loose spellings from older spreadsheets
+// ("Solid Waste", "SPCC ") and the question-code prefix ties each to the index.
+const NPS_SHEETS = [
+  { code: 'AQ',   name: 'Air Quality Management',                              re: /\bair\b/i },
+  { code: 'EPR',  name: 'Emergency Planning and Reporting',                    re: /emergency/i },
+  { code: 'EPP',  name: 'Environmental Purchasing and Executive Order 13693',  re: /purchas|preferable|13693|13834/i },
+  { code: 'FSM',  name: 'Fuel Storage Management',                             re: /fuel/i },
+  { code: 'HC',   name: 'Hazard Communication (HAZCOM)',                       re: /hazcom|hazard\s*comm/i },
+  { code: 'HW',   name: 'Hazardous Waste Management',                          re: /hazardous\s*waste/i },
+  { code: 'HM',   name: 'Hazardous Materials and Toxic Substances Management', re: /toxic|hazardous\s*mat/i },
+  { code: 'IPM',  name: 'Integrated Pest Management',                          re: /pest/i },
+  { code: 'ODS',  name: 'Ozone Depleting Substances',                          re: /ozone|\bods\b|refrigerant/i },
+  { code: 'RP',   name: 'Respiratory Protection',                              re: /respirat/i },
+  { code: 'SW',   name: 'Solid Waste Management',                              re: /solid/i },
+  { code: 'SPCC', name: 'SPCC Planning',                                       re: /spcc|spill\s*prev/i },
+  { code: 'STW',  name: 'Storm Water Management',                              re: /storm/i },
+  { code: 'UW',   name: 'Universal Waste Management',                          re: /universal/i },
+  { code: 'UO',   name: 'Used Oil Management',                                 re: /used\s*oil/i },
+  { code: 'WW',   name: 'Wastewater Management',                               re: /waste\s*water|sewage/i },
+  { code: 'LAB',  name: 'Laboratory Chemical and Waste Management',            re: /\blab/i },
+];
+const SHEET_BY_CODE = Object.fromEntries(NPS_SHEETS.map(s => [s.code, s.name]));
+const SHEET_CODE    = Object.fromEntries(NPS_SHEETS.map(s => [s.name, s.code]));
+// Dropdown values used before 2026-09-20, mapped to the WASO spellings.
+const SHEET_RENAMES = {
+  'Air Quality': 'Air Quality Management',
+  'Environmentally Preferable Purchasing': 'Environmental Purchasing and Executive Order 13693',
+  'Hazard Communication': 'Hazard Communication (HAZCOM)',
+  'Hazardous Materials and Toxic Substances': 'Hazardous Materials and Toxic Substances Management',
+  'Laboratory Chemicals': 'Laboratory Chemical and Waste Management',
+  'Spill Prevention, Control and Countermeasure': 'SPCC Planning',
+};
+// Listed explicitly: object key order would put the numeric-looking keys first.
+const PRIORITIES = ['1', '2a', '2b', '3', '4', 'P'];
+const PRIORITY_RANK = { '1': 0, '2a': 1, '2b': 2, '3': 3, '4': 4, 'P': 5 };
+// Question wording → WASO description code. First match wins, so the specific
+// (plans, reporting, records, training) come before the general (storage).
+const DESC_CODE_RULES = [
+  ['Plans',                       /\bplans?\b|swppp|written program|hygiene plan|contingency/i],
+  ['Reporting',                   /\breport|notif|submit|tier\s*(ii|2)|\btri\b|epcra/i],
+  ['Documentation/Recordkeeping', /record|\blogs?\b|document|inventory|retain|manifest|written|\bsds|safety data sheet|certificat/i],
+  ['Training',                    /train|instruct|qualified|competent|awareness/i],
+  ['Label/Signs',                 /label|\bmark(ed|ing)?\b|\bsigns?\b|placard|posted|\bpost\b/i],
+  ['Monitoring',                  /monitor|inspect|\btest(ed|ing)?\b|leak detect|tightness|integrity|calibrat/i],
+  ['Improper Disposal',           /dispos|\bdump|discard|\bburn|landfill|sewer|\bdrain\b/i],
+  ['Discharge/Releases',          /release|spill|discharge|\bleak|runoff|contaminat/i],
+  ['Storage',                     /stor|contain|accumulat|cabinet|\bclosed\b|\bbung|\bdrum|\btank|\bkept\b|segregat|incompatible/i],
+  ['Implementation',              /implement|practice|procedure|program|comply|compliance|determin|identif|evaluat|assess|conduct|perform|establish|designat/i],
+];
+const WASO_HEADERS = [
+  'Park', 'Finding Number', 'Audit Date', 'Priority', 'NPS EnviroCheck Sheet', 'Location',
+  'Citation (for P1, P2a, P2b, and P3)', 'Citation (for BMP; BMP-P for positives)', 'Description Code',
+  'Finding Description', 'Recommended Corrective Action', 'Assigned Estimated Completion Date', 'Responsible Party',
+  'Other Sources Of Information (optional)', 'Repeat Finding', 'Repeat Finding Citation',
+  'Park Comment on Draft Audit Report', 'Progress Towards Corrective Action Completion (Date)', 'Date Completed',
+];
+const WASO_WIDTHS = [8, 10, 12, 9, 28, 24, 26, 24, 22, 64, 30, 16, 16, 18, 10, 20, 24, 22, 14];
+const CITATION_SOURCES = ['40 CFR (EPA)', '29 CFR (OSHA)', '49 CFR (DOT)', 'State / local / other', 'Executive Order', 'DOI policy', 'NPS policy', 'BMP', 'BMP-P', 'No citation'];
+
+let scoreAuto       = false;  // priority came from the question, not a tap
+let descCodeAuto    = false;  // description code came from the question
+let currentRepeatOf = null;   // { year, park, num, priority, sheet, desc }
+let auditInfo       = { team: [], coordinator: '', coordinatorTitle: '' };
+let priorAudit      = null;   // { source, importedAt, year, findings: [...] }
+let priorPickMode   = false;
+let priorChip       = '';     // '' = all, or a park code / sheet code
+
+function setHint(id, text) {
+  const el = document.getElementById(id); if (!el) return;
+  el.textContent = text || '';
+  el.classList.toggle('visible', !!text);
+}
+// The entry in progress goes into an export once it says something: a
+// description or a photo. A location on its own is just the carried-over field.
+function draftIsExportable() {
+  return !!(document.getElementById('entryDetails').value.trim() || Object.keys(currentPhotos).length > 0);
+}
+function sheetCodeOf(text) {
+  const t = String(text || '');
+  if (!t.trim()) return '';
+  if (SHEET_CODE[t]) return SHEET_CODE[t];
+  const hit = NPS_SHEETS.find(s => s.re.test(t));
+  return hit ? hit.code : '';
+}
+function normaliseSheet(v) {
+  v = String(v || '').trim();
+  if (!v || SHEET_CODE[v]) return v;
+  if (SHEET_RENAMES[v]) return SHEET_RENAMES[v];
+  const code = sheetCodeOf(v);
+  return code ? SHEET_BY_CODE[code] : v;
+}
+// Old Finding/Observation scores become 2b/4: a finding was a non-compliance,
+// an observation a recommendation. Anything else unknown is left unscored.
+function normalisePriority(v) {
+  v = String(v || '').trim();
+  if (PRIORITY_RANK[v] !== undefined) return v;
+  const l = v.toLowerCase();
+  if (l === 'p') return 'P';
+  if (l === '2a' || l === '2b') return l;
+  if (l === 'finding') return '2b';
+  if (l === 'observation') return '4';
+  return '';
+}
+function entryParkCode(e) {
+  if (e.park) return e.park;
+  const m = String(e.location || e.siteName || '').match(/ — ([A-Z]{4})$/);
+  return m ? m[1] : '';
+}
+function entryLocationName(e) { return String(e.location || e.siteName || '').replace(/ — [A-Z]{4}$/, '').trim(); }
+function entryQuestionCode(e) { const c = (e.teamGuideCitation || '').trim(); return c ? c.split(' — ')[0].trim() : ''; }
+function entryRegCitation(e)  { const c = (e.teamGuideCitation || '').trim(); const i = c.indexOf(' — '); return i >= 0 ? c.slice(i + 3).trim() : ''; }
+function currentParkCode(location) {
+  return exportParkCode() || entryParkCode({ location });
+}
+let _parkNames = null;
+function parkNameOf(code) {
+  if (!code) return '';
+  if (!_parkNames || !Object.keys(_parkNames).length) {
+    _parkNames = {};
+    for (const [name, locs] of Object.entries(forestData || {})) {
+      const d = locs && locs.length && locs[0].d;
+      if (d && !_parkNames[d]) _parkNames[d] = name;
+    }
+  }
+  return _parkNames[code] || '';
+}
+function repeatCitation(r) { return r ? `${r.year}-Finding ${String(r.num).padStart(3, '0')}` : ''; }
+// Which body the citation comes from — the report's dashboard counts findings this way.
+function citationSource(e) {
+  const p = e.score || '';
+  if (p === 'P') return 'BMP-P';
+  const c = entryRegCitation(e) || (e.teamGuideCitation || '');
+  if (p === '4' || /\bBMP\b|best management/i.test(c)) return 'BMP';
+  if (!c.trim()) return 'No citation';
+  if (/\b40 CFR\b/.test(c)) return '40 CFR (EPA)';
+  if (/\b29 CFR\b/.test(c)) return '29 CFR (OSHA)';
+  if (/\b49 CFR\b/.test(c)) return '49 CFR (DOT)';
+  if (/\bE\.?O\.?\s*\d|Executive Order/i.test(c)) return 'Executive Order';
+  if (/\bDOI\b|\d+\s*DM\s*\d|Departmental Manual/i.test(c)) return 'DOI policy';
+  if (/\bDO[\s-]?\d|Director'?s Order|\bNPS\b|\bRM[\s-]?\d|Reference Manual|Management Policies/i.test(c)) return 'NPS policy';
+  return 'State / local / other';
+}
+
+// ---- Entry form: defaults from the question, description code, repeat ----
+function applyQuestionDefaults(item) {
+  const sel = document.getElementById('protocolArea');
+  const code = String(item.c || '').split('.')[0];
+  if (SHEET_BY_CODE[code]) sel.value = SHEET_BY_CODE[code];
+  const m = String(item.s || '').match(/·\s*P([1-4])\s*$/);
+  const cur = document.getElementById('entryScore').value;
+  if (m && (!cur || scoreAuto)) {
+    const pri = { '1': '1', '2': '2b', '3': '3', '4': '4' }[m[1]];
+    setScoreButtons(pri); scoreAuto = true;
+    setHint('scoreHint', 'Suggested ' + pri + ' from the question’s P' + m[1] + ' — tap to change');
+  }
+  // A suggested code follows the question; a code you picked yourself stays.
+  const dc = suggestDescCode(item.d);
+  if (!document.getElementById('entryDescCode').value || descCodeAuto) setDescCode(dc, true);
+}
+function suggestDescCode(text) {
+  const t = String(text || '');
+  for (const [code, re] of DESC_CODE_RULES) if (re.test(t)) return code;
+  return '';
+}
+function setDescCode(code, auto) {
+  document.getElementById('entryDescCode').value = code || '';
+  descCodeAuto = !!auto && !!code;
+  setHint('descCodeHint', descCodeAuto ? 'Suggested from the question — change if it does not fit' : '');
+}
+function descCodeManual() { descCodeAuto = false; setHint('descCodeHint', ''); autoSaveCurrent(); }
+function resetNpsFields() {
+  setDescCode('', false);
+  scoreAuto = false; setHint('scoreHint', '');
+  currentRepeatOf = null; updateRepeatDisplay();
+}
+function loadNpsFields(src) {
+  document.getElementById('entryDescCode').value = src.descCode || '';
+  descCodeAuto = !!src.descCodeAuto; setHint('descCodeHint', descCodeAuto ? 'Suggested from the question — change if it does not fit' : '');
+  scoreAuto = !!src.scoreAuto; setHint('scoreHint', scoreAuto && src.score ? 'Suggested ' + src.score + ' from the question — tap to change' : '');
+  currentRepeatOf = src.repeatOf || null; updateRepeatDisplay();
+}
+function updateRepeatDisplay() {
+  const el = document.getElementById('repeatDisplay'), btn = document.getElementById('repeatClearBtn');
+  if (!el) return;
+  if (currentRepeatOf) {
+    el.innerHTML = '<b style="color:var(--accent);">Repeat of ' + esc(repeatCitation(currentRepeatOf)) + '</b>' +
+      (currentRepeatOf.priority ? ' (' + esc(currentRepeatOf.priority) + ')' : '') +
+      (currentRepeatOf.desc ? '<br>' + esc(currentRepeatOf.desc) : '');
+    el.style.color = 'var(--text)';
+    btn.style.display = '';
+  } else {
+    el.textContent = priorFindings().length ? 'Not a repeat of the last audit' : 'Not a repeat — import the last audit’s spreadsheet to link one';
+    el.style.color = 'var(--text-dim)';
+    btn.style.display = 'none';
+  }
+}
+function clearRepeat() { currentRepeatOf = null; updateRepeatDisplay(); autoSaveCurrent(); }
+// Bring entries saved under the old labels up to date, once, on load.
+function migrateSavedEntries() {
+  let changed = 0, rescored = 0;
+  savedEntries.forEach(e => {
+    const sheet = normaliseSheet(e.protocolArea || '');
+    if (sheet !== (e.protocolArea || '')) { e.protocolArea = sheet; changed++; }
+    const pri = normalisePriority(e.score || '');
+    if (pri !== (e.score || '')) { e.score = pri; changed++; rescored++; }
+    if (!e.park) { const p = entryParkCode(e); if (p) { e.park = p; changed++; } }
+  });
+  if (changed) {
+    try { localStorage.setItem(LS_SAVED, JSON.stringify(savedEntries)); } catch (e) {}
+    if (rescored) setTimeout(() => showToast(rescored + ' saved entr' + (rescored === 1 ? 'y' : 'ies') + ' re-scored as priorities (Finding → 2b, Observation → 4) — check them', true), 2500);
+  }
+}
+
+// ---- Finding numbers: per park, after the WASO sort ----
+function findingOrder(entries) {
+  const key = e => (e.protocolArea || '').toLowerCase();
+  return entries.map((e, i) => ({ e, i })).sort((a, b) => {
+    const ap = entryParkCode(a.e), bp = entryParkCode(b.e);
+    if (ap !== bp) return ap < bp ? -1 : 1;
+    const ar = PRIORITY_RANK[a.e.score] !== undefined ? PRIORITY_RANK[a.e.score] : 9;
+    const br = PRIORITY_RANK[b.e.score] !== undefined ? PRIORITY_RANK[b.e.score] : 9;
+    if (ar !== br) return ar - br;
+    const as = key(a.e), bs = key(b.e);
+    if (as !== bs) return as < bs ? -1 : 1;
+    const aq = entryQuestionCode(a.e), bq = entryQuestionCode(b.e);
+    if (aq !== bq) return (aq || '￿') < (bq || '￿') ? -1 : 1;
+    const al = entryLocationName(a.e).toLowerCase(), bl = entryLocationName(b.e).toLowerCase();
+    if (al !== bl) return al < bl ? -1 : 1;
+    return a.i - b.i;
+  }).map(x => x.i);
+}
+// Map entry → { park, num, str, label } ("003", "ACAD 003" when several parks).
+function findingNumbers(entries) {
+  const out = new Map();
+  const counters = {};
+  const parks = new Set(entries.map(entryParkCode));
+  for (const i of findingOrder(entries)) {
+    const e = entries[i];
+    const park = entryParkCode(e);
+    counters[park] = (counters[park] || 0) + 1;
+    const str = String(counters[park]).padStart(3, '0');
+    out.set(e, { park, num: counters[park], str, label: (parks.size > 1 && park ? park + ' ' : '') + str });
+  }
+  return out;
+}
+function priorityCounts(entries) {
+  const c = {}; PRIORITIES.forEach(p => c[p] = 0);
+  entries.forEach(e => { if (c[e.score] !== undefined) c[e.score]++; });
+  return c;
+}
+function dateSpan(entries) {
+  const ds = entries.map(e => e.timestamp ? new Date(e.timestamp) : null).filter(d => d && !isNaN(d)).sort((a, b) => a - b);
+  if (!ds.length) return '';
+  const a = ds[0], b = ds[ds.length - 1];
+  const md = d => d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  const full = d => d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+  if (full(a) === full(b)) return full(a);
+  if (a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth()) return md(a) + '–' + b.getDate() + ', ' + b.getFullYear();
+  if (a.getFullYear() === b.getFullYear()) return md(a) + ' – ' + full(b);
+  return full(a) + ' – ' + full(b);
+}
+
+// ---- Audit team + coordinator (kept with the personnel dialog) ----
+function normaliseAuditInfo(a) {
+  a = a || {};
+  return {
+    team: Array.isArray(a.team) ? a.team.filter(t => t && t.name).map(t => ({ name: String(t.name), org: String(t.org || '') })) : [],
+    coordinator: String(a.coordinator || ''), coordinatorTitle: String(a.coordinatorTitle || ''),
+  };
+}
+function loadAuditInfo() { try { auditInfo = normaliseAuditInfo(JSON.parse(localStorage.getItem(LS_AUDIT) || 'null')); } catch (e) { auditInfo = normaliseAuditInfo(null); } }
+function saveAuditInfo() { try { localStorage.setItem(LS_AUDIT, JSON.stringify(auditInfo)); } catch (e) {} }
+function auditInfoFilled() { return !!(auditInfo.team.length || auditInfo.coordinator); }
+function renderTeam() {
+  const el = document.getElementById('teamList'); if (!el) return;
+  el.innerHTML = auditInfo.team.length
+    ? auditInfo.team.map((p, i) =>
+        '<div class="pp-row"><div style="flex:1;min-width:0;"><div class="pp-name">' + esc(p.name) + '</div>' +
+        '<div class="pp-title">' + esc(p.org || '') + '</div></div>' +
+        '<button class="btn btn-outline btn-sm" style="color:var(--danger);border-color:var(--danger);padding:5px 10px;" onclick="removeTeamMember(' + i + ')">✕</button></div>').join('')
+    : '<div class="tk-sub" style="padding:4px 0 8px;">No auditors added yet.</div>';
+  document.getElementById('coordName').value  = auditInfo.coordinator || '';
+  document.getElementById('coordTitle').value = auditInfo.coordinatorTitle || '';
+}
+function addTeamMember() {
+  const n = document.getElementById('teamName'), o = document.getElementById('teamOrg');
+  const name = n.value.trim();
+  if (!name) { n.focus(); return; }
+  auditInfo.team.push({ name, org: o.value.trim() || (auditInfo.team.length ? auditInfo.team[auditInfo.team.length - 1].org : '') });
+  saveAuditInfo(); renderTeam();
+  n.value = ''; n.focus();
+}
+function removeTeamMember(i) { auditInfo.team.splice(i, 1); saveAuditInfo(); renderTeam(); }
+function setCoordinator() {
+  auditInfo.coordinator      = document.getElementById('coordName').value.trim();
+  auditInfo.coordinatorTitle = document.getElementById('coordTitle').value.trim();
+  saveAuditInfo();
+}
+
+// ---- Prior audit: the previous audit's findings spreadsheet, read in-app ----
+function loadPriorAudit() { try { priorAudit = JSON.parse(localStorage.getItem(LS_PRIOR) || 'null'); } catch (e) { priorAudit = null; } }
+function savePriorAudit() { try { localStorage.setItem(LS_PRIOR, JSON.stringify(priorAudit)); } catch (e) { showToast('Storage issue — export soon', true); } }
+function priorFindings() { return (priorAudit && priorAudit.findings) || []; }
+
+function showPriorAudit() {
+  priorPickMode = false; priorChip = '';
+  document.getElementById('priorTitle').innerHTML = '&#128257; Prior Audit';
+  document.getElementById('priorSearch').value = '';
+  renderPriorList();
+  document.getElementById('priorOverlay').style.display = 'flex';
+}
+function showPriorPicker() {
+  priorPickMode = true;
+  priorChip = currentParkCode(document.getElementById('siteName').value.trim()) || '';
+  if (priorChip && !priorFindings().some(f => f.park === priorChip)) priorChip = '';
+  document.getElementById('priorTitle').innerHTML = '&#128257; Repeat of which finding?';
+  document.getElementById('priorSearch').value = '';
+  renderPriorList();
+  document.getElementById('priorOverlay').style.display = 'flex';
+  if (priorFindings().length) setTimeout(() => document.getElementById('priorSearch').focus(), 100);
+}
+function closePriorAudit() { document.getElementById('priorOverlay').style.display = 'none'; }
+
+function importPriorAudit() {
+  const old = document.getElementById('priorFileInput');
+  const parent = (old && old.parentNode) || document.body;
+  if (old) old.remove();
+  const input = document.createElement('input');
+  input.type = 'file'; input.id = 'priorFileInput'; input.accept = '.xlsx';
+  input.style.display = 'none';
+  input.onchange = handlePriorFile;
+  parent.appendChild(input);
+  input.click();
+}
+function _cellText(v) {
+  if (v == null) return '';
+  if (v instanceof Date) return isNaN(v) ? '' : v.toISOString();
+  if (typeof v === 'object') {
+    if (Array.isArray(v.richText)) return v.richText.map(r => r.text || '').join('');
+    if (v.result !== undefined) return _cellText(v.result);
+    if (v.text !== undefined) return _cellText(v.text);
+    if (v.error) return '';
+    return '';
+  }
+  return String(v);
+}
+function _cellDate(v) {
+  if (v instanceof Date) return isNaN(v) ? null : v;
+  if (v && typeof v === 'object' && v.result !== undefined) return _cellDate(v.result);
+  const s = _cellText(v).trim();
+  if (!s) return null;
+  const d = new Date(s);
+  return isNaN(d) ? null : d;
+}
+async function parsePriorWorkbook(file) {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(await file.arrayBuffer());
+  const COLS = {
+    park: /^park\b|alphacode/i, num: /finding\s*(number|no)/i, date: /audit\s*date/i, priority: /^priority/i,
+    sheet: /envirocheck|envcheck/i, location: /^location/i, citation: /citation\s*\(for\s*p1|^citation$/i,
+    bmp: /bmp|beyond/i, descCode: /description\s*code/i, desc: /finding\s*desc/i, action: /^recommended/i,
+    repeat: /^repeat\s*finding$/i, repeatCite: /repeat\s*finding\s*citation/i,
+  };
+  const findings = [];
+  const years = {};
+  wb.eachSheet(ws => {
+    let map = null;
+    ws.eachRow((row, r) => {
+      const vals = row.values || [];
+      if (!map) {
+        if (r > 15) return;
+        const texts = vals.map(_cellText);
+        if (!texts.some(t => COLS.num.test(t)) || !texts.some(t => COLS.priority.test(t))) return;
+        map = {};
+        texts.forEach((t, ci) => {
+          const h = t.trim(); if (!h) return;
+          for (const [k, re] of Object.entries(COLS)) if (map[k] === undefined && re.test(h)) { map[k] = ci; break; }
+        });
+        return;
+      }
+      const get = k => map[k] !== undefined ? _cellText(vals[map[k]]).trim() : '';
+      const desc = get('desc');
+      const numRaw = get('num');
+      if (!desc && !numRaw) return;
+      const numMatch = numRaw.match(/(\d+)\s*$/);
+      const d = map.date !== undefined ? _cellDate(vals[map.date]) : null;
+      if (d) years[d.getFullYear()] = (years[d.getFullYear()] || 0) + 1;
+      const sheet = get('sheet');
+      findings.push({
+        park: get('park').toUpperCase().slice(0, 4), num: numMatch ? parseInt(numMatch[1], 10) : findings.length + 1,
+        date: d ? d.toISOString() : '', priority: normalisePriority(get('priority')) || get('priority'),
+        sheet, code: sheetCodeOf(sheet), location: get('location'),
+        citation: get('citation'), bmp: get('bmp'), descCode: get('descCode'), desc,
+        action: get('action'), repeat: get('repeat'), repeatCite: get('repeatCite'),
+      });
+    });
+  });
+  if (!findings.length) throw new Error('No findings table found — expected the WASO "Audit Report" layout.');
+  const year = Object.keys(years).sort((a, b) => years[b] - years[a])[0] || '';
+  return { source: file.name, importedAt: new Date().toISOString(), year: year ? parseInt(year, 10) : null, findings };
+}
+async function handlePriorFile(event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+  if (typeof ExcelJS === 'undefined') { showToast('ExcelJS not loaded — go online once first', true); return; }
+  showToast('Reading spreadsheet…');
+  let parsed;
+  try { parsed = await parsePriorWorkbook(file); }
+  catch (e) { showToast(e.message || 'Could not read that file', true); return; }
+  if (!parsed.year) {
+    const y = prompt('Which year was that audit? (used in the repeat citation, e.g. 2021-Finding 003)', String(new Date().getFullYear() - 5));
+    if (!y || !/^\d{4}$/.test(y.trim())) return;
+    parsed.year = parseInt(y.trim(), 10);
+  }
+  const parks = {};
+  parsed.findings.forEach(f => { parks[f.park || '?'] = (parks[f.park || '?'] || 0) + 1; });
+  const summary = Object.entries(parks).map(([p, n]) => '• ' + p + ': ' + n).join('\n');
+  const warn = priorFindings().length ? '\n\n⚠️ This REPLACES the prior audit loaded now (' + priorFindings().length + ' findings).' : '';
+  if (!confirm(file.name + '\n\n' + parsed.year + ' audit — ' + parsed.findings.length + ' findings:\n' + summary + warn + '\n\nImport?')) return;
+  priorAudit = parsed;
+  savePriorAudit();
+  renderPriorList();
+  updateRepeatDisplay();
+  showToast('Imported ' + parsed.findings.length + ' prior findings');
+}
+function clearPriorAudit() {
+  if (!priorFindings().length) return;
+  if (!confirm('Clear the prior audit list? Repeats already marked on entries are kept.')) return;
+  priorAudit = null;
+  savePriorAudit();
+  renderPriorList();
+  updateRepeatDisplay();
+}
+function setPriorChip(v) { priorChip = v || ''; renderPriorList(); }
+function renderPriorList() {
+  const src = document.getElementById('priorSource'), list = document.getElementById('priorList'), chips = document.getElementById('priorChips');
+  if (!list) return;
+  const all = priorFindings();
+  if (!all.length) {
+    src.textContent = '';
+    chips.innerHTML = '';
+    list.innerHTML = '<div class="tk-empty">No prior audit loaded.<br>Tap <b>Import</b> and pick the last audit’s <b>findings spreadsheet</b> (.xlsx, WASO layout).' +
+      '<br><span style="font-size:12px;">Findings can then be marked as repeats, and the export writes the repeat citation for you.</span></div>';
+    return;
+  }
+  src.innerHTML = esc(priorAudit.source || 'Imported') + ' · <b>' + priorAudit.year + ' audit</b> · ' + all.length + ' findings';
+  const parks = [...new Set(all.map(f => f.park).filter(Boolean))].sort();
+  const codes = [...new Set(all.map(f => f.code).filter(Boolean))].sort();
+  const chip = (v, label) => '<button type="button" class="tg-chip' + (priorChip === v ? ' active' : '') + '" onclick="setPriorChip(\'' + v + '\')">' + esc(label) + '</button>';
+  chips.innerHTML = chip('', 'All') + (parks.length > 1 ? parks.map(p => chip(p, p)).join('') : '') + codes.map(c => chip(c, c)).join('');
+  const q = document.getElementById('priorSearch').value.trim().toLowerCase();
+  const terms = q ? q.split(/\s+/) : [];
+  const rows = all.map((f, idx) => ({ f, idx })).filter(({ f }) => {
+    if (priorChip && f.park !== priorChip && f.code !== priorChip) return false;
+    if (!terms.length) return true;
+    const hay = [f.park, String(f.num), f.priority, f.sheet, f.location, f.citation, f.bmp, f.descCode, f.desc].join(' ').toLowerCase();
+    return terms.every(t => hay.includes(t));
+  }).sort((a, b) => (a.f.park < b.f.park ? -1 : a.f.park > b.f.park ? 1 : a.f.num - b.f.num));
+  if (!rows.length) { list.innerHTML = '<div class="tg-no-results">No prior findings match.</div>'; return; }
+  let html = '', lastPark = null;
+  for (const { f, idx } of rows) {
+    if (parks.length > 1 && f.park !== lastPark) { html += '<div class="tg-section-header">' + esc(f.park || 'No park') + (parkNameOf(f.park) ? ' — ' + esc(parkNameOf(f.park)) : '') + '</div>'; lastPark = f.park; }
+    const cite = f.citation || f.bmp;
+    html += '<div class="tg-item"' + (priorPickMode ? ' tabindex="0" onclick="pickPriorFinding(' + idx + ')"' : ' style="cursor:default;"') + '>' +
+      '<div><span class="tg-item-code">' + esc(priorAudit.year + '-Finding ' + String(f.num).padStart(3, '0')) + '</span>' +
+      '<span class="tg-item-section">' + esc([f.priority ? 'Priority ' + f.priority : '', f.code || f.sheet, f.location].filter(Boolean).join(' · ')) + '</span></div>' +
+      '<div class="tg-item-desc">' + esc(f.desc) + '</div>' +
+      (cite || f.descCode ? '<div class="tg-item-cite">' + esc([cite, f.descCode].filter(Boolean).join(' · ')) + '</div>' : '') +
+      (f.repeat && /^y/i.test(f.repeat) ? '<div class="tg-item-cite">Was itself a repeat' + (f.repeatCite ? ' of ' + esc(f.repeatCite) : '') + '</div>' : '') +
+      '</div>';
+  }
+  list.innerHTML = html;
+}
+// Mark the entry in progress as a repeat. A repeated Priority 2 becomes 2a.
+function pickPriorFinding(idx) {
+  const f = priorFindings()[idx]; if (!f) return;
+  currentRepeatOf = { year: priorAudit.year, park: f.park, num: f.num, priority: f.priority, sheet: f.sheet, desc: (f.desc || '').slice(0, 140) };
+  const cur = document.getElementById('entryScore').value;
+  let note = '';
+  if ((f.priority === '2a' || f.priority === '2b') && (!cur || cur === '2b')) {
+    setScoreButtons('2a'); scoreAuto = false;
+    setHint('scoreHint', 'Set to 2a — repeat of a Priority 2 finding');
+    note = ' — priority set to 2a';
+  }
+  const sel = document.getElementById('protocolArea');
+  if (!sel.value && f.code) sel.value = SHEET_BY_CODE[f.code];
+  if (!document.getElementById('entryDescCode').value && f.descCode) setDescCode(f.descCode, true);
+  updateRepeatDisplay();
+  closePriorAudit();
+  autoSaveCurrent();
+  showToast('Marked as repeat of ' + repeatCitation(currentRepeatOf) + note);
+}
+
+// ---- Export pieces: the WASO findings sheets and the audit summary ----
+function _styleHeader(row, fill) {
+  row.height = 42;
+  row.eachCell(c => {
+    c.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill || 'FF5C3B1E' } };
+    c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    c.border = TANK_BORDER;
+  });
+}
+function wasoRow(e, n, photos) {
+  const pri = e.score || '';
+  const reg = entryRegCitation(e) || (e.teamGuideCitation || '');
+  const isBmp = pri === '4', isPos = pri === 'P', isFinding = pri && !isBmp && !isPos;
+  const d = e.timestamp ? new Date(e.timestamp) : null;
+  const date = (d && !isNaN(d)) ? new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())) : '';
+  return [
+    n.park || entryParkCode(e), n.str, date, pri, e.protocolArea || '', entryLocationName(e) || n.park || '',
+    isFinding ? reg : '', isPos ? 'BMP-P' : (isBmp ? (reg || 'BMP') : ''),
+    e.descCode || '', e.details || '',
+    '', '', '', '',
+    e.repeatOf ? 'Yes' : (isFinding ? 'No' : ''), e.repeatOf ? repeatCitation(e.repeatOf) : '',
+    '', '', '',
+    photos || '',
+  ];
+}
+// One "Audit Report <PARK>" sheet per park, columns A–S exactly as the WASO
+// template, plus a grey app-only Photos column (T) that is not part of it.
+function addWasoSheets(wb, entries, numbers, photosOf) {
+  const parks = [...new Set(entries.map(entryParkCode))].sort();
+  for (const park of parks) {
+    const ws = wb.addWorksheet(('Audit Report ' + park).trim(), { views: [{ state: 'frozen', xSplit: 2, ySplit: 1, showGridLines: false }] });
+    ws.addRow([...WASO_HEADERS, 'Photos']);
+    _styleHeader(ws.getRow(1));
+    ws.getRow(1).getCell(20).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF8A8F9A' } };
+    for (const i of findingOrder(entries)) {
+      const e = entries[i];
+      if (entryParkCode(e) !== park) continue;
+      const row = ws.addRow(wasoRow(e, numbers.get(e), photosOf(e)));
+      row.eachCell({ includeEmpty: true }, (c, col) => {
+        c.font = { name: 'Arial', size: 10 };
+        c.border = TANK_BORDER;
+        c.alignment = { horizontal: (col === 10 || col === 11 || col === 7 || col === 8 || col === 6) ? 'left' : 'center', vertical: 'top', wrapText: true };
+        if (col === 3 && c.value) c.numFmt = 'm/d/yyyy';
+      });
+      const lines = Math.max(1, Math.ceil(String(row.getCell(10).value || '').length / 60), Math.ceil(String(row.getCell(6).value || '').length / 22));
+      row.height = Math.max(20, lines * 14 + 8);
+    }
+    [...WASO_WIDTHS, 14].forEach((w, i) => { ws.getColumn(i + 1).width = w; });
+  }
+}
+function addAuditSummarySheet(wb, entries, numbers, tankExport) {
+  const ws = wb.addWorksheet('Audit Summary', { views: [{ showGridLines: false }] });
+  const title = t => { const r = ws.addRow([t]); r.getCell(1).font = { name: 'Arial', size: 13, bold: true, color: { argb: 'FF5C3B1E' } }; r.height = 22; return r; };
+  const plain = (vals, bold) => { const r = ws.addRow(vals); r.eachCell(c => { c.font = { name: 'Arial', size: 10, bold: !!bold }; c.alignment = { vertical: 'top', wrapText: true }; }); return r; };
+  title('NPS Environmental Audit — Field Summary');
+  plain(['Exported', new Date().toLocaleString()]);
+  plain(['Audit team', auditInfo.team.map(t => t.name + (t.org ? ' (' + t.org + ')' : '')).join('; ') || '—']);
+  plain(['NPS regional coordinator', [auditInfo.coordinator, auditInfo.coordinatorTitle].filter(Boolean).join(', ') || '—']);
+  plain(['Prior audit', priorAudit ? priorAudit.year + ' — ' + priorFindings().length + ' findings (' + (priorAudit.source || '') + ')' : '—']);
+  ws.addRow([]);
+  const parks = [...new Set(entries.map(entryParkCode))].sort();
+  const head = ws.addRow(['Park', 'Park name', 'Site visit', 'Locations visited', ...PRIORITIES.map(p => 'Priority ' + p), 'Total', 'Repeats', ...CITATION_SOURCES]);
+  _styleHeader(head);
+  for (const park of parks) {
+    const es = entries.filter(e => entryParkCode(e) === park);
+    const pc = priorityCounts(es);
+    const src = {}; CITATION_SOURCES.forEach(s => src[s] = 0);
+    es.forEach(e => { src[citationSource(e)]++; });
+    const locs = [...new Set(es.map(entryLocationName).filter(Boolean))].sort();
+    const r = ws.addRow([park, parkNameOf(park), dateSpan(es), locs.join('; '), ...PRIORITIES.map(p => pc[p]), es.length,
+      es.filter(e => e.repeatOf).length, ...CITATION_SOURCES.map(s => src[s])]);
+    r.eachCell({ includeEmpty: true }, (c, col) => {
+      c.font = { name: 'Arial', size: 10 }; c.border = TANK_BORDER;
+      c.alignment = { horizontal: col <= 4 ? 'left' : 'center', vertical: 'top', wrapText: true };
+    });
+    r.height = Math.max(20, Math.ceil(locs.join('; ').length / 48) * 14 + 8);
+  }
+  ws.addRow([]);
+  if (tankExport && tankExport.rows.length) {
+    const t = tankExport.rows.map(x => x.row);
+    plain(['SPCC tank check', t.length + ' checked: ' + ['ok', 'diff', 'missing'].map(k => t.filter(x => x.status === k).length + ' ' + TANK_STATUS[k].toLowerCase()).join(', ') +
+      (t.filter(x => x.added).length ? ', ' + t.filter(x => x.added).length + ' found on site' : '')]);
+  }
+  if (peopleList.length) plain(['Park personnel contacted', peopleList.map(p => p.name + (p.title ? ' — ' + p.title : '')).join('; ')]);
+  ws.getColumn(1).width = 26; ws.getColumn(2).width = 34; ws.getColumn(3).width = 20; ws.getColumn(4).width = 50;
+  for (let c = 5; c <= 5 + PRIORITIES.length + 1 + CITATION_SOURCES.length; c++) ws.getColumn(c).width = 11;
+  ws.getRow(head.number).height = 44;
+}
+
+loadAuditInfo();
+loadPriorAudit();
+
+// ============================================================================
 // SPCC TANK CHECK + PERSONNEL  (NPS only — no USFS counterpart)
 // The park's SPCC plan tables are imported straight from its "Tables 1-3" Word
 // file: a .docx is a zip and JSZip is already loaded for the export, so the
@@ -3963,7 +4581,7 @@ async function parseTankDocx(file) {
     parsed.forEach(r => rows.push(r));
   }
   if (!rows.length) throw new Error('No tank tables found in that file.');
-  return { source: file.name, importedAt: new Date().toISOString(), groups, rows };
+  return { source: file.name, importedAt: new Date().toISOString(), park: exportParkCode(), groups, rows };
 }
 
 async function handleTankFile(event) {
@@ -4071,7 +4689,8 @@ function setTankText(id, field, value) {
 function addManualTank() {
   const label = prompt('Tank or container found on site (ID and location):');
   if (!label || !label.trim()) return;
-  if (!tankData) tankData = { source: 'Added on site', importedAt: new Date().toISOString(), groups: [], rows: [] };
+  if (!tankData) tankData = { source: 'Added on site', importedAt: new Date().toISOString(), park: exportParkCode(), groups: [], rows: [] };
+  if (!tankData.park) tankData.park = exportParkCode();
   const row = {
     id: 'tk_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6),
     group: -1, cols: { 'Area and/or Tank ID #': label.trim() },
@@ -4186,7 +4805,7 @@ async function promoteTank(rowId) {
   clearEntryForm(false);
 
   document.getElementById('siteName').value = tankLabel(r);
-  document.getElementById('protocolArea').value = 'Spill Prevention, Control and Countermeasure';
+  document.getElementById('protocolArea').value = 'SPCC Planning';
   const plan = [tankField(r, 'contents'), tankField(r, 'capacity') ? tankField(r, 'capacity') + ' gal' : '',
                 tankField(r, 'type'), tankField(r, 'containment') ? 'containment: ' + tankField(r, 'containment') : '']
     .filter(Boolean).join(', ');
@@ -4198,7 +4817,10 @@ async function promoteTank(rowId) {
   if (r.observed) parts.push(sentence('Observed: ' + r.observed));
   if (r.note) parts.push(sentence(r.note));
   document.getElementById('entryDetails').value = parts.filter(Boolean).join(' ');
-  setScoreButtons('Finding');
+  // A tank that differs from the plan is a 2b against the plan's contents until
+  // a question says otherwise; both defaults still yield to the question pick.
+  setScoreButtons('2b'); scoreAuto = true; setHint('scoreHint', 'Suggested 2b — tap to change');
+  setDescCode('Plans', true);
 
   // The finding carries its own copy of the evidence, so the tank sheet and the
   // photo log each stand alone.
@@ -4240,11 +4862,12 @@ async function promoteTank(rowId) {
 function showPeople() {
   renderPeople();
   document.getElementById('peopleOverlay').style.display = 'flex';
-  setTimeout(() => document.getElementById('personName').focus(), 100);
+  setTimeout(() => document.getElementById(auditInfo.team.length ? 'personName' : 'teamName').focus(), 100);
 }
 function closePeople() { document.getElementById('peopleOverlay').style.display = 'none'; }
 
 function renderPeople() {
+  renderTeam();
   const el = document.getElementById('peopleList');
   if (!el) return;
   el.innerHTML = peopleList.length
@@ -4253,7 +4876,7 @@ function renderPeople() {
         '<div class="pp-name">' + esc(p.name) + '</div>' +
         '<div class="pp-title">' + esc(p.title || '') + '</div></div>' +
         '<button class="btn btn-outline btn-sm" style="color:var(--danger);border-color:var(--danger);padding:5px 10px;" onclick="removePerson(' + i + ')">✕</button></div>').join('')
-    : '<div class="tk-empty">Nobody added yet.</div>';
+    : '<div class="tk-sub" style="padding:4px 0 8px;">Nobody added yet.</div>';
 }
 
 function addPerson() {
@@ -4268,7 +4891,11 @@ function addPerson() {
 }
 function removePerson(i) { peopleList.splice(i, 1); savePeople(); renderPeople(); }
 function clearPeople() {
-  if (peopleList.length && confirm('Clear the personnel list?')) { peopleList = []; savePeople(); renderPeople(); }
+  if (!peopleList.length && !auditInfoFilled()) return;
+  if (!confirm('Clear the audit team, coordinator and personnel lists?')) return;
+  peopleList = []; savePeople();
+  auditInfo = normaliseAuditInfo(null); saveAuditInfo();
+  renderPeople();
 }
 
 // ---- Export pieces, called from runExport() and generateWordReport() ----
@@ -4339,10 +4966,12 @@ function addTankSheet(wb, tankExport) {
 }
 
 function addPersonnelSheet(wb) {
-  if (!peopleList.length) return;
+  if (!peopleList.length && !auditInfoFilled()) return;
   const ws = wb.addWorksheet('Personnel');
-  ws.addRow(['Name','Title']);
-  peopleList.forEach(p => ws.addRow([p.name || '', p.title || '']));
+  ws.addRow(['Role','Name','Title / Organization']);
+  auditInfo.team.forEach(p => ws.addRow(['Audit team', p.name || '', p.org || '']));
+  if (auditInfo.coordinator) ws.addRow(['NPS regional coordinator', auditInfo.coordinator, auditInfo.coordinatorTitle || '']);
+  peopleList.forEach(p => ws.addRow(['Park personnel', p.name || '', p.title || '']));
   const head = ws.getRow(1);
   head.height = 24;
   head.eachCell(c => {
@@ -4354,13 +4983,14 @@ function addPersonnelSheet(wb) {
   for (let r = 2; r <= ws.rowCount; r++) {
     ws.getRow(r).eachCell({ includeEmpty:true }, c => { c.font = { name:'Arial', size:10 }; c.border = TANK_BORDER; });
   }
-  ws.getColumn(1).width = 32;
-  ws.getColumn(2).width = 44;
+  ws.getColumn(1).width = 24;
+  ws.getColumn(2).width = 32;
+  ws.getColumn(3).width = 44;
 }
 
-// "Personnel Contacted" table for the end of the Word photo log.
+// Audit team, coordinator and park personnel tables for the end of the Word photo log.
 function wordPersonnelBlock(D, PAGE_W, FONT, BROWN, RULE) {
-  if (!peopleList.length) return [];
+  if (!peopleList.length && !auditInfoFilled()) return [];
   const thin = { style: D.BorderStyle.SINGLE, size: 1, color: RULE };
   const cell = (text, bold, fill) => new D.TableCell({
     width: { size: PAGE_W / 2, type: D.WidthType.DXA },
@@ -4370,17 +5000,25 @@ function wordPersonnelBlock(D, PAGE_W, FONT, BROWN, RULE) {
     children: [new D.Paragraph({ spacing: { before: 0, after: 0 },
       children: [new D.TextRun({ text, font: FONT, size: 19, bold: !!bold, color: bold ? 'FFFFFF' : '1A1A1A' })] })],
   });
-  return [
-    new D.Paragraph({ spacing: { before: 240, after: 120 },
-      children: [new D.TextRun({ text: 'Personnel Contacted', font: FONT, bold: true, size: 24, color: BROWN })] }),
+  const table = (title, h2, rows) => [
+    new D.Paragraph({ spacing: { before: 240, after: 120 }, keepNext: true,
+      children: [new D.TextRun({ text: title, font: FONT, bold: true, size: 24, color: BROWN })] }),
     new D.Table({
       width: { size: PAGE_W, type: D.WidthType.DXA }, columnWidths: [PAGE_W / 2, PAGE_W / 2],
       rows: [
-        new D.TableRow({ children: [cell('Name', true, BROWN), cell('Title', true, BROWN)] }),
-        ...peopleList.map(p => new D.TableRow({ children: [cell(p.name || ''), cell(p.title || '')] })),
+        new D.TableRow({ tableHeader: true, children: [cell('Name', true, BROWN), cell(h2, true, BROWN)] }),
+        ...rows.map(([a, b]) => new D.TableRow({ children: [cell(a || ''), cell(b || '')] })),
       ],
     }),
   ];
+  const out = [];
+  if (auditInfoFilled()) {
+    const rows = auditInfo.team.map(t => [t.name, t.org]);
+    if (auditInfo.coordinator) rows.push([auditInfo.coordinator, ['NPS regional environmental coordinator', auditInfo.coordinatorTitle].filter(Boolean).join(' — ')]);
+    out.push(...table('Audit Team', 'Organization', rows));
+  }
+  if (peopleList.length) out.push(...table('Park Personnel Contacted', 'Title', peopleList.map(p => [p.name, p.title])));
+  return out;
 }
 
 loadTankData();
@@ -4404,29 +5042,6 @@ function wordPhotoSlots(entry) {
   });
 }
 
-// F-1…/O-1… numbered in Findings Report order, so the labels match that sheet.
-function wordEntryLabels(entries) {
-  const RANK = { finding: 0, observation: 1 };
-  const labels = new Map();
-  let f = 0, o = 0;
-  entries.map((e, i) => ({ e, i })).sort((a, b) => {
-    const as = (a.e.score || '').trim().toLowerCase();
-    const bs = (b.e.score || '').trim().toLowerCase();
-    const ar = as in RANK ? RANK[as] : 2;
-    const br = bs in RANK ? RANK[bs] : 2;
-    if (ar !== br) return ar - br;
-    const ac = (a.e.teamGuideCitation || '').trim();
-    const bc = (b.e.teamGuideCitation || '').trim();
-    if (!!ac !== !!bc) return ac ? -1 : 1;
-    if (ac && bc && ac !== bc) return ac < bc ? -1 : 1;
-    return a.i - b.i;
-  }).forEach(({ e }) => {
-    const s = (e.score || '').trim().toLowerCase();
-    labels.set(e, s === 'finding' ? 'F-' + (++f) : s === 'observation' ? 'O-' + (++o) : '');
-  });
-  return labels;
-}
-
 // Natural pixel size of a stored photo, so the embedded image keeps its shape.
 function wordImageSize(bytes, type) {
   return new Promise(resolve => {
@@ -4440,6 +5055,9 @@ function wordImageSize(bytes, type) {
   });
 }
 
+// The log follows the audit report's Attachment 5: one section per park, every
+// finding in finding-number order, its photos beneath it, and "No Photo
+// Available" where a finding has none. Photo numbers are the ZIP's numbers.
 async function generateWordReport() {
   if (typeof docx === 'undefined') { showToast('Word library not loaded — go online once first', true); return; }
   closeExportDialog();
@@ -4451,10 +5069,11 @@ async function generateWordReport() {
   const tgc  = document.getElementById('teamGuideCitation').value.trim();
   const scr  = document.getElementById('entryScore').value.trim();
   const det  = document.getElementById('entryDetails').value.trim();
-  if (loc || det || Object.keys(currentPhotos).length > 0) {
+  if (draftIsExportable()) {
     allEntries.push({
-      id: currentEntryId, siteName: loc, location: loc, protocolArea: prot,
-      teamGuideCitation: tgc, score: scr, details: det,
+      id: currentEntryId, siteName: loc, location: loc, park: currentParkCode(loc), protocolArea: prot,
+      teamGuideCitation: tgc, score: scr, descCode: document.getElementById('entryDescCode').value,
+      repeatOf: currentRepeatOf, details: det,
       latitude:    currentGPS ? currentGPS.latitude  : null,
       longitude:   currentGPS ? currentGPS.longitude : null,
       gpsAccuracy: currentGPS ? currentGPS.accuracy  : null,
@@ -4472,21 +5091,26 @@ async function generateWordReport() {
 
   showToast('Building Word report…');
 
-  // Photo numbering mirrors runExport(): a missing photo does not take a number.
-  const labels = wordEntryLabels(allEntries);
-  const items = [];
+  // Photo numbering mirrors runExport(): finding order, a missing photo takes no number.
+  const numbers = findingNumbers(allEntries);
+  const order   = findingOrder(allEntries);
+  const items   = [];
+  const byEntry = new Map();
   const missedKeys = [];
   let seq = 1, misses = 0;
-  for (const entry of allEntries) {
+  for (const i of order) {
+    const entry = allEntries[i];
+    const list = [];
     for (const slot of wordPhotoSlots(entry)) {
       const info = entry.photos[slot];
       if (!info || !info.dbKey) continue;
       const pd = await loadPhotoBytes(info.dbKey, info.fileType || 'image/jpeg');
       if (!pd) { misses++; missedKeys.push(info.dbKey); continue; }
-      items.push({ entry, num: seq++, bytes: pd.bytes, type: pd.type, taken: info.timestamp, size: await wordImageSize(pd.bytes, pd.type) });
+      const it = { entry, num: seq++, bytes: pd.bytes, type: pd.type, taken: info.timestamp, size: await wordImageSize(pd.bytes, pd.type) };
+      items.push(it); list.push(it);
     }
+    byEntry.set(entry, list);
   }
-  if (items.length === 0) { showToast('No photos to put in the report', true); return; }
 
   const D = docx;
   const BROWN = '5C3B1E', GRAY = '5A6470', RULE = 'C8CDD9', FONT = 'Arial';
@@ -4495,20 +5119,17 @@ async function generateWordReport() {
   const noBorders = { top: noBorder, bottom: noBorder, left: noBorder, right: noBorder };
   const thin      = { style: D.BorderStyle.SINGLE, size: 1, color: RULE };
   const thinAll   = { top: thin, bottom: thin, left: thin, right: thin };
-  const line = (text, opt) => new D.Paragraph({
+  const line = (text, opt, para) => new D.Paragraph(Object.assign({
     alignment: D.AlignmentType.CENTER, spacing: { before: 0, after: 20 },
     children: [new D.TextRun(Object.assign({ text, font: FONT, size: 19 }, opt || {}))]
-  });
+  }, para || {}));
+  const spacer = () => new D.Paragraph({ spacing: { after: 160 } });
 
-  const parkName = selectedForest || '';
-  const parkLocs = selectedForest && forestData[selectedForest];
-  const parkCode = (parkLocs && parkLocs.length && parkLocs[0].d) || '';
-  const nFind = allEntries.filter(e => (e.score || '').trim().toLowerCase() === 'finding').length;
-  const nObs  = allEntries.filter(e => (e.score || '').trim().toLowerCase() === 'observation').length;
-  const dates = allEntries.map(e => e.timestamp ? new Date(e.timestamp) : null).filter(d => d && !isNaN(d)).sort((a, b) => a - b);
-  const dfmt  = d => d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
-  const span  = dates.length ? (dfmt(dates[0]) === dfmt(dates[dates.length - 1]) ? dfmt(dates[0]) : dfmt(dates[0]) + ' – ' + dfmt(dates[dates.length - 1])) : '';
-  const counts = `${nFind} Finding${nFind === 1 ? '' : 's'}  •  ${nObs} Observation${nObs === 1 ? '' : 's'}  •  ${items.length} photo${items.length === 1 ? '' : 's'}`;
+  const parks = [...new Set(allEntries.map(entryParkCode))].sort();
+  const parkTitle = code => code ? code + (parkNameOf(code) ? ' — ' + parkNameOf(code) : '') : 'Park not set';
+  const pc = priorityCounts(allEntries);
+  const counts = PRIORITIES.map(p => p + ': ' + pc[p]).join('  •  ') + `  •  ${items.length} photo${items.length === 1 ? '' : 's'}`;
+  const span = dateSpan(allEntries);
 
   const banner = new D.Table({
     width: { size: PAGE_W, type: D.WidthType.DXA }, columnWidths: [PAGE_W],
@@ -4519,19 +5140,45 @@ async function generateWordReport() {
       margins: { top: 160, left: 200, bottom: 160, right: 200 },
       children: [
         line('PHOTO LOG', { bold: true, color: 'FFFFFF', size: 36 }),
-        line('Site Photographs', { color: 'F2EDE6', size: 26 }),
-        ...(parkName ? [line(parkName + (parkCode ? ' (' + parkCode + ')' : ''), { bold: true, color: 'EBDCC9', size: 22 })] : []),
+        line('Environmental Audit Photo Documentation', { color: 'F2EDE6', size: 26 }),
+        ...parks.filter(Boolean).map(p => line(parkTitle(p), { bold: true, color: 'EBDCC9', size: 22 })),
         line(span ? counts + '  •  ' + span : counts, { color: 'E8DCCD', size: 18 })
       ]
     })] })]
   });
 
-  function card(item) {
+  // Finding header: number, priority, sheet, then location, description, question.
+  function findingHead(e) {
+    const n = numbers.get(e) || { str: '' };
+    const head = ['Finding ' + n.str, e.score ? 'Priority ' + e.score : '', e.protocolArea || ''].filter(Boolean).join('   •   ');
+    const out = [
+      new D.Paragraph({
+        spacing: { before: 200, after: 40 }, keepNext: true,
+        border: { bottom: { style: D.BorderStyle.SINGLE, size: 6, color: BROWN, space: 3 } },
+        children: [new D.TextRun({ text: head, font: FONT, bold: true, color: BROWN, size: 22 })]
+      }),
+    ];
+    const locName = entryLocationName(e);
+    if (locName) out.push(line(locName, { bold: true }, { alignment: D.AlignmentType.LEFT, keepNext: true }));
+    if (e.details) out.push(line(e.details, {}, { alignment: D.AlignmentType.LEFT, keepNext: true }));
+    const ref = [e.teamGuideCitation, e.descCode].filter(Boolean).join('  •  ');
+    if (ref) out.push(line(ref, { bold: true, color: BROWN, size: 18 }, { alignment: D.AlignmentType.LEFT, keepNext: true }));
+    if (e.repeatOf) out.push(line('Repeat of ' + repeatCitation(e.repeatOf), { italics: true, color: GRAY, size: 18 }, { alignment: D.AlignmentType.LEFT, keepNext: true }));
+    return out;
+  }
+
+  const card = children => new D.Table({
+    width: { size: PAGE_W, type: D.WidthType.DXA }, columnWidths: [PAGE_W],
+    borders: { top: thin, bottom: thin, left: thin, right: thin, insideH: thin, insideV: thin },
+    // cantSplit keeps the photo and its caption on one page.
+    rows: [new D.TableRow({ cantSplit: true, children: [new D.TableCell({
+      width: { size: PAGE_W, type: D.WidthType.DXA }, borders: thinAll,
+      margins: { top: 140, left: 160, bottom: 140, right: 160 }, children
+    })] })]
+  });
+
+  function photoCard(item) {
     const e = item.entry;
-    const label = labels.get(e) || '';
-    const score = (e.score || '').trim();
-    const head = 'Photo ' + String(item.num).padStart(3, '0')
-      + (label || score ? '   •   ' + [label, score].filter(Boolean).join(' ') : '');
     const facts = [];
     if (e.latitude != null && e.longitude != null) {
       facts.push(`GPS: ${e.latitude.toFixed(6)}°N, ${Math.abs(e.longitude).toFixed(6)}°${e.longitude < 0 ? 'W' : 'E'}`
@@ -4541,53 +5188,53 @@ async function generateWordReport() {
     if (when && !isNaN(new Date(when))) {
       facts.push(new Date(when).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }));
     }
-    const ref = [e.protocolArea, e.teamGuideCitation].filter(Boolean).join('  •  ');
     const scale = Math.min(WORD_MAX_W / item.size.w, WORD_MAX_H / item.size.h);
-    return new D.Table({
-      width: { size: PAGE_W, type: D.WidthType.DXA }, columnWidths: [PAGE_W],
-      borders: { top: thin, bottom: thin, left: thin, right: thin, insideH: thin, insideV: thin },
-      // cantSplit keeps the photo and its caption on one page.
-      rows: [new D.TableRow({ cantSplit: true, children: [new D.TableCell({
-        width: { size: PAGE_W, type: D.WidthType.DXA }, borders: thinAll,
-        margins: { top: 140, left: 160, bottom: 140, right: 160 },
-        children: [
-          new D.Paragraph({
-            alignment: D.AlignmentType.CENTER, spacing: { before: 0, after: 120 },
-            children: [new D.ImageRun({
-              type: (item.type || '').includes('png') ? 'png' : 'jpg',
-              data: item.bytes,
-              transformation: { width: Math.round(item.size.w * scale), height: Math.round(item.size.h * scale) },
-              altText: { title: 'Photo ' + item.num, description: e.details || e.location || 'Site photograph', name: 'Photo ' + item.num }
-            })]
-          }),
-          new D.Paragraph({
-            alignment: D.AlignmentType.CENTER, spacing: { before: 0, after: 20 },
-            border: { top: { style: D.BorderStyle.SINGLE, size: 4, color: RULE, space: 6 } },
-            children: [new D.TextRun({ text: head, font: FONT, bold: true, color: BROWN, size: 20 })]
-          }),
-          ...(e.location ? [line(e.location, { bold: true })] : []),
-          ...(e.details  ? [line(e.details)] : []),
-          ...(ref        ? [line(ref, { bold: true, color: BROWN, size: 18 })] : []),
-          ...(facts.length ? [line(facts.join('   •   '), { italics: true, color: GRAY, size: 17 })] : [])
-        ]
-      })] })]
-    });
+    const n = numbers.get(e) || { str: '' };
+    return card([
+      new D.Paragraph({
+        alignment: D.AlignmentType.CENTER, spacing: { before: 0, after: 120 },
+        children: [new D.ImageRun({
+          type: (item.type || '').includes('png') ? 'png' : 'jpg',
+          data: item.bytes,
+          transformation: { width: Math.round(item.size.w * scale), height: Math.round(item.size.h * scale) },
+          altText: { title: 'Photo ' + item.num, description: e.details || e.location || 'Site photograph', name: 'Photo ' + item.num }
+        })]
+      }),
+      new D.Paragraph({
+        alignment: D.AlignmentType.CENTER, spacing: { before: 0, after: 20 },
+        border: { top: { style: D.BorderStyle.SINGLE, size: 4, color: RULE, space: 6 } },
+        children: [new D.TextRun({ text: 'Photo ' + String(item.num).padStart(3, '0') + '   •   Finding ' + n.str, font: FONT, bold: true, color: BROWN, size: 20 })]
+      }),
+      ...(facts.length ? [line(facts.join('   •   '), { italics: true, color: GRAY, size: 17 })] : [])
+    ]);
   }
+  const noPhotoCard = () => card([line('No Photo Available', { italics: true, color: GRAY, size: 20 }, { spacing: { before: 120, after: 120 } })]);
 
-  const children = [banner, new D.Paragraph({ spacing: { after: 160 } })];
-  items.forEach((it, i) => {
-    children.push(card(it));
-    if (i < items.length - 1) children.push(new D.Paragraph({ spacing: { after: 160 } }));
+  const children = [banner, spacer()];
+  parks.forEach((park, pi) => {
+    children.push(new D.Paragraph({
+      spacing: { before: 120, after: 80 }, keepNext: true, pageBreakBefore: pi > 0,
+      children: [new D.TextRun({ text: parkTitle(park), font: FONT, bold: true, color: BROWN, size: 28 })]
+    }));
+    for (const i of order) {
+      const e = allEntries[i];
+      if (entryParkCode(e) !== park) continue;
+      findingHead(e).forEach(p => children.push(p));
+      const list = byEntry.get(e) || [];
+      if (!list.length) children.push(noPhotoCard());
+      list.forEach((it, k) => { children.push(photoCard(it)); if (k < list.length - 1) children.push(spacer()); });
+    }
   });
   wordPersonnelBlock(D, PAGE_W, FONT, BROWN, RULE).forEach(c => children.push(c));
 
+  const headerText = (parks.filter(Boolean).join(', ') || 'National Park Service') + ' – Environmental Audit Photo Log';
   const doc = new D.Document({
     sections: [{
       properties: { page: { size: { width: 12240, height: 15840 }, margin: { top: 1080, right: 1080, bottom: 1080, left: 1080, header: 708, footer: 708 } } },
       headers: { default: new D.Header({ children: [new D.Paragraph({
         alignment: D.AlignmentType.RIGHT, spacing: { after: 0 },
         border: { bottom: { style: D.BorderStyle.SINGLE, size: 4, color: BROWN, space: 4 } },
-        children: [new D.TextRun({ text: (parkName || 'National Park Service') + ' – Photo Documentation', font: FONT, italics: true, color: GRAY, size: 16 })]
+        children: [new D.TextRun({ text: headerText, font: FONT, italics: true, color: GRAY, size: 16 })]
       })] }) },
       footers: { default: new D.Footer({ children: [new D.Paragraph({
         alignment: D.AlignmentType.CENTER,
@@ -4614,9 +5261,9 @@ async function generateWordReport() {
 
   try {
     const blob = await D.Packer.toBlob(doc);
-    const tag  = (parkCode || sanitizeSegment(parkName) || 'NPS').substring(0, 20);
+    const tag  = (parks.filter(Boolean).join('-') || sanitizeSegment(selectedForest) || 'NPS').substring(0, 24);
     await shareOrDownload(blob, 'NPS_Photo_Log_' + tag + '_' + datestamp() + '.docx');
-    showToast(`Word report: ${items.length} photo${items.length === 1 ? '' : 's'}${misses ? ' (⚠ ' + misses + ' missing)' : ''}`);
+    showToast(`Word report: ${allEntries.length} finding${allEntries.length === 1 ? '' : 's'}, ${items.length} photo${items.length === 1 ? '' : 's'}${misses ? ' (⚠ ' + misses + ' missing)' : ''}`);
   } catch (e) {
     console.error('Word report error:', e);
     showToast('Word report error — try again', true);

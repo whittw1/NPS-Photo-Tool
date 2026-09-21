@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nps-collector-v1.4';
+const CACHE_NAME = 'nps-collector-v1.5';
 const URLS_TO_CACHE = [
   './',
   './index.html',

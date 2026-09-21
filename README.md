@@ -1,6 +1,6 @@
 # NPS Photo Collector
 
-A Progressive Web App (PWA) for National Park Service field photo documentation with GPS tracking, searchable EnviroCheck question lookup, Word and Excel reporting, and offline support. Forked from the [USFS Photo Collector](https://github.com/whittw1/USFS-Photo-Tool) (itself forked from the DLA Audit Photo Tool).
+A Progressive Web App (PWA) for National Park Service Environmental Audit Program field work: GPS-tagged photos, searchable EnviroCheck question lookup, 1/2a/2b/3/4/P priorities, repeat-finding links to the previous audit, and exports laid out like the WASO findings spreadsheet and the report's photo log. Works offline. Forked from the [USFS Photo Collector](https://github.com/whittw1/USFS-Photo-Tool) (itself forked from the DLA Audit Photo Tool).
 
 **Live (web):** https://victorious-ocean-0a7852b10.3.azurestaticapps.net
 
@@ -14,9 +14,9 @@ Deep technical reference: [ARCHITECTURE.md](ARCHITECTURE.md). Deployment status:
 
 ## What it does
 
-An auditor picks a park (or lets GPS auto-detect it), selects a location from the bundled list of NPS facilities and points of interest (or types one), picks the EnviroCheck sheet and the specific checklist question, scores the entry **Finding** or **Observation**, writes a description, and attaches photos (camera or library). Everything is stored on-device.
+An auditor picks a park (or lets GPS auto-detect it), selects a location from the bundled list of NPS facilities and points of interest (or types one), picks the specific EnviroCheck question (which fills in the sheet, suggests the **priority** from the question's P-level and suggests a WASO **description code**), adjusts the priority — **1, 2a, 2b, 3, 4 or P** — if needed, optionally marks the entry as a **repeat** of a finding from the previous audit's spreadsheet, writes a description, and attaches photos (camera or library). Everything is stored on-device.
 
-Two exports share one date filter: **Export ZIP** (renamed photos + CSV + styled two-sheet Excel findings report) and **Word Report** (a `.docx` photo log, one photo per row, numbered to match the ZIP).
+Two exports share one date filter: **Export ZIP** (renamed photos + CSV + an Excel workbook with an Audit Summary, one WASO-layout `Audit Report <PARK>` sheet per park, the raw entries, the SPCC tank check and the personnel) and **Word Report** (a `.docx` photo log per park in finding-number order, "No Photo Available" where a finding has none, photo numbers matching the ZIP). Finding numbers are assigned per park at export time after the WASO sort — priority, sheet, citation, location — so they are never stored.
 
 ## Repository layout
 
@@ -39,19 +39,19 @@ NPS-Photo-Tool/
 
 | Area | USFS | NPS |
 |---|---|---|
-| Score buttons | Finding, General (+ Region 9-only Safety/Observation/Positive/Corrected) | **Finding, Observation** — always both, no region logic. Observation hides the EnviroCheck Sheet picker |
+| Score buttons | Finding, General (+ Region 9-only Safety/Observation/Positive/Corrected) | **NPS priorities 1, 2a, 2b, 3, 4, P** (red = corrective action required, orange = recommended, green = positive practice), pre-selected from the question's P-level. Plus a **Description Code** (the ten WASO codes, suggested from the question wording) and a **Repeat Finding** link |
 | Reference data | Team Guide citations (6,445, incl. state supplements) with the ★ Common quick-pick | **NPS EnviroCheck Sheets** — 810 checklist questions from the 17 federal sheets, coded `UO.05`, `SPCC.02`, with each question's citation and P1–P4 priority. Common Citations removed. |
-| Protocol area | 18 Team Guide areas | The 17 EnviroCheck sheets |
-| Reports | ZIP (photos + CSV + XLSX) | ZIP, plus a **Word photo log** (`.docx`). The workbook also carries **SPCC Tank Check** and **Personnel** sheets |
-| Audit extras | — | **SPCC tank verification** imported straight from the park's Tables 1-3 Word file, and a **personnel** roster |
+| Protocol area | 18 Team Guide areas | The 17 EnviroCheck sheets, named exactly as the WASO spreadsheet pulldown (`SPCC Planning`, `Hazard Communication (HAZCOM)` …) |
+| Reports | ZIP (photos + CSV + XLSX) | ZIP whose workbook has an **Audit Summary**, a **WASO-layout `Audit Report <PARK>` sheet per park** (columns A–S exactly as the official template, plus a grey app-only Photos column), the raw **NPS Entries**, **SPCC Tank Check** and **Personnel**; plus a **Word photo log** (`.docx`) per park by finding number |
+| Audit extras | — | **SPCC tank verification** imported from the park's Tables 1-3 Word file, an **audit team / coordinator / personnel** roster, and the **previous audit's findings spreadsheet** imported in-app so repeats can be marked in the field (a repeated Priority 2 becomes 2a, and the export writes `YYYY-Finding ###`) |
 | Location data | `forest_locations.json` (112 forests, offices + rec sites) | `nps_locations.json` (449 park units, public points of interest + buildings), same `{n, t, d, lat, lng}` shape; `d` = park alpha code (e.g. `YELL`) |
 | Regions | 9 USFS regions (static list) | 7 NPS regions from the boundary data (AKR, IMR, MWR, NCR, NER, PWR, SER), generated into `REGION_MAP` by the build script |
-| Findings Report sort | citation-bearing first, then scored, then General | Finding → Observation → unscored, then citation-bearing (by code) before citationless |
+| Findings sort / numbering | citation-bearing first, then scored, then General | The WASO sort — park, priority (1 → P), sheet, question code, location — with finding numbers `001…` assigned per park at export time; photos are numbered in the same order |
 | Branding | FS green `#2e7d32` | NPS brown `#5c3b1e` |
 | Storage keys | `usfs_*`, IDB `usfs_photos_v1`, FS dir `usfs_photos/` | `nps_*`, IDB `nps_photos_v1`, FS dir `nps_photos/` |
 | Export files | `USFS_Export_MMDDYY.zip` … | `NPS_Export_MMDDYY.zip`, `NPS_Report_…xlsx`, `NPS_Data_…csv` |
 
-Everything else — photo capture and three-tier durable storage, service worker discipline, the ZIP export pipeline, autosave, and the search engine itself — is **textually identical** to the USFS `index.html`, on purpose. Only the reference data and hint tables the search ranks over differ, plus the Word photo log, which lives in its own section at the bottom of the file.
+Everything else — photo capture and three-tier durable storage, service worker discipline, autosave, and the search engine itself — is **textually identical** to the USFS `index.html`, on purpose. Only the reference data and hint tables the search ranks over differ. The export pipeline (`runExport`, `generateWordReport`) and the entry form have diverged for the NPS report format; the NPS-only logic lives in the **NPS AUDIT DATA**, **SPCC TANK CHECK + PERSONNEL** and **WORD PHOTO LOG** sections at the bottom of the file.
 
 ## Sibling-app sync rule
 
@@ -73,9 +73,12 @@ The USFS and NPS apps are kept in sync by hand-porting fixes between them. Keep 
   id:                "e_1711234567890_a1b2",
   siteName:          "Old Faithful Visitor Education Center — YELL",   // duplicate of location (legacy)
   location:          "Old Faithful Visitor Education Center — YELL",
-  protocolArea:      "Used Oil Management",                             // one of the 17 EnviroCheck sheets
+  park:              "YELL",                                           // alpha code; derived from the location suffix for old entries
+  protocolArea:      "Used Oil Management",                             // one of the 17 EnviroCheck sheets, WASO spelling
   teamGuideCitation: "UO.05 — 40 CFR 279.22(c)",                       // EnviroCheck question (field name kept for sibling parity)
-  score:             "Finding",                                        // "Finding" | "Observation" — required to save
+  score:             "2b",                                             // priority "1" | "2a" | "2b" | "3" | "4" | "P" — required to save
+  descCode:          "Label/Signs",                                    // one of the ten WASO description codes, or ""
+  repeatOf:          { year: 2021, park: "YELL", num: 8, priority: "2b", sheet: "…", desc: "…" },  // or null
   details:           "Used-oil drum unlabeled, no secondary containment",
   latitude:          44.4605, longitude: -110.8281, gpsAccuracy: 8,
   timestamp:         "2026-09-10T14:30:00.000Z",
@@ -88,7 +91,7 @@ The USFS and NPS apps are kept in sync by hand-porting fixes between them. Keep 
 
 | Layer | Purpose | Key / name |
 |---|---|---|
-| localStorage | Entries (with thumbnails), autosaved draft, settings, imported site list, selected park, recent questions, tank check, personnel | `nps_saved`, `nps_current`, `nps_photo_settings`, `nps_site_list`, `nps_selected_park`, `nps_recent_tg`, `nps_tanks`, `nps_people` |
+| localStorage | Entries (with thumbnails), autosaved draft, settings, imported site list, selected park, recent questions, tank check, personnel, audit team, prior audit | `nps_saved`, `nps_current`, `nps_photo_settings`, `nps_site_list`, `nps_selected_park`, `nps_recent_tg`, `nps_tanks`, `nps_people`, `nps_audit`, `nps_prior` |
 | Native filesystem (iOS app) | Durable full-resolution photos | `DATA/nps_photos/<dbKey>.jpg` |
 | IndexedDB | Full-resolution photos (web build; redundancy on iOS) | db `nps_photos_v1`, store `photos` |
 | localStorage fallback | Last-resort photo copy | `photo_full_<dbKey>` |

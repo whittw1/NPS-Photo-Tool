@@ -131,9 +131,12 @@ Module-level variables (the entire runtime state):
   id:                "e_1711234567890_a1b2",
   siteName:          "Old Faithful Visitor Education Center — YELL",  // duplicate of location (legacy)
   location:          "Old Faithful Visitor Education Center — YELL",
-  protocolArea:      "Used Oil Management",       // one of the 17 EnviroCheck sheets ('' allowed)
+  park:              "YELL",                        // alpha code at save time; old entries get it from the location suffix
+  protocolArea:      "Used Oil Management",       // one of the 17 EnviroCheck sheets, WASO spelling ('' allowed)
   teamGuideCitation: "UO.05 — 40 CFR 279.22(c)",  // EnviroCheck question; field name kept for sibling parity
-  score:             "Finding",                     // "Finding" | "Observation" — REQUIRED to save
+  score:             "2b",                          // priority "1" | "2a" | "2b" | "3" | "4" | "P" — REQUIRED to save
+  descCode:          "Label/Signs",                 // one of the ten WASO description codes, or ''
+  repeatOf:          null,                          // or { year, park, num, priority, sheet, desc } from the prior audit (§19)
   details:           "Observed sediment discharge…",
   latitude:  44.4605, longitude: -110.8281,        // null when no GPS
   gpsAccuracy: 8.5,                                 // meters, null when no GPS
@@ -151,8 +154,8 @@ Key details:
 - `photos[slot].thumbnail` is an **inline base64 data URL** (~80 px wide, JPEG q=0.4) stored *inside the entry in localStorage* — it's what the saved list and slot previews render without touching the photo stores.
 - `photos[slot].dbKey` is the pointer to the full-resolution bytes: `photoDBKey(entryId, slotId)` = entryId with non-alphanumerics replaced by `_`, then `__`, then the slot id, e.g. `e_1711234567890_a1b2__p_main`. The same key addresses all three storage tiers.
 - `photos[slot].unsaved === true` means the durable write **failed verification** at capture time (§7).
-- **Score is mandatory**: `saveEntryAndNew()` and `saveEdit()` both refuse with the toast "Tap Finding or Observation to score this entry first" until a score button is selected.
-- **NPS scores:** exactly two buttons, `Finding` and `Observation`, always visible. The USFS `General` and the Region 9-only `Safety` / `Positive` / `Corrected On Site` buttons, the `data-r9-only` attributes, `updateScoreVisibility()`, the `.score-btn.hidden` rule and the dead `setGeneralPhoto()` helper were all removed. Entries imported from a USFS backup keep whatever score string they carry; the export sort treats anything other than Finding/Observation as unscored. Selecting `Observation` hides the EnviroCheck sheet card — `updateSheetVisibility()`, called from `toggleScore()` and `setScoreButtons()` so draft restore, edit and clear all land in the right state. A sheet picked before the switch stays in the field and comes back with Finding, and is still saved if the entry is filed as an Observation.
+- **Score is mandatory**: `saveEntryAndNew()` and `saveEdit()` both refuse with the toast "Tap a priority (1, 2a, 2b, 3, 4 or P) to score this entry first" until a priority button is selected.
+- **NPS scores are the EAP priorities:** six buttons, `1`, `2a`, `2b`, `3` (red when active — corrective action required), `4` (orange — BMP, recommended) and `P` (green — positive practice). The `score` field keeps its name for sibling parity but holds the priority string. The USFS `General` and Region 9-only buttons, `updateScoreVisibility()`, the `.score-btn.hidden` rule and `setGeneralPhoto()` were removed in the fork; the 2026-09-16 rule that hid the sheet card for Observations went with the Observation button. `normalisePriority()` maps the old `Finding` → `2b` and `Observation` → `4` (and anything else unknown to unscored) when entries are loaded, restored from a backup or migrated at startup (`migrateSavedEntries()`, which also brings old sheet spellings up to the WASO names through `SHEET_RENAMES`). See §19 for how the priority, description code and repeat link are suggested and stored.
 
 ### Complete on-device key inventory
 
@@ -165,7 +168,9 @@ Key details:
 | localStorage | `nps_selected_park` | Park name, restored on launch (constant `LS_FOREST`) |
 | localStorage | `nps_recent_tg` | Last 10 selected question codes, most recent first |
 | localStorage | `nps_tanks` | The imported SPCC tank list with each row's status, notes, corrections and photo pointers (§18) |
-| localStorage | `nps_people` | Personnel contacted: `[{name, title}]` (§18) |
+| localStorage | `nps_people` | Park personnel contacted: `[{name, title}]` (§18) |
+| localStorage | `nps_audit` | Audit team and coordinator: `{team: [{name, org}], coordinator, coordinatorTitle}` (§19) |
+| localStorage | `nps_prior` | The previous audit's findings spreadsheet, parsed: `{source, importedAt, year, findings: [...]}` (§19) |
 | localStorage | `photo_full_<dbKey>` | **Fallback-only** full-res photo as data URL (§7 tier 3) — note: not `nps_`-prefixed, same as USFS; the two apps only collide here if the same entry id is generated twice, which `genId()` makes practically impossible |
 | IndexedDB | db `nps_photos_v1`, store `photos` | `{data: ArrayBuffer, type, size}` keyed by dbKey |
 | Native FS | `DATA/nps_photos/<sanitized dbKey>.jpg` | Durable full-res JPEG (native app only) |
@@ -282,11 +287,11 @@ Note: going through `<input type=file>` means **iOS strips EXIF and re-encodes**
 
 ## 11. Export pipeline (`runExport`)
 
-**Dialog:** shows the naming preview, a date filter (chips All / Today / Yesterday / Custom with two date inputs, defaulting to today), and a live count "N entries will be exported" / "M of N match this filter". The in-progress draft counts as an entry if it has a location, description, or photos.
+**Dialog:** shows the naming preview, a date filter (chips All / Today / Yesterday / Custom with two date inputs, defaulting to today), and a live count "N entries will be exported" / "M of N match this filter". **NPS divergence:** the in-progress draft counts as an entry only if it has a description or photos (`draftIsExportable()`); the location carries over between entries, so a location-only draft is just the carried-over field. (USFS counts a location-only draft.)
 
-**Selection:** deep-clone `savedEntries`, append the draft (with its live form values) if non-empty, then filter by the date range (`entryInRange` on `timestamp`; open-ended bounds allowed). Empty result → abort with a toast.
+**Selection:** deep-clone `savedEntries`, append the draft (with its live form values) if exportable, then filter by the date range (`entryInRange` on `timestamp`; open-ended bounds allowed). Empty result → abort with a toast. Then `findingNumbers()` (§19) assigns each entry its per-park finding number.
 
-**Photo naming:** one **global 4-digit sequence** across the whole export (`0001…`), ordered by entry, then slot (`p_main`, `p_wide`, extras by index). Name = `MMDDYY_<segments>_NNNN` where the location string is split on any of `-> → > – — | /` and the **last two segments** are kept, each sanitized to `[a-zA-Z0-9_- ]`, spaces→underscores. With the bundled data that yields `MMDDYY_Location_PARKCODE_NNNN` (e.g. `091026_A-Frame_at_Happy_Isles_YOSE_0001.jpg`). Extension is `.jpg` unless the stored MIME says PNG.
+**Photo naming:** one **global 4-digit sequence** across the whole export (`0001…`), ordered **in finding order** (`findingOrder()`: park, priority, sheet, question code, location — so photo 001 belongs to finding 001; USFS orders by entry), then slot (`p_main`, `p_wide`, extras by index). Name = `MMDDYY_<segments>_NNNN` where the location string is split on any of `-> → > – — | /` and the **last two segments** are kept, each sanitized to `[a-zA-Z0-9_- ]`, spaces→underscores. With the bundled data that yields `MMDDYY_Location_PARKCODE_NNNN` (e.g. `091026_A-Frame_at_Happy_Isles_YOSE_0001.jpg`). Extension is `.jpg` unless the stored MIME says PNG.
 
 **ZIP contents** (`NPS_Export_MMDDYY.zip`, via JSZip):
 
@@ -296,12 +301,14 @@ NPS_Report_MMDDYY.xlsx
 NPS_Data_MMDDYY.csv
 ```
 
-**CSV** — columns: `Entry #, Location, Latitude, Longitude, GPS Accuracy (m), EnviroCheck Sheet, EnviroCheck Question, Score, Description, Timestamp, Photo 1…Photo N` (N = max photos on any entry, min 2). Coordinates fixed to 6 decimals; `quote()` handles commas/quotes/newlines.
+**CSV** — columns: `Entry #, Park, Finding #, Location, Latitude, Longitude, GPS Accuracy (m), EnviroCheck Sheet, EnviroCheck Question, Priority, Description Code, Repeat Of, Description, Timestamp, Photo 1…Photo N` (N = max photos on any entry, min 2). Coordinates fixed to 6 decimals; `quote()` handles commas/quotes/newlines.
 
-**XLSX** (ExcelJS, two sheets):
+**XLSX** (ExcelJS, NPS-only layout built by `addAuditSummarySheet()`, `addWasoSheets()` and the raw sheet in `runExport()`):
 
-- **Sheet 1 "Findings Report"** (opens first, styled): columns `Location(36) | Condition(60) | Score(12) | FindingDate(13) | Question(16) | Photos(18)`. **NPS row order:** all `Finding` entries, then all `Observation` entries, then anything unscored (`SCORE_RANK` map); within each group, citation-bearing entries first (alphanumeric by code), then entries without a citation; original entry order as the tiebreak. (USFS orders citation-bearing → scored non-General → General.) `Question` = the citation code before " — ", else the protocol area's 2-letter code (`AREA_CODE` map), else "—". `Photos` = the entry's photo sequence numbers as **3-digit** collapsed ranges (`001–003, 005`) — intentionally 3-digit vs the 4-digit filenames; flip the `padStart(3,…)` in `formatPhotoNumbers` if that ever changes. Styling: bold white-on-brown (`FF5C3B1E`) 28 px header, frozen first row, gridlines off, Arial 10, thin `FFC8CDD9` borders everywhere, Condition left/others centered, wrap text, row heights estimated from character counts (~55 chars/line Condition, ~32 Location, 15 px/line + 6).
-- **Sheet 2 "NPS Entries"** (raw): the same columns as the CSV; `Entry #`, GPS columns, and all photo columns **hidden** by default so reviewers see a clean sheet but the data is still there.
+- **Sheet 1 "Audit Summary":** export time, audit team, coordinator, the loaded prior audit, then one row per park — park, name, site-visit date span, locations visited, counts by priority (1, 2a, 2b, 3, 4, P), total, repeats, and counts by citation source (`citationSource()`: 40 CFR (EPA), 29 CFR (OSHA), 49 CFR (DOT), State / local / other, Executive Order, DOI policy, NPS policy, BMP, BMP-P, No citation) — the same breakdown as the report's dashboard table. Tank-check and personnel summaries below.
+- **One "Audit Report <PARK>" sheet per park** (`wasoRow()`): columns A–S carry the 19 WASO template headers verbatim — `Park | Finding Number | Audit Date | Priority | NPS EnviroCheck Sheet | Location | Citation (for P1, P2a, P2b, and P3) | Citation (for BMP; BMP-P for positives) | Description Code | Finding Description | Recommended Corrective Action | Assigned Estimated Completion Date | Responsible Party | Other Sources Of Information (optional) | Repeat Finding | Repeat Finding Citation | Park Comment on Draft Audit Report | Progress Towards Corrective Action Completion (Date) | Date Completed` — so the block pastes into the official file unchanged. Finding Number is the text `001…`; Audit Date is a real date cell (UTC midnight, `m/d/yyyy`) from the entry timestamp; Location is the location name without the ` — CODE` suffix, or the park code when blank; the regulatory citation (the part of `teamGuideCitation` after ` — `) goes to column G for priorities 1/2a/2b/3, to column H for a 4 (`BMP` when there is none), and column H reads `BMP-P` for a P; Repeat Finding is Yes/No for 1/2a/2b/3 and blank for 4/P unless marked; Repeat Finding Citation is `YYYY-Finding ###`. Columns K–N and Q–S are left for the office. Column T `Photos` (grey header) is app-only: the entry's photo numbers as 3-digit collapsed ranges (`001–003, 005`). Rows in finding order, header frozen with the first two columns, brown header, thin borders, wrap text.
+- **"NPS Entries"** (raw): the same columns as the CSV; `Entry #`, GPS columns, and all photo columns **hidden** by default so reviewers see a clean sheet but the data is still there.
+- **"SPCC Tank Check"** and **"Personnel"** (§18) when they hold anything.
 
 **Integrity guard:** every missing photo (all three storage tiers empty for a referenced dbKey) is counted during the ZIP build; if any are missing, a `confirm()` names the affected entries and forces an explicit choice between "export anyway (incomplete)" and cancel. A short export can never ship silently.
 
@@ -318,12 +325,11 @@ Backups (`saveBackup`) are metadata-only JSON named `NPS_Backup_MMDDYY.json`; `i
 
 A second, independent export behind the **Word Report** button in the same dialog. It is the only feature in this app with no USFS counterpart, and it lives in its own section at the bottom of the script so the shared export code above it stays diffable.
 
-- **Same selection as the ZIP:** the saved entries plus a non-empty draft, filtered by the same date chips, and the same missing-photo `confirm()` guard.
-- **Same photo numbers:** the global sequence is rebuilt with the identical slot ordering, and — as in `runExport()` — a photo that cannot be loaded does not consume a number. So "Photo 003" in the report is the file ending `_0003.jpg` in the ZIP and `003` in the Excel report.
-- **Layout:** letter portrait, 0.75 in margins, Arial. A brown banner (park, date span, Finding/Observation/photo counts), then one photo per row inside a single-cell `cantSplit` table so a caption can never break away from its photo. Each image keeps its aspect ratio, fitted into 640 × 330 px at 96 dpi, which puts two photos on a page. Captions carry `Photo NNN · F-1 Finding`, location, description, sheet + question, then GPS and capture time.
-- **Entry labels:** `F-1…`/`O-1…` numbered in Findings Report order (Findings first, then Observations, citation-bearing first within each), so the labels line up with that sheet.
+- **Same selection as the ZIP:** the saved entries plus an exportable draft, filtered by the same date chips, and the same missing-photo `confirm()` guard.
+- **Same photo numbers:** the global sequence is rebuilt in the same finding order with the identical slot ordering, and — as in `runExport()` — a photo that cannot be loaded does not consume a number. So "Photo 003" in the report is the file ending `_0003.jpg` in the ZIP and `003` in the Excel report.
+- **Layout follows the report's Attachment 5:** letter portrait, 0.75 in margins, Arial. A brown banner (parks, counts by priority, photo count, date span), then **one section per park** (page break between parks) listing **every finding in finding-number order**: a `keepNext` header block — `Finding NNN · Priority 2b · <sheet>`, location, description, question + description code, `Repeat of YYYY-Finding ###` — followed by its photos, one per row inside a single-cell `cantSplit` table captioned `Photo NNN · Finding NNN` with GPS and capture time, or a single **"No Photo Available"** card when the finding has none. Each image keeps its aspect ratio, fitted into 640 × 330 px at 96 dpi, which puts two photos on a page. Audit team and park personnel tables close the document.
 - **Report only:** it does **not** stamp `exportedAt` and does **not** offer the post-export delete. The ZIP remains the archival export — the same split the DLA tool uses.
-- **Delivery:** `shareOrDownload()` with `NPS_Photo_Log_<PARKCODE>_MMDDYY.docx`.
+- **Delivery:** `shareOrDownload()` with `NPS_Photo_Log_<PARKCODES>_MMDDYY.docx`.
 
 Note: docx 8.2.2 names every embedded image `.png` inside the package whatever its real format. The bytes are the stored JPEGs and Word reads them (the DLA tool has shipped this combination for months), but re-check in Word if the library is ever upgraded.
 
@@ -394,10 +400,11 @@ Region labels come from the boundary data's `REGION` field (`AKR IMR MWR NCR NER
 - **Sibling first:** before changing shared code, diff `index.html` against the USFS copy; apply the identical hunk to both apps (or note why not).
 - Editing `index.html`/data JSON → test in a browser (`python3 -m http.server 8080` or the deployed URL), **bump `CACHE_NAME`**, push to `main` (web ships), and note the iOS channel stays behind until the next TestFlight build.
 - New cached asset → add to `URLS_TO_CACHE` *and* bump the cache name *and* (if it must ship in the iOS bundle) add it to package.json's `build` copy list.
-- New entry field → touch all of: the form HTML, `saveEntryAndNew()`, `saveEdit()`, `editEntry()`, `autoSaveCurrent()`/`loadAll()`, `normaliseEntry()`, the CSV row, both XLSX sheets, and the saved-panel renderer.
+- New entry field → touch all of: the form HTML, `saveEntryAndNew()`, `saveEdit()`, `editEntry()` (via `loadNpsFields()` for NPS fields), `autoSaveCurrent()`/`loadAll()`, `normaliseEntry()`, the draft objects in `runExport()`, `generateWordReport()` and `saveBackup()`, the CSV row, the XLSX sheets, and the saved-panel renderer.
 - New photo behavior → preserve the verify-after-write contract and the three-tier delete.
 - Anything touching citations/locations data → regenerate via the build scripts, never hand-edit the JSON or the generated `REGION_MAP`.
-- New score value → add the button, extend `SCORE_RANK` in `runExport()`, and update the two validation toasts.
+- New priority value → add the button, extend `PRIORITIES` / `PRIORITY_RANK` (§19), decide how `wasoRow()` places its citation, and update the two validation toasts.
+- Renaming an EnviroCheck sheet → change the `<option>`, `NPS_SHEETS`, and add the old spelling to `SHEET_RENAMES` so saved entries migrate.
 
 ## 18. SPCC tank check and personnel (NPS only)
 
@@ -411,12 +418,32 @@ Two audit needs the photo pipeline alone could not cover. Both live in one secti
 
 **Checking.** Each row takes one of three states — `ok` Confirmed, `diff` Discrepancy, `missing` Not found — plus a corrected-values field, free notes, and any number of photos through the same verified three-tier write the findings use. `addManualTank()` covers a container found on site that the plan never listed; those rows land in their own group and start as a discrepancy.
 
-**Promotion.** A tank problem becomes a finding only when the auditor asks. `promoteTank()` clears the draft, fills in the location, the SPCC sheet and a description built from the plan's values, the observation and the note, sets the score to Finding, and **copies** the tank's photo bytes into fresh keys under the draft entry, so the tank sheet and the photo log each stand alone. It stamps `promotedAt` on the row and leaves the citation for the auditor to pick.
+**Promotion.** A tank problem becomes a finding only when the auditor asks. `promoteTank()` clears the draft, fills in the location, the `SPCC Planning` sheet and a description built from the plan's values, the observation and the note, suggests priority `2b` and description code `Plans` (both still yield to the question pick), and **copies** the tank's photo bytes into fresh keys under the draft entry, so the tank sheet and the photo log each stand alone. It stamps `promotedAt` on the row and leaves the citation for the auditor to pick.
 
-**Export.** `buildTankExport()` appends tank photos to the same `photos/` folder, continuing the export's own numbering after the entry photos, so "Photo 041" in the tank sheet is the file ending `_0041.jpg`. `addTankSheet()` adds an **SPCC Tank Check** sheet carrying the plan's values beside the status, corrections, notes and photo numbers. Tank photos are counted by the integrity badge and by the export's missing-photo guard. The tank check is **not** date-filtered: a list belongs to the park visit that imported it.
+**Export.** `buildTankExport()` appends tank photos to the same `photos/` folder, continuing the export's own numbering after the entry photos, so "Photo 041" in the tank sheet is the file ending `_0041.jpg`. `addTankSheet()` adds an **SPCC Tank Check** sheet carrying the plan's values beside the status, corrections, notes and photo numbers. Tank photos are counted by the integrity badge and by the export's missing-photo guard. The tank check is **not** date-filtered: a list belongs to the park visit that imported it. The list remembers the park it was imported under (`tankData.park`) for the photo file names.
 
-### 18.2 Personnel
+### 18.2 Team and personnel
 
-A flat `[{name, title}]` roster in `nps_people`, kept at audit level rather than per entry, because that is how the reports read: name then title. It becomes a **Personnel** sheet in the workbook and a "Personnel Contacted" table at the end of the Word log. It does not carry over between audits by design; the dialog has a Clear List button.
+One dialog holds three lists kept at audit level rather than per entry, because that is how the report's Attachment 2 reads: the **audit team** (`{name, org}`) and the **NPS regional environmental coordinator** (name + title) in `nps_audit`, and the **park personnel contacted** (`{name, title}`) in `nps_people`. They become a **Personnel** sheet in the workbook (role, name, title/organization), the header block of the Audit Summary, and "Audit Team" / "Park Personnel Contacted" tables at the end of the Word log. Nothing carries over between audits by design; the dialog's Clear All wipes all three.
 
-Both lists ride along in the JSON backup and are restored only when the device has none, so a backup can never overwrite work in progress.
+All of it rides along in the JSON backup and is restored only when the device has none, so a backup can never overwrite work in progress.
+
+## 19. NPS audit data: priorities, description codes, finding numbers, prior audit (NPS only)
+
+The **NPS AUDIT DATA** section of `index.html` (just above the tank check) holds what the WASO findings spreadsheet needs beyond a photo and a note. The design rule throughout: **suggest in the field, decide in the office** — the app pre-fills what the question implies and never blocks on it.
+
+**Sheets.** `NPS_SHEETS` is the list of 17 EnviroCheck sheets with the WASO pulldown spelling, the question-code prefix, and a loose regex that recognises older spellings (`"Solid Waste"`, `"SPCC "`). `normaliseSheet()` brings any spelling to the WASO name; `sheetCodeOf()` gives the prefix.
+
+**Priority.** `PRIORITIES = ['1','2a','2b','3','4','P']` (listed explicitly — object key order would put the numeric-looking keys first). Picking a question calls `applyQuestionDefaults()`: it sets the sheet from the code prefix, and — when no priority is chosen yet, or the current one was itself a suggestion (`scoreAuto`) — maps the question's P-level `P1→1, P2→2b, P3→3, P4→4` and shows a hint. A tap on a button clears `scoreAuto`, so the auditor's choice survives later question changes. `scoreAuto` is autosaved with the draft.
+
+**Description code.** `DESC_CODE_RULES` is an ordered list of `[code, regex]` over the question wording (plans, reporting, records, training, labels, monitoring, disposal, releases, storage, implementation); `suggestDescCode()` returns the first match. The same `descCodeAuto` discipline applies: a suggested code follows the question (and clears when a new question suggests nothing), a code the auditor picked stays.
+
+**Park code.** Every entry stores `park` at save time (`currentParkCode()`: the selected park's code, else the ` — CODE` suffix of the location). `entryParkCode()` reads it back, falling back to the suffix for entries saved before 2026-09-20.
+
+**Finding numbers.** Never stored. `findingOrder()` sorts export entries by park, `PRIORITY_RANK`, sheet, question code, location name, then original order — the WASO instruction's "Priority, EnviroCheck Sheet, Citation, Location" — and `findingNumbers()` counts `001…` per park. Both exports call it, and the photo sequence follows the same order, so finding 001 owns photo 001 and the numbers only shift when the exported set changes (which is expected: the office assigns the final numbers on the same rule).
+
+**Citation source.** `citationSource()` classifies the regulatory citation for the Audit Summary: 40/29/49 CFR, `EO`/Executive Order, DOI (`DM`), NPS (`DO`, `RM`, `NPS-`), BMP wording or a priority 4, `BMP-P` for a P, and everything else (NFPA, state statutes such as `12 MRSA`) as State / local / other.
+
+**Prior audit.** `importPriorAudit()` reads the previous audit's findings spreadsheet in the app with ExcelJS (`parsePriorWorkbook()`): every worksheet is scanned for a header row containing "Finding Number" and "Priority" (the official template has a blank first row; older files start on row 1), columns are matched by header text (`COLS` regexes), each data row becomes `{park, num, date, priority, sheet, code, location, citation, bmp, descCode, desc, action, repeat, repeatCite}`, and the audit year is the most common year in the Audit Date column (the auditor is asked when there is none). Cell values may be strings, numbers, dates, rich text or formulas — `_cellText()` / `_cellDate()` flatten them. The **Prior** dialog lists findings by park with park and sheet chips and a text filter; opened from the entry form (`showPriorPicker()`) it pre-selects the current park and tapping a finding runs `pickPriorFinding()`: `repeatOf = {year, park, num, priority, sheet, desc}` goes on the draft, a repeated 2a/2b **bumps an empty or 2b priority to 2a** (the definition of 2a), and a blank sheet or description code is filled from the prior finding. The export writes `Repeat Finding = Yes` and `Repeat Finding Citation = YYYY-Finding ###` (`repeatCitation()`); the Word log adds a "Repeat of …" line. Clearing the prior list keeps repeats already marked on entries.
+
+**Backup.** `nps_audit` and `nps_prior` ride along in the JSON backup and are restored only when the device has none.
