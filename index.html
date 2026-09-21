@@ -1679,7 +1679,9 @@ function getAllCurrentSlots() {
 function toggleScore(btn) {
   const score = btn.dataset.score;
   const input = document.getElementById('entryScore');
-  if (input.value === score) {
+  // NPS-only: tapping the button a question already suggested confirms it;
+  // only a priority you chose yourself toggles off on a second tap.
+  if (input.value === score && !scoreAuto) {
     // Deselect
     input.value = '';
     btn.classList.remove('active');
@@ -4406,7 +4408,8 @@ function wasoRow(e, n, photos) {
 // One "Audit Report <PARK>" sheet per park, columns A–S exactly as the WASO
 // template, plus a grey app-only Photos column (T) that is not part of it.
 function addWasoSheets(wb, entries, numbers, photosOf) {
-  const parks = [...new Set(entries.map(entryParkCode))].sort();
+  // A park whose entries are all notes gets no findings sheet.
+  const parks = [...new Set(entries.filter(e => !isNote(e)).map(entryParkCode))].sort();
   for (const park of parks) {
     const ws = wb.addWorksheet(('Audit Report ' + park).trim(), { views: [{ state: 'frozen', xSplit: 2, ySplit: 1, showGridLines: false }] });
     ws.addRow([...WASO_HEADERS, 'Photos']);
@@ -4498,7 +4501,7 @@ loadPriorAudit();
 // every release. The bottom bar shows it, and while a newer service worker
 // is still installing (the page is fresh, the cache is last release's) it
 // says so and settles once the new worker takes control.
-const APP_VERSION = '1.7';
+const APP_VERSION = '1.8';
 function paintVersion() {
   const el = document.getElementById('appVersion'); if (!el) return;
   el.textContent = 'v' + APP_VERSION;
