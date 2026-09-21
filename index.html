@@ -670,10 +670,18 @@ if ('serviceWorker' in navigator) {
   .overflow-item:hover { background: var(--card-alt); }
   .overflow-item .oi-icon { font-size: 17px; width: 22px; text-align: center; }
 
+  /* Flex items default to min-width:auto, so a <select> grows to its widest
+     option ("Saint Croix Island International Historic Site (7)") and pushes
+     the page wider than a phone. Let the pickers and inputs shrink instead. */
+  .site-section-row select, .site-section input, .form-group select { min-width: 0; max-width: 100%; }
+
   @media (max-width: 640px) {
     .header-btn-secondary { display: none !important; }
     .overflow-menu-wrapper { display: block; }
-    .header { padding: 10px 14px; }
+    .header { padding: 10px 14px; flex-wrap: wrap; row-gap: 6px; }
+    .header > div:first-child { min-width: 0; flex: 1 1 auto; }
+    .header-actions { margin-left: auto; }
+    body { overflow-x: hidden; }
     .container { padding: 14px; }
     .entry-section, .site-section { padding: 14px; }
     .btn-sm { padding: 8px 14px; font-size: 14px; }
@@ -813,7 +821,8 @@ if ('serviceWorker' in navigator) {
   <!-- -- ENVIROCHECK SHEET DROPDOWN -- -->
   <!-- Values are the sheet titles exactly as the WASO findings spreadsheet
        pulldown spells them, so the export can be pasted into it unchanged.
-       Picking a question fills this in when it is still blank. -->
+       Picking a question sets it from the question's code; otherwise it carries
+       over from the last entry, like the location. -->
   <div class="site-section" id="sheetSection">
     <div class="site-section-row">
       <label>EnviroCheck Sheet</label>
@@ -1525,7 +1534,8 @@ function renderLocationList(list) {
   container.innerHTML = list.map(item => {
     const distStr = item.dist !== null ? `<span style="color:var(--text-dim);font-size:12px;float:right;">${item.dist < 0.1 ? '< 0.1' : item.dist.toFixed(1)} mi</span>` : '';
     const typeStr = item.type ? `<span style="color:var(--text-dim);font-size:11px;"> [${item.type}]</span>` : '';
-    return `<div class="loc-item" onclick="pickLocation('${item.name.replace(/'/g, "\\'")}')">` +
+    const attrName = item.name.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, "\\'");
+    return `<div class="loc-item" onclick="pickLocation('${attrName}')">` +
       `${distStr}${item.name.replace(/</g,'&lt;')}${typeStr}</div>`;
   }).join('');
 }
@@ -1731,7 +1741,8 @@ function saveEntryAndNew() {
   updateHeaderBadge();
 
   const photoCount = getAllCurrentSlots().filter(s => entry.photos[s]).length;
-  showToast(`\u2714 Saved — ${photoCount} photo${photoCount !== 1 ? 's' : ''} \u2022 ${savedEntries.length} total`);
+  // NPS-only: a finding without a park alpha code exports with a blank Park column.
+  showToast(`\u2714 Saved — ${photoCount} photo${photoCount !== 1 ? 's' : ''} \u2022 ${savedEntries.length} total` + (entry.park ? '' : ' \u2022 \u26a0 no park selected'), !entry.park);
 }
 
 // ============================================================================
@@ -1806,9 +1817,9 @@ function renderSavedPanel() {
           ? `<img class="saved-item-thumb" src="${thumb}">`
           : `<div class="saved-item-thumb-empty">&#128247;</div>`}
         <div class="saved-item-info">
-          <div class="saved-item-name">${e.location || '(No location)'}</div>
-          ${e.protocolArea ? `<div class="saved-item-detail" style="font-size:11px;color:var(--text-dim);">${e.protocolArea}</div>` : ''}
-          ${e.teamGuideCitation ? `<div class="saved-item-detail" style="font-size:11px;color:var(--text-dim);font-style:italic;">EC: ${e.teamGuideCitation}</div>` : ''}
+          <div class="saved-item-name">${esc(e.location || '(No location)')}</div>
+          ${e.protocolArea ? `<div class="saved-item-detail" style="font-size:11px;color:var(--text-dim);">${esc(e.protocolArea)}</div>` : ''}
+          ${e.teamGuideCitation ? `<div class="saved-item-detail" style="font-size:11px;color:var(--text-dim);font-style:italic;">EC: ${esc(e.teamGuideCitation)}</div>` : ''}
           ${e.score ? `<div class="saved-item-detail" style="font-size:11px;color:var(--text-dim);">Priority ${e.score}${e.descCode ? ' • ' + e.descCode : ''}${e.repeatOf ? ' • repeat of ' + repeatCitation(e.repeatOf) : ''}</div>` : ''}
           ${e.latitude != null ? `<div style="font-size:10px;color:var(--text-dim);">${e.latitude.toFixed(6)}\u00B0N, ${Math.abs(e.longitude).toFixed(6)}\u00B0${e.longitude < 0 ? 'W' : 'E'}</div>` : ''}
           <div class="saved-item-detail">
@@ -1816,7 +1827,7 @@ function renderSavedPanel() {
             ${e.exportedAt
               ? ' \u2022 <span style="color:#4ab86a;font-weight:600;" title="Exported ' + new Date(e.exportedAt).toLocaleString() + '">\u2713 exported</span>'
               : ' \u2022 <span style="color:#e0a44a;font-weight:700;">\u26a0 not exported</span>'}
-            ${e.details ? ' \u2022 ' + e.details.slice(0,60) + (e.details.length > 60 ? '\u2026' : '') : ''}
+            ${e.details ? ' \u2022 ' + esc(e.details.slice(0,60)) + (e.details.length > 60 ? '\u2026' : '') : ''}
             ${ts ? ' \u2022 ' + ts : ''}
           </div>
         </div>
@@ -1978,7 +1989,7 @@ function saveEdit() {
     id:          currentEntryId,
     siteName:    location,
     location:    location,
-    park:        currentParkCode(location),
+    park:        currentParkCode(location, savedEntries[editingIndex].park),
     protocolArea: document.getElementById('protocolArea').value.trim(),
     teamGuideCitation: document.getElementById('teamGuideCitation').value.trim(),
     score: document.getElementById('entryScore').value.trim(),
@@ -1992,13 +2003,14 @@ function saveEdit() {
     photos:      Object.assign({}, currentPhotos)
   };
 
+  const updatedPark = savedEntries[editingIndex].park;
   saveAll();
   editingIndex = null;
   setEditModeUI(false);
   clearEntryForm(false);
   renderSavedPanel();
   updateHeaderBadge();
-  showToast('\u2714 Entry updated');
+  showToast('\u2714 Entry updated' + (updatedPark ? '' : ' \u2022 \u26a0 no park selected'), !updatedPark);
 }
 
 function cancelEdit() {
@@ -2708,6 +2720,9 @@ async function runExport() {
   const entryMaps = [];
   for (const ei of findingOrder(allEntries)) {
     const entry = allEntries[ei];
+    // A typed location has no " — CODE" suffix; give its photos the park code too.
+    const nameEntry = entryParkCode(entry) && !/ — [A-Z]{4}$/.test(entry.location || '')
+      ? Object.assign({}, entry, { location: entryLocationName(entry) + ' — ' + entryParkCode(entry) }) : entry;
     const map = {};
     const allSlots = Object.keys(entry.photos || {}).sort((a, b) => {
       const order = s => s === 'p_main' ? 0 : s === 'p_wide' ? 1 : 2 + parseInt(s.replace('p_extra_','') || 0);
@@ -2718,7 +2733,7 @@ async function runExport() {
       if (info && info.dbKey) {
         const pd = await getBytes(info.dbKey, info.fileType || 'image/jpeg');
         if (pd) {
-          const photoName = buildPhotoName(entry, globalSeq++);
+          const photoName = buildPhotoName(nameEntry, globalSeq++);
           const ext = pd.type.includes('png') ? '.png' : '.jpg';
           photosFolder.file(photoName + ext, pd.bytes);
           map[slot] = photoName + ext;
@@ -2919,7 +2934,7 @@ async function saveBackup() {
   const tgc  = document.getElementById('teamGuideCitation').value.trim();
   const scr  = document.getElementById('entryScore').value.trim();
   const det = document.getElementById('entryDetails').value.trim();
-  if (loc || det) {
+  if (draftIsExportable()) {
     all.push({
       id: currentEntryId,
       siteName: loc,
@@ -3555,7 +3570,7 @@ function restoreCitationDisplay() {
 
 // Close results when clicking outside
 document.addEventListener('click', e => {
-  const container = document.querySelector('.form-group:has(#tgSearch)');
+  const container = document.getElementById('tgSearch').closest('.form-group');
   if (container && !container.contains(e.target)) {
     document.getElementById('tgResults').style.display = 'none';
   }
@@ -3913,6 +3928,8 @@ function setHint(id, text) {
 // The entry in progress goes into an export once it says something: a
 // description or a photo. A location on its own is just the carried-over field.
 function draftIsExportable() {
+  // While an entry is open for editing the form is a copy of a saved entry, not a new one.
+  if (editingIndex !== null) return false;
   return !!(document.getElementById('entryDetails').value.trim() || Object.keys(currentPhotos).length > 0);
 }
 function sheetCodeOf(text) {
@@ -3932,11 +3949,12 @@ function normaliseSheet(v) {
 // Old Finding/Observation scores become 2b/4: a finding was a non-compliance,
 // an observation a recommendation. Anything else unknown is left unscored.
 function normalisePriority(v) {
-  v = String(v || '').trim();
+  v = String(v || '').trim().replace(/^p(?=\d)/i, '');   // "P2a", "P1" → "2a", "1"
   if (PRIORITY_RANK[v] !== undefined) return v;
   const l = v.toLowerCase();
   if (l === 'p') return 'P';
   if (l === '2a' || l === '2b') return l;
+  if (l === '2') return '2b';                              // older sheets scored a plain 2
   if (l === 'finding') return '2b';
   if (l === 'observation') return '4';
   return '';
@@ -3949,8 +3967,10 @@ function entryParkCode(e) {
 function entryLocationName(e) { return String(e.location || e.siteName || '').replace(/ — [A-Z]{4}$/, '').trim(); }
 function entryQuestionCode(e) { const c = (e.teamGuideCitation || '').trim(); return c ? c.split(' — ')[0].trim() : ''; }
 function entryRegCitation(e)  { const c = (e.teamGuideCitation || '').trim(); const i = c.indexOf(' — '); return i >= 0 ? c.slice(i + 3).trim() : ''; }
-function currentParkCode(location) {
-  return exportParkCode() || entryParkCode({ location });
+// The location's own " — CODE" suffix wins over the park dropdown, so editing
+// an ACAD entry after switching the dropdown to the next park keeps it in ACAD.
+function currentParkCode(location, fallback) {
+  return entryParkCode({ location }) || exportParkCode() || fallback || '';
 }
 let _parkNames = null;
 function parkNameOf(code) {
@@ -3969,7 +3989,7 @@ function repeatCitation(r) { return r ? `${r.year}-Finding ${String(r.num).padSt
 function citationSource(e) {
   const p = e.score || '';
   if (p === 'P') return 'BMP-P';
-  const c = entryRegCitation(e) || (e.teamGuideCitation || '');
+  const c = entryRegCitation(e) || (e.teamGuideCitation || '') || (e.repeatOf && e.repeatOf.citation) || '';
   if (p === '4' || /\bBMP\b|best management/i.test(c)) return 'BMP';
   if (!c.trim()) return 'No citation';
   if (/\b40 CFR\b/.test(c)) return '40 CFR (EPA)';
@@ -3992,6 +4012,9 @@ function applyQuestionDefaults(item) {
     const pri = { '1': '1', '2': '2b', '3': '3', '4': '4' }[m[1]];
     setScoreButtons(pri); scoreAuto = true;
     setHint('scoreHint', 'Suggested ' + pri + ' from the question’s P' + m[1] + ' — tap to change');
+  } else if (!m && scoreAuto) {
+    // This question carries no P-level: the old suggestion no longer applies.
+    setScoreButtons(''); scoreAuto = false; setHint('scoreHint', '');
   }
   // A suggested code follows the question; a code you picked yourself stays.
   const dc = suggestDescCode(item.d);
@@ -4196,7 +4219,7 @@ async function parsePriorWorkbook(file) {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(await file.arrayBuffer());
   const COLS = {
-    park: /^park\b|alphacode/i, num: /finding\s*(number|no)/i, date: /audit\s*date/i, priority: /^priority/i,
+    park: /^park\b|alphacode/i, num: /finding\s*(number|no\b|#|id\b)/i, date: /audit\s*date/i, priority: /^priority/i,
     sheet: /envirocheck|envcheck/i, location: /^location/i, citation: /citation\s*\(for\s*p1|^citation$/i,
     bmp: /bmp|beyond/i, descCode: /description\s*code/i, desc: /finding\s*desc/i, action: /^recommended/i,
     repeat: /^repeat\s*finding$/i, repeatCite: /repeat\s*finding\s*citation/i,
@@ -4314,7 +4337,8 @@ function renderPriorList() {
 // Mark the entry in progress as a repeat. A repeated Priority 2 becomes 2a.
 function pickPriorFinding(idx) {
   const f = priorFindings()[idx]; if (!f) return;
-  currentRepeatOf = { year: priorAudit.year, park: f.park, num: f.num, priority: f.priority, sheet: f.sheet, desc: (f.desc || '').slice(0, 140) };
+  currentRepeatOf = { year: priorAudit.year, park: f.park, num: f.num, priority: f.priority, sheet: f.sheet,
+    citation: f.citation || f.bmp || '', desc: (f.desc || '').slice(0, 140) };
   const cur = document.getElementById('entryScore').value;
   let note = '';
   if ((f.priority === '2a' || f.priority === '2b') && (!cur || cur === '2b')) {
@@ -4322,9 +4346,11 @@ function pickPriorFinding(idx) {
     setHint('scoreHint', 'Set to 2a — repeat of a Priority 2 finding');
     note = ' — priority set to 2a';
   }
+  // A repeat is on the prior finding's sheet by definition, whatever carried
+  // over from the last entry. The description code is only a suggestion.
   const sel = document.getElementById('protocolArea');
-  if (!sel.value && f.code) sel.value = SHEET_BY_CODE[f.code];
-  if (!document.getElementById('entryDescCode').value && f.descCode) setDescCode(f.descCode, true);
+  if (f.code && SHEET_BY_CODE[f.code]) sel.value = SHEET_BY_CODE[f.code];
+  if ((!document.getElementById('entryDescCode').value || descCodeAuto) && f.descCode) setDescCode(f.descCode, true);
   updateRepeatDisplay();
   closePriorAudit();
   autoSaveCurrent();
@@ -4343,8 +4369,9 @@ function _styleHeader(row, fill) {
 }
 function wasoRow(e, n, photos) {
   const pri = e.score || '';
-  const reg = entryRegCitation(e) || (e.teamGuideCitation || '');
-  const isBmp = pri === '4', isPos = pri === 'P', isFinding = pri && !isBmp && !isPos;
+  // No question picked on a repeat: the citation is the one the prior finding carried.
+  const reg = entryRegCitation(e) || (e.teamGuideCitation || '') || (e.repeatOf && e.repeatOf.citation) || '';
+  const isBmp = pri === '4', isPos = pri === 'P', isFinding = !isBmp && !isPos;
   const d = e.timestamp ? new Date(e.timestamp) : null;
   const date = (d && !isNaN(d)) ? new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())) : '';
   return [
@@ -4352,7 +4379,7 @@ function wasoRow(e, n, photos) {
     isFinding ? reg : '', isPos ? 'BMP-P' : (isBmp ? (reg || 'BMP') : ''),
     e.descCode || '', e.details || '',
     '', '', '', '',
-    e.repeatOf ? 'Yes' : (isFinding ? 'No' : ''), e.repeatOf ? repeatCitation(e.repeatOf) : '',
+    e.repeatOf ? 'Yes' : (pri && isFinding ? 'No' : ''), e.repeatOf ? repeatCitation(e.repeatOf) : '',
     '', '', '',
     photos || '',
   ];
@@ -4632,7 +4659,7 @@ function tankRowHtml(r) {
     '<div class="tk-body">' + tankPlanHtml(r) +
       '<div class="tk-stat">' + ['ok','diff','missing'].map(k =>
         '<button type="button" class="' + k + (st === k ? ' on ' + k : '') + '" onclick="setTankStatus(\'' + r.id + '\',\'' + k + '\')">' + TANK_STATUS[k] + '</button>').join('') + '</div>' +
-      '<input type="text" class="tk-field" placeholder="What it actually is — capacity, contents, containment" value="' + esc(r.observed || '') + '" oninput="setTankText(\'' + r.id + '\',\'observed\',this.value)">' +
+      '<input type="text" class="tk-field" placeholder="What it actually is — capacity, contents, containment" value="' + esc(r.observed || '').replace(/"/g, '&quot;') + '" oninput="setTankText(\'' + r.id + '\',\'observed\',this.value)">' +
       '<textarea class="tk-field" rows="2" placeholder="Notes" oninput="setTankText(\'' + r.id + '\',\'note\',this.value)">' + esc(r.note || '') + '</textarea>' +
       '<div class="tk-photos">' + photos.map(s =>
         '<span class="tk-thumb"><img src="' + (r.photos[s].thumbnail || '') + '">' +
@@ -5160,7 +5187,11 @@ async function generateWordReport() {
     ];
     const locName = entryLocationName(e);
     if (locName) out.push(line(locName, { bold: true }, { alignment: D.AlignmentType.LEFT, keepNext: true }));
-    if (e.details) out.push(line(e.details, {}, { alignment: D.AlignmentType.LEFT, keepNext: true }));
+    // A description typed over several lines keeps its line breaks.
+    if (e.details) out.push(new D.Paragraph({
+      alignment: D.AlignmentType.LEFT, keepNext: true, spacing: { before: 0, after: 20 },
+      children: String(e.details).split(/\r?\n/).map((t, i) => new D.TextRun({ text: t, font: FONT, size: 19, break: i ? 1 : 0 }))
+    }));
     const ref = [e.teamGuideCitation, e.descCode].filter(Boolean).join('  •  ');
     if (ref) out.push(line(ref, { bold: true, color: BROWN, size: 18 }, { alignment: D.AlignmentType.LEFT, keepNext: true }));
     if (e.repeatOf) out.push(line('Repeat of ' + repeatCitation(e.repeatOf), { italics: true, color: GRAY, size: 18 }, { alignment: D.AlignmentType.LEFT, keepNext: true }));
