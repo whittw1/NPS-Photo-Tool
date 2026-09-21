@@ -14,7 +14,7 @@ Deep technical reference: [ARCHITECTURE.md](ARCHITECTURE.md). Deployment status:
 
 ## What it does
 
-An auditor picks a park (or lets GPS auto-detect it), selects a location from the bundled list of NPS facilities and points of interest (or types one), picks the specific EnviroCheck question (which fills in the sheet, suggests the **priority** from the question's P-level and suggests a WASO **description code**), adjusts the priority — **1, 2a, 2b, 3, 4 or P** — if needed, optionally marks the entry as a **repeat** of a finding from the previous audit's spreadsheet, writes a description, and attaches photos (camera or library). Everything is stored on-device.
+An auditor picks a park (or lets GPS auto-detect it), selects a location from the bundled list of NPS facilities and points of interest (or types one), picks the specific EnviroCheck question (which fills in the sheet, suggests the **priority** from the question's P-level and suggests a WASO **description code**), adjusts the priority — **1, 2a, 2b, 3, 4 or P** — if needed (or taps **Note** for a general observation that is not a finding: no sheet, question or code, kept out of the WASO sheets and numbered findings), optionally marks the entry as a **repeat** of a finding from the previous audit's spreadsheet, writes a description, and attaches photos (camera or library). Everything is stored on-device.
 
 Two exports share one date filter: **Export ZIP** (renamed photos + CSV + an Excel workbook with an Audit Summary, one WASO-layout `Audit Report <PARK>` sheet per park, the raw entries, the SPCC tank check and the personnel) and **Word Report** (a `.docx` photo log per park in finding-number order, "No Photo Available" where a finding has none, photo numbers matching the ZIP). Finding numbers are assigned per park at export time after the WASO sort — priority, sheet, citation, location — so they are never stored.
 
@@ -39,7 +39,7 @@ NPS-Photo-Tool/
 
 | Area | USFS | NPS |
 |---|---|---|
-| Score buttons | Finding, General (+ Region 9-only Safety/Observation/Positive/Corrected) | **NPS priorities 1, 2a, 2b, 3, 4, P** (red = corrective action required, orange = recommended, green = positive practice), pre-selected from the question's P-level. Plus a **Description Code** (the ten WASO codes, suggested from the question wording) and a **Repeat Finding** link |
+| Score buttons | Finding, General (+ Region 9-only Safety/Observation/Positive/Corrected) | **NPS priorities 1, 2a, 2b, 3, 4, P** (red = corrective action required, orange = recommended, green = positive practice), pre-selected from the question's P-level, plus **Note** (grey) for a general observation that is not a finding. Plus a **Description Code** (the ten WASO codes, suggested from the question wording) and a **Repeat Finding** link |
 | Reference data | Team Guide citations (6,445, incl. state supplements) with the ★ Common quick-pick | **NPS EnviroCheck Sheets** — 810 checklist questions from the 17 federal sheets, coded `UO.05`, `SPCC.02`, with each question's citation and P1–P4 priority. Common Citations removed. |
 | Protocol area | 18 Team Guide areas | The 17 EnviroCheck sheets, named exactly as the WASO spreadsheet pulldown (`SPCC Planning`, `Hazard Communication (HAZCOM)` …) |
 | Reports | ZIP (photos + CSV + XLSX) | ZIP whose workbook has an **Audit Summary**, a **WASO-layout `Audit Report <PARK>` sheet per park** (columns A–S exactly as the official template, plus a grey app-only Photos column), the raw **NPS Entries**, **SPCC Tank Check** and **Personnel**; plus a **Word photo log** (`.docx`) per park by finding number |
@@ -62,7 +62,7 @@ The USFS and NPS apps are kept in sync by hand-porting fixes between them. Keep 
 - **Test locally:** `python3 -m http.server 8080` then open http://localhost:8080
 - **Rebuild locations:** `node build_locations.js` (add `--refresh` to re-download; raw service responses are cached in `nps_raw/`). Then bump `CACHE_NAME` in `sw.js`.
 - **Rebuild EnviroCheck questions:** `node build_envirocheck.js` (reads the sheet `.docx` files from SharePoint; pass the folder as an argument to override). Then bump `CACHE_NAME`.
-- **Web deploy:** push to `main` → GitHub Actions → Azure Static Web Apps (`nps-data-collector`).
+- **Web deploy:** push to `main` → GitHub Actions → Azure Static Web Apps (`nps-data-collector`). Bump `CACHE_NAME` in `sw.js` and `APP_VERSION` in `index.html` together; the bottom bar shows the running version (tap it to reload).
 - **iOS:** `npm install && npm run sync && npm run open`; see [WEB_TO_TESTFLIGHT_PLAYBOOK.md](WEB_TO_TESTFLIGHT_PLAYBOOK.md). The generated project still needs the Info.plist usage strings, signing team, and app icon before a TestFlight upload.
 - **Version bumps** (iOS build number, marketing version) only on explicit request.
 
@@ -76,7 +76,7 @@ The USFS and NPS apps are kept in sync by hand-porting fixes between them. Keep 
   park:              "YELL",                                           // alpha code; derived from the location suffix for old entries
   protocolArea:      "Used Oil Management",                             // one of the 17 EnviroCheck sheets, WASO spelling
   teamGuideCitation: "UO.05 — 40 CFR 279.22(c)",                       // EnviroCheck question (field name kept for sibling parity)
-  score:             "2b",                                             // priority "1" | "2a" | "2b" | "3" | "4" | "P" — required to save
+  score:             "2b",                                             // priority "1" | "2a" | "2b" | "3" | "4" | "P", or "N" for a Note — required to save
   descCode:          "Label/Signs",                                    // one of the ten WASO description codes, or ""
   repeatOf:          { year: 2021, park: "YELL", num: 8, priority: "2b", sheet: "…", desc: "…" },  // or null
   details:           "Used-oil drum unlabeled, no secondary containment",

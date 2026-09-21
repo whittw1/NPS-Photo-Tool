@@ -392,6 +392,7 @@ if ('serviceWorker' in navigator) {
   .score-btn.pri-req.active { background: var(--danger);  border-color: var(--danger); }
   .score-btn.pri-rec.active { background: #ea580c;        border-color: #ea580c; }
   .score-btn.pri-pos.active { background: var(--success); border-color: var(--success); }
+  .score-btn.pri-note.active { background: #4b5563;        border-color: #4b5563; }
   .form-hint { font-size: 11px; color: var(--text-dim); display: none; }
   .form-hint.visible { display: block; }
   .form-group select {
@@ -567,6 +568,8 @@ if ('serviceWorker' in navigator) {
 
   /* -- Storage indicator -- */
   #storageIndicator { font-size: 11px; color: var(--text-dim); display: none; margin-top: 2px; }
+  .app-version { margin-left: 8px; font-size: 11px; color: var(--text-dim); cursor: pointer; white-space: nowrap; }
+  .app-version.stale { color: var(--warning); font-weight: 600; }
 
   .add-photo-btn {
     width: 100%;
@@ -878,11 +881,12 @@ if ('serviceWorker' in navigator) {
         <button type="button" class="score-btn pri-req" data-score="3"  onclick="toggleScore(this)" title="Priority 3 — inconsistent with NPS guidance, or likely to become non-compliance. Corrective action required."><b>3</b><small>Guidance</small></button>
         <button type="button" class="score-btn pri-rec" data-score="4"  onclick="toggleScore(this)" title="Priority 4 — best management practice. Corrective action recommended."><b>4</b><small>BMP</small></button>
         <button type="button" class="score-btn pri-pos" data-score="P"  onclick="toggleScore(this)" title="Priority P — positive practice already in place, beyond compliance."><b>P</b><small>Positive</small></button>
+        <button type="button" class="score-btn pri-note" data-score="N" onclick="toggleScore(this)" title="Note — a general observation or reminder, not a finding. Needs no sheet, question or description code, and stays out of the WASO findings sheets."><b>Note</b><small>General</small></button>
       </div>
       <div class="form-hint" id="scoreHint"></div>
     </div>
 
-    <div class="form-group">
+    <div class="form-group" id="repeatGroup">
       <label>Repeat Finding</label>
       <div style="display:flex;gap:6px;align-items:center;">
         <div id="repeatDisplay" style="flex:1;min-width:0;font-size:13px;color:var(--text-dim);line-height:1.35;">Not a repeat of the last audit</div>
@@ -891,7 +895,7 @@ if ('serviceWorker' in navigator) {
       </div>
     </div>
 
-    <div class="form-group">
+    <div class="form-group" id="descCodeGroup">
       <label>Description Code</label>
       <select id="entryDescCode" onchange="descCodeManual()">
         <option value="">— Select —</option>
@@ -978,7 +982,7 @@ if ('serviceWorker' in navigator) {
 <!-- -- BOTTOM BAR -- -->
 <div class="bottom-bar">
   <div>
-    <div class="entry-count"><strong id="entryCountNum">0</strong> entries saved</div>
+    <div class="entry-count"><strong id="entryCountNum">0</strong> entries saved <span id="appVersion" class="app-version" onclick="location.reload()" title="App version. Tap to reload and pick up the latest build."></span></div>
     <div id="storageIndicator" style="margin-top:3px;">
       <div style="display:flex;align-items:center;gap:6px;">
         <div id="storageBar" style="flex:1;height:4px;background:var(--border);border-radius:2px;overflow:hidden;max-width:120px;">
@@ -1688,6 +1692,7 @@ function toggleScore(btn) {
   // NPS-only: a tap is a decision, so a later question pick no longer overrides it.
   scoreAuto = false;
   setHint('scoreHint', '');
+  updateNoteMode();
   autoSaveCurrent();
 }
 
@@ -1696,6 +1701,7 @@ function setScoreButtons(value) {
     b.classList.toggle('active', b.dataset.score === value);
   });
   document.getElementById('entryScore').value = value || '';
+  updateNoteMode();
 }
 
 // ============================================================================
@@ -1712,7 +1718,7 @@ function saveEntryAndNew() {
     return;
   }
   if (!score) {
-    showToast('Tap a priority (1, 2a, 2b, 3, 4 or P) to score this entry first', true);
+    showToast('Tap a priority (1, 2a, 2b, 3, 4, P) or Note to score this entry first', true);
     return;
   }
 
@@ -1721,11 +1727,11 @@ function saveEntryAndNew() {
     siteName:  location,
     location:  location,
     park:      currentParkCode(location),
-    protocolArea: document.getElementById('protocolArea').value.trim(),
+    protocolArea: score === NOTE ? '' : document.getElementById('protocolArea').value.trim(),
     teamGuideCitation: document.getElementById('teamGuideCitation').value.trim(),
-    score: document.getElementById('entryScore').value.trim(),
-    descCode: document.getElementById('entryDescCode').value,
-    repeatOf: currentRepeatOf,
+    score: score,
+    descCode: score === NOTE ? '' : document.getElementById('entryDescCode').value,
+    repeatOf: score === NOTE ? null : currentRepeatOf,
     details:   details,
     latitude:  currentGPS ? currentGPS.latitude  : null,
     longitude: currentGPS ? currentGPS.longitude : null,
@@ -1820,7 +1826,7 @@ function renderSavedPanel() {
           <div class="saved-item-name">${esc(e.location || '(No location)')}</div>
           ${e.protocolArea ? `<div class="saved-item-detail" style="font-size:11px;color:var(--text-dim);">${esc(e.protocolArea)}</div>` : ''}
           ${e.teamGuideCitation ? `<div class="saved-item-detail" style="font-size:11px;color:var(--text-dim);font-style:italic;">EC: ${esc(e.teamGuideCitation)}</div>` : ''}
-          ${e.score ? `<div class="saved-item-detail" style="font-size:11px;color:var(--text-dim);">Priority ${e.score}${e.descCode ? ' • ' + e.descCode : ''}${e.repeatOf ? ' • repeat of ' + repeatCitation(e.repeatOf) : ''}</div>` : ''}
+          ${e.score ? `<div class="saved-item-detail" style="font-size:11px;color:var(--text-dim);">${e.score === NOTE ? 'Note' : 'Priority ' + e.score}${e.descCode ? ' • ' + e.descCode : ''}${e.repeatOf ? ' • repeat of ' + repeatCitation(e.repeatOf) : ''}</div>` : ''}
           ${e.latitude != null ? `<div style="font-size:10px;color:var(--text-dim);">${e.latitude.toFixed(6)}\u00B0N, ${Math.abs(e.longitude).toFixed(6)}\u00B0${e.longitude < 0 ? 'W' : 'E'}</div>` : ''}
           <div class="saved-item-detail">
             ${photoCount} photo${photoCount !== 1 ? 's' : ''}
@@ -1981,7 +1987,7 @@ function saveEdit() {
     return;
   }
   if (!score) {
-    showToast('Tap a priority (1, 2a, 2b, 3, 4 or P) to score this entry first', true);
+    showToast('Tap a priority (1, 2a, 2b, 3, 4, P) or Note to score this entry first', true);
     return;
   }
 
@@ -1990,11 +1996,11 @@ function saveEdit() {
     siteName:    location,
     location:    location,
     park:        currentParkCode(location, savedEntries[editingIndex].park),
-    protocolArea: document.getElementById('protocolArea').value.trim(),
+    protocolArea: score === NOTE ? '' : document.getElementById('protocolArea').value.trim(),
     teamGuideCitation: document.getElementById('teamGuideCitation').value.trim(),
-    score: document.getElementById('entryScore').value.trim(),
-    descCode: document.getElementById('entryDescCode').value,
-    repeatOf: currentRepeatOf,
+    score: score,
+    descCode: score === NOTE ? '' : document.getElementById('entryDescCode').value,
+    repeatOf: score === NOTE ? null : currentRepeatOf,
     details:     details,
     latitude:    currentGPS ? currentGPS.latitude  : null,
     longitude:   currentGPS ? currentGPS.longitude : null,
@@ -2773,7 +2779,7 @@ async function runExport() {
       quote(fmtCoord(e.latitude)), quote(fmtCoord(e.longitude)), quote(fmtAcc(e.gpsAccuracy)),
       quote(e.protocolArea || ''),
       quote(e.teamGuideCitation || ''),
-      quote(e.score || ''),
+      quote(isNote(e) ? 'Note' : (e.score || '')),
       quote(e.descCode || ''),
       quote(e.repeatOf ? repeatCitation(e.repeatOf) : ''),
       quote(e.details),
@@ -2818,6 +2824,7 @@ async function runExport() {
   // ===== Sheets 1–2: Audit Summary, then one WASO "Audit Report" per park =====
   addAuditSummarySheet(wb, allEntries, numbers, tankExport);
   addWasoSheets(wb, allEntries, numbers, photosOf);
+  addNotesSheet(wb, allEntries, photosOf);
 
   // ===== Sheet 3: NPS Entries (raw data, hidden GPS + photo cols) =====
   const raw = wb.addWorksheet('NPS Entries');
@@ -2835,7 +2842,7 @@ async function runExport() {
       e.latitude != null ? e.latitude : '', e.longitude != null ? e.longitude : '', e.gpsAccuracy != null ? e.gpsAccuracy : '',
       e.protocolArea || '',
       e.teamGuideCitation || '',
-      e.score || '',
+      isNote(e) ? 'Note' : (e.score || ''),
       e.descCode || '',
       e.repeatOf ? repeatCitation(e.repeatOf) : '',
       e.details || '',
@@ -3888,6 +3895,11 @@ const SHEET_RENAMES = {
 // Listed explicitly: object key order would put the numeric-looking keys first.
 const PRIORITIES = ['1', '2a', '2b', '3', '4', 'P'];
 const PRIORITY_RANK = { '1': 0, '2a': 1, '2b': 2, '3': 3, '4': 4, 'P': 5 };
+// A Note is a general observation, not a finding: no sheet, question or
+// description code, no WASO row, no finding number. It sorts after P.
+const NOTE = 'N';
+const scoreRank = s => s === NOTE ? 6 : (PRIORITY_RANK[s] !== undefined ? PRIORITY_RANK[s] : 9);
+const isNote = e => (e && e.score) === NOTE;
 // Question wording → WASO description code. First match wins, so the specific
 // (plans, reporting, records, training) come before the general (storage).
 const DESC_CODE_RULES = [
@@ -3920,6 +3932,13 @@ let priorAudit      = null;   // { source, importedAt, year, findings: [...] }
 let priorPickMode   = false;
 let priorChip       = '';     // '' = all, or a park code / sheet code
 
+// Hide the finding-only rows while Note is selected; the values underneath are kept.
+function updateNoteMode() {
+  const note = document.getElementById('entryScore').value === NOTE;
+  ['sheetSection', 'descCodeGroup', 'repeatGroup'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.style.display = note ? 'none' : '';
+  });
+}
 function setHint(id, text) {
   const el = document.getElementById(id); if (!el) return;
   el.textContent = text || '';
@@ -3956,7 +3975,7 @@ function normalisePriority(v) {
   if (l === '2a' || l === '2b') return l;
   if (l === '2') return '2b';                              // older sheets scored a plain 2
   if (l === 'finding') return '2b';
-  if (l === 'observation') return '4';
+  if (l === 'observation' || l === 'note' || l === 'n') return NOTE;
   return '';
 }
 function entryParkCode(e) {
@@ -4070,7 +4089,7 @@ function migrateSavedEntries() {
   });
   if (changed) {
     try { localStorage.setItem(LS_SAVED, JSON.stringify(savedEntries)); } catch (e) {}
-    if (rescored) setTimeout(() => showToast(rescored + ' saved entr' + (rescored === 1 ? 'y' : 'ies') + ' re-scored as priorities (Finding → 2b, Observation → 4) — check them', true), 2500);
+    if (rescored) setTimeout(() => showToast(rescored + ' saved entr' + (rescored === 1 ? 'y' : 'ies') + ' re-scored (Finding → 2b, Observation → Note) — check them', true), 2500);
   }
 }
 
@@ -4080,8 +4099,7 @@ function findingOrder(entries) {
   return entries.map((e, i) => ({ e, i })).sort((a, b) => {
     const ap = entryParkCode(a.e), bp = entryParkCode(b.e);
     if (ap !== bp) return ap < bp ? -1 : 1;
-    const ar = PRIORITY_RANK[a.e.score] !== undefined ? PRIORITY_RANK[a.e.score] : 9;
-    const br = PRIORITY_RANK[b.e.score] !== undefined ? PRIORITY_RANK[b.e.score] : 9;
+    const ar = scoreRank(a.e.score), br = scoreRank(b.e.score);
     if (ar !== br) return ar - br;
     const as = key(a.e), bs = key(b.e);
     if (as !== bs) return as < bs ? -1 : 1;
@@ -4100,6 +4118,7 @@ function findingNumbers(entries) {
   for (const i of findingOrder(entries)) {
     const e = entries[i];
     const park = entryParkCode(e);
+    if (isNote(e)) { out.set(e, { park, num: 0, str: '', label: 'Note', note: true }); continue; }
     counters[park] = (counters[park] || 0) + 1;
     const str = String(counters[park]).padStart(3, '0');
     out.set(e, { park, num: counters[park], str, label: (parks.size > 1 && park ? park + ' ' : '') + str });
@@ -4269,7 +4288,7 @@ async function handlePriorFile(event) {
   showToast('Reading spreadsheet…');
   let parsed;
   try { parsed = await parsePriorWorkbook(file); }
-  catch (e) { showToast(e.message || 'Could not read that file', true); return; }
+  catch (e) { showToast(/central directory|zip/i.test(e.message || '') ? 'That is not an Excel (.xlsx) file' : (e.message || 'Could not read that file'), true); return; }
   if (!parsed.year) {
     const y = prompt('Which year was that audit? (used in the repeat citation, e.g. 2021-Finding 003)', String(new Date().getFullYear() - 5));
     if (!y || !/^\d{4}$/.test(y.trim())) return;
@@ -4395,7 +4414,7 @@ function addWasoSheets(wb, entries, numbers, photosOf) {
     ws.getRow(1).getCell(20).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF8A8F9A' } };
     for (const i of findingOrder(entries)) {
       const e = entries[i];
-      if (entryParkCode(e) !== park) continue;
+      if (entryParkCode(e) !== park || isNote(e)) continue;
       const row = ws.addRow(wasoRow(e, numbers.get(e), photosOf(e)));
       row.eachCell({ includeEmpty: true }, (c, col) => {
         c.font = { name: 'Arial', size: 10 };
@@ -4409,6 +4428,28 @@ function addWasoSheets(wb, entries, numbers, photosOf) {
     [...WASO_WIDTHS, 14].forEach((w, i) => { ws.getColumn(i + 1).width = w; });
   }
 }
+// General observations, kept apart from the findings so the office sees them
+// without having to weed them out of the WASO sheets.
+function addNotesSheet(wb, entries, photosOf) {
+  const notes = findingOrder(entries).map(i => entries[i]).filter(isNote);
+  if (!notes.length) return;
+  const ws = wb.addWorksheet('Field Notes', { views: [{ state: 'frozen', ySplit: 1, showGridLines: false }] });
+  ws.addRow(['Park', 'Date', 'Location', 'Note', 'GPS', 'Photos']);
+  _styleHeader(ws.getRow(1));
+  for (const e of notes) {
+    const d = e.timestamp ? new Date(e.timestamp) : null;
+    const row = ws.addRow([entryParkCode(e), (d && !isNaN(d)) ? new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())) : '',
+      entryLocationName(e) || entryParkCode(e), e.details || '',
+      e.latitude != null ? Number(e.latitude).toFixed(6) + ', ' + Number(e.longitude).toFixed(6) : '', photosOf(e)]);
+    row.eachCell({ includeEmpty: true }, (c, col) => {
+      c.font = { name: 'Arial', size: 10 }; c.border = TANK_BORDER;
+      c.alignment = { horizontal: (col === 3 || col === 4) ? 'left' : 'center', vertical: 'top', wrapText: true };
+      if (col === 2 && c.value) c.numFmt = 'm/d/yyyy';
+    });
+    row.height = Math.max(20, Math.ceil(String(e.details || '').length / 64) * 14 + 8);
+  }
+  [8, 12, 30, 70, 22, 14].forEach((w, i) => { ws.getColumn(i + 1).width = w; });
+}
 function addAuditSummarySheet(wb, entries, numbers, tankExport) {
   const ws = wb.addWorksheet('Audit Summary', { views: [{ showGridLines: false }] });
   const title = t => { const r = ws.addRow([t]); r.getCell(1).font = { name: 'Arial', size: 13, bold: true, color: { argb: 'FF5C3B1E' } }; r.height = 22; return r; };
@@ -4420,16 +4461,17 @@ function addAuditSummarySheet(wb, entries, numbers, tankExport) {
   plain(['Prior audit', priorAudit ? priorAudit.year + ' — ' + priorFindings().length + ' findings (' + (priorAudit.source || '') + ')' : '—']);
   ws.addRow([]);
   const parks = [...new Set(entries.map(entryParkCode))].sort();
-  const head = ws.addRow(['Park', 'Park name', 'Site visit', 'Locations visited', ...PRIORITIES.map(p => 'Priority ' + p), 'Total', 'Repeats', ...CITATION_SOURCES]);
+  const head = ws.addRow(['Park', 'Park name', 'Site visit', 'Locations visited', ...PRIORITIES.map(p => 'Priority ' + p), 'Total findings', 'Notes', 'Repeats', ...CITATION_SOURCES]);
   _styleHeader(head);
   for (const park of parks) {
     const es = entries.filter(e => entryParkCode(e) === park);
     const pc = priorityCounts(es);
     const src = {}; CITATION_SOURCES.forEach(s => src[s] = 0);
-    es.forEach(e => { src[citationSource(e)]++; });
+    const finds = es.filter(e => !isNote(e));
+    finds.forEach(e => { src[citationSource(e)]++; });
     const locs = [...new Set(es.map(entryLocationName).filter(Boolean))].sort();
-    const r = ws.addRow([park, parkNameOf(park), dateSpan(es), locs.join('; '), ...PRIORITIES.map(p => pc[p]), es.length,
-      es.filter(e => e.repeatOf).length, ...CITATION_SOURCES.map(s => src[s])]);
+    const r = ws.addRow([park, parkNameOf(park), dateSpan(es), locs.join('; '), ...PRIORITIES.map(p => pc[p]), finds.length,
+      es.length - finds.length, es.filter(e => e.repeatOf).length, ...CITATION_SOURCES.map(s => src[s])]);
     r.eachCell({ includeEmpty: true }, (c, col) => {
       c.font = { name: 'Arial', size: 10 }; c.border = TANK_BORDER;
       c.alignment = { horizontal: col <= 4 ? 'left' : 'center', vertical: 'top', wrapText: true };
@@ -4444,12 +4486,35 @@ function addAuditSummarySheet(wb, entries, numbers, tankExport) {
   }
   if (peopleList.length) plain(['Park personnel contacted', peopleList.map(p => p.name + (p.title ? ' — ' + p.title : '')).join('; ')]);
   ws.getColumn(1).width = 26; ws.getColumn(2).width = 34; ws.getColumn(3).width = 20; ws.getColumn(4).width = 50;
-  for (let c = 5; c <= 5 + PRIORITIES.length + 1 + CITATION_SOURCES.length; c++) ws.getColumn(c).width = 11;
+  for (let c = 5; c <= head.cellCount; c++) ws.getColumn(c).width = 11;
   ws.getRow(head.number).height = 44;
 }
 
 loadAuditInfo();
 loadPriorAudit();
+
+// ---- Version stamp (NPS only) ----
+// APP_VERSION is the number after "-v" in sw.js's CACHE_NAME; bump both on
+// every release. The bottom bar shows it, and while a newer service worker
+// is still installing (the page is fresh, the cache is last release's) it
+// says so and settles once the new worker takes control.
+const APP_VERSION = '1.7';
+function paintVersion() {
+  const el = document.getElementById('appVersion'); if (!el) return;
+  el.textContent = 'v' + APP_VERSION;
+  el.classList.remove('stale');
+  if (!('caches' in window)) return;
+  caches.keys().then(keys => {
+    const versions = keys.map(k => (k.match(/-v([\d.]+)$/) || [])[1]).filter(Boolean);
+    if (versions.length && !versions.includes(APP_VERSION)) {
+      el.textContent = 'v' + APP_VERSION + ' · updating…';
+      el.classList.add('stale');
+      setTimeout(paintVersion, 4000);
+    }
+  }).catch(() => {});
+}
+paintVersion();
+if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('controllerchange', () => setTimeout(paintVersion, 500));
 
 // ============================================================================
 // SPCC TANK CHECK + PERSONNEL  (NPS only — no USFS counterpart)
@@ -4617,7 +4682,7 @@ async function handleTankFile(event) {
   showToast('Reading tables…');
   let parsed;
   try { parsed = await parseTankDocx(file); }
-  catch (e) { showToast(e.message || 'Could not read that file', true); return; }
+  catch (e) { showToast(/central directory|zip/i.test(e.message || '') ? 'That is not a Word (.docx) file' : (e.message || 'Could not read that file'), true); return; }
   const summary = parsed.groups
     .map((g, i) => '• ' + g.title.slice(0, 58) + ': ' + parsed.rows.filter(r => r.group === i).length)
     .join('\n');
@@ -5155,7 +5220,8 @@ async function generateWordReport() {
   const parks = [...new Set(allEntries.map(entryParkCode))].sort();
   const parkTitle = code => code ? code + (parkNameOf(code) ? ' — ' + parkNameOf(code) : '') : 'Park not set';
   const pc = priorityCounts(allEntries);
-  const counts = PRIORITIES.map(p => p + ': ' + pc[p]).join('  •  ') + `  •  ${items.length} photo${items.length === 1 ? '' : 's'}`;
+  const nNotes = allEntries.filter(isNote).length;
+  const counts = PRIORITIES.map(p => p + ': ' + pc[p]).join('  •  ') + (nNotes ? `  •  ${nNotes} note${nNotes === 1 ? '' : 's'}` : '') + `  •  ${items.length} photo${items.length === 1 ? '' : 's'}`;
   const span = dateSpan(allEntries);
 
   const banner = new D.Table({
@@ -5177,7 +5243,7 @@ async function generateWordReport() {
   // Finding header: number, priority, sheet, then location, description, question.
   function findingHead(e) {
     const n = numbers.get(e) || { str: '' };
-    const head = ['Finding ' + n.str, e.score ? 'Priority ' + e.score : '', e.protocolArea || ''].filter(Boolean).join('   •   ');
+    const head = (isNote(e) ? ['Field Note', e.protocolArea || ''] : ['Finding ' + n.str, e.score ? 'Priority ' + e.score : '', e.protocolArea || '']).filter(Boolean).join('   •   ');
     const out = [
       new D.Paragraph({
         spacing: { before: 200, after: 40 }, keepNext: true,
@@ -5234,7 +5300,7 @@ async function generateWordReport() {
       new D.Paragraph({
         alignment: D.AlignmentType.CENTER, spacing: { before: 0, after: 20 },
         border: { top: { style: D.BorderStyle.SINGLE, size: 4, color: RULE, space: 6 } },
-        children: [new D.TextRun({ text: 'Photo ' + String(item.num).padStart(3, '0') + '   •   Finding ' + n.str, font: FONT, bold: true, color: BROWN, size: 20 })]
+        children: [new D.TextRun({ text: 'Photo ' + String(item.num).padStart(3, '0') + (isNote(e) ? '   •   Note' : '   •   Finding ' + n.str), font: FONT, bold: true, color: BROWN, size: 20 })]
       }),
       ...(facts.length ? [line(facts.join('   •   '), { italics: true, color: GRAY, size: 17 })] : [])
     ]);
@@ -5294,7 +5360,7 @@ async function generateWordReport() {
     const blob = await D.Packer.toBlob(doc);
     const tag  = (parks.filter(Boolean).join('-') || sanitizeSegment(selectedForest) || 'NPS').substring(0, 24);
     await shareOrDownload(blob, 'NPS_Photo_Log_' + tag + '_' + datestamp() + '.docx');
-    showToast(`Word report: ${allEntries.length} finding${allEntries.length === 1 ? '' : 's'}, ${items.length} photo${items.length === 1 ? '' : 's'}${misses ? ' (⚠ ' + misses + ' missing)' : ''}`);
+    showToast(`Word report: ${allEntries.length} entr${allEntries.length === 1 ? 'y' : 'ies'}, ${items.length} photo${items.length === 1 ? '' : 's'}${misses ? ' (⚠ ' + misses + ' missing)' : ''}`);
   } catch (e) {
     console.error('Word report error:', e);
     showToast('Word report error — try again', true);
