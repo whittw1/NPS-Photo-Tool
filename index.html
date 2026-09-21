@@ -2685,7 +2685,7 @@ async function runExport() {
     showToast(beforeFilter === 0 ? 'Nothing to export' : 'No entries in selected date range', true);
     return;
   }
-  if (typeof ExcelJS === 'undefined') { showToast('ExcelJS not loaded \u2014 go online once first', true); return; }
+  if (typeof JSZip === 'undefined' || typeof ExcelJS === 'undefined') { showToast('Export library not loaded \u2014 go online once first', true); return; }
   // NPS-only: finding numbers are assigned per park after the WASO sort.
   const numbers = findingNumbers(allEntries);
 
@@ -2698,10 +2698,11 @@ async function runExport() {
   let photoCount    = 0;
   let misses        = 0;
   const missedKeys  = [];
+  const shippedKeys = [];   // photos that made it into this export
 
   async function getBytes(dbKey, mimeType) {
     const r = await loadPhotoBytes(dbKey, mimeType);
-    if (r) return r;
+    if (r) { shippedKeys.push(dbKey); return r; }
     misses++;
     if (dbKey) missedKeys.push(dbKey);
     return null;
@@ -2886,7 +2887,8 @@ async function runExport() {
 
   try {
     const blob = await zip.generateAsync({ type: 'blob' });
-    await shareOrDownload(blob, 'NPS_Export_' + datestamp() + '.zip');
+    // A cancelled share sheet means nothing left the device: no record, no offer to delete.
+    if (!await shareOrDownload(blob, 'NPS_Export_' + datestamp() + '.zip')) { showToast('Export cancelled \u2014 nothing was saved or sent', true); return; }
     showToast(`Exported ${allEntries.length} entries, ${photoCount} photos${misses ? ' (⚠ ' + misses + ' missing)' : ''}`);
 
     // Offer to batch-delete the just-exported entries from this device.
@@ -2902,14 +2904,10 @@ async function runExport() {
 
     if (exportedIds.length > 0) showPostExportPrompt(exportedIds);
 
-    // Clean up localStorage fallback copies
+    // Clean up the localStorage fallback copies of the photos this export shipped.
+    // Photos of entries outside the date filter stay: they have not been exported yet.
     try {
-      const fallbackKeys = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && k.startsWith('photo_full_')) fallbackKeys.push(k);
-      }
-      fallbackKeys.forEach(k => localStorage.removeItem(k));
+      shippedKeys.forEach(k => localStorage.removeItem('photo_full_' + k));
     } catch(e) {}
   } catch(e) {
     console.error('Export error:', e);
@@ -2927,7 +2925,7 @@ async function saveBackup() {
 
   const clean = all.map(({ photos, ...rest }) => rest);
   const blob  = new Blob([JSON.stringify({ version:1, exported: new Date().toISOString(), entries: clean, tanks: tankData, people: peopleList, audit: auditInfo, prior: priorAudit }, null, 2)], { type:'application/json' });
-  await shareOrDownload(blob, `NPS_Backup_${datestamp()}.json`);
+  if (!await shareOrDownload(blob, `NPS_Backup_${datestamp()}.json`)) { showToast('Backup cancelled', true); return; }
   showToast(`Backup saved \u2014 ${clean.length} entries`);
 }
 
@@ -3774,6 +3772,8 @@ function datestamp() {
   return `${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}${String(d.getFullYear()).slice(2)}`;
 }
 
+// Returns true once the file has been shared or handed to the browser to download,
+// false when the user closed the share sheet without sending it anywhere.
 async function shareOrDownload(blob, filename) {
   // Use Web Share API if available (Capacitor / iOS) — triggers native share sheet
   if (navigator.canShare && navigator.canShare({ files: [new File([blob], filename)] })) {
@@ -3782,9 +3782,9 @@ async function shareOrDownload(blob, filename) {
         files: [new File([blob], filename, { type: blob.type })],
         title: filename
       });
-      return;
+      return true;
     } catch(e) {
-      if (e.name === 'AbortError') return; // user cancelled share sheet
+      if (e.name === 'AbortError') return false; // user cancelled share sheet
       // Fall through to download
     }
   }
@@ -3797,6 +3797,7 @@ async function shareOrDownload(blob, filename) {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+  return true;
 }
 
 function showToast(msg, isWarn = false) {
@@ -4499,7 +4500,7 @@ loadPriorAudit();
 // every release. The bottom bar shows it, and while a newer service worker
 // is still installing (the page is fresh, the cache is last release's) it
 // says so and settles once the new worker takes control.
-const APP_VERSION = '2.1';
+const APP_VERSION = '2.2';
 let _versionTries = 0;
 // '1.10' sorts after '1.9': compare each dotted part as a number.
 function versionCompare(a, b) {
@@ -5351,7 +5352,7 @@ async function generateWordReport() {
   try {
     const blob = await D.Packer.toBlob(doc);
     const tag  = (parks.filter(Boolean).join('-') || sanitizeSegment(selectedForest) || 'NPS').substring(0, 24);
-    await shareOrDownload(blob, 'NPS_Photo_Log_' + tag + '_' + datestamp() + '.docx');
+    if (!await shareOrDownload(blob, 'NPS_Photo_Log_' + tag + '_' + datestamp() + '.docx')) { showToast('Word report cancelled', true); return; }
     showToast(`Word report: ${allEntries.length} entr${allEntries.length === 1 ? 'y' : 'ies'}, ${items.length} photo${items.length === 1 ? '' : 's'}${misses ? ' (⚠ ' + misses + ' missing)' : ''}`);
   } catch (e) {
     console.error('Word report error:', e);

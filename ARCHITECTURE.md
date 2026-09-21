@@ -398,7 +398,7 @@ Region labels come from the boundary data's `REGION` field (`AKR IMR MWR NCR NER
 ## 17. How to extend safely (checklist)
 
 - **Sibling first:** before changing shared code, diff `index.html` against the USFS copy; apply the identical hunk to both apps (or note why not).
-- Editing `index.html`/data JSON → test in a browser (`python3 -m http.server 8080` or the deployed URL), **bump `CACHE_NAME` in `sw.js` and `APP_VERSION` in `index.html` together** (the bottom bar shows `v2.1`; it reads the cache names and says "updating…" while they disagree, so a missed bump is visible), push to `main` (web ships), and note the iOS channel stays behind until the next TestFlight build.
+- Editing `index.html`/data JSON → test in a browser (`python3 -m http.server 8080` or the deployed URL), **bump `CACHE_NAME` in `sw.js` and `APP_VERSION` in `index.html` together** (the bottom bar shows `v2.2`; it reads the cache names and says "updating…" while they disagree, so a missed bump is visible), push to `main` (web ships), and note the iOS channel stays behind until the next TestFlight build.
 - New cached asset → add to `URLS_TO_CACHE` *and* bump the cache name *and* (if it must ship in the iOS bundle) add it to package.json's `build` copy list.
 - New entry field → touch all of: the form HTML, `saveEntryAndNew()`, `saveEdit()`, `editEntry()` (via `loadNpsFields()` for NPS fields), `autoSaveCurrent()`/`loadAll()`, `normaliseEntry()`, the draft objects in `runExport()`, `generateWordReport()` and `saveBackup()`, the CSV row, the XLSX sheets, and the saved-panel renderer.
 - New photo behavior → preserve the verify-after-write contract and the three-tier delete.
