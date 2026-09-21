@@ -2667,11 +2667,6 @@ async function runExport() {
   closeExportDialog();
 
   let allEntries = JSON.parse(JSON.stringify(savedEntries));
-  const loc  = document.getElementById('siteName').value.trim();
-  const prot = document.getElementById('protocolArea').value.trim();
-  const tgc  = document.getElementById('teamGuideCitation').value.trim();
-  const scr  = document.getElementById('entryScore').value.trim();
-  const det  = document.getElementById('entryDetails').value.trim();
   // NPS-only: the location carries over between entries, so a draft counts
   // only once it has a description or a photo.
   if (draftIsExportable()) allEntries.push(draftEntry());
@@ -2767,7 +2762,7 @@ async function runExport() {
       quote(isNote(e) ? 'Note' : (e.score || '')),
       quote(e.descCode || ''),
       quote(e.repeatOf ? repeatCitation(e.repeatOf) : ''),
-      quote(e.details),
+      quote(/^[=+\-@]/.test(e.details || '') ? ' ' + e.details : e.details),   // keep '=...' text as text when the CSV is opened in Excel
       quote(e.timestamp ? new Date(e.timestamp).toLocaleString() : ''),
       ...photoVals
     ].join(',') + '\n';
@@ -2921,11 +2916,6 @@ async function runExport() {
 // ============================================================================
 async function saveBackup() {
   let all = JSON.parse(JSON.stringify(savedEntries));
-  const loc = document.getElementById('siteName').value.trim();
-  const prot = document.getElementById('protocolArea').value.trim();
-  const tgc  = document.getElementById('teamGuideCitation').value.trim();
-  const scr  = document.getElementById('entryScore').value.trim();
-  const det = document.getElementById('entryDetails').value.trim();
   if (draftIsExportable()) all.push(Object.assign(draftEntry(), { photos: {} }));
   if (all.length === 0) { showToast('Nothing to back up', true); return; }
 
@@ -2995,11 +2985,11 @@ function normaliseEntry(e) {
     siteName:  e.siteName  || e.location || '',
     location:  e.location  || e.siteName || '',
     park:      e.park || entryParkCode(e),
-    protocolArea: normaliseSheet(e.protocolArea || ''),
+    protocolArea: normalisePriority(e.score || '') === NOTE ? '' : normaliseSheet(e.protocolArea || ''),
     teamGuideCitation: e.teamGuideCitation || '',
     score: normalisePriority(e.score || ''),
-    descCode:  e.descCode || '',
-    repeatOf:  e.repeatOf || null,
+    descCode:  normalisePriority(e.score || '') === NOTE ? '' : (e.descCode || ''),
+    repeatOf:  normalisePriority(e.score || '') === NOTE ? null : (e.repeatOf || null),
     details:   e.details   || '',
     latitude:  e.latitude  != null ? e.latitude  : null,
     longitude: e.longitude != null ? e.longitude : null,
@@ -4503,8 +4493,14 @@ loadPriorAudit();
 // every release. The bottom bar shows it, and while a newer service worker
 // is still installing (the page is fresh, the cache is last release's) it
 // says so and settles once the new worker takes control.
-const APP_VERSION = '1.9';
+const APP_VERSION = '2.0';
 let _versionTries = 0;
+// '1.10' sorts after '1.9': compare each dotted part as a number.
+function versionCompare(a, b) {
+  const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; }
+  return 0;
+}
 function paintVersion() {
   const el = document.getElementById('appVersion'); if (!el) return;
   const plain = () => { el.textContent = 'v' + APP_VERSION; el.classList.remove('stale'); };
@@ -4516,7 +4512,7 @@ function paintVersion() {
     if (!versions.length || versions.includes(APP_VERSION)) { plain(); _versionTries = 0; return; }
     el.classList.add('stale');
     if (++_versionTries < 15) { el.textContent = 'v' + APP_VERSION + ' · updating…'; setTimeout(paintVersion, 4000); }
-    else el.textContent = 'v' + APP_VERSION + ' (offline copy v' + versions.sort().pop() + ')';
+    else el.textContent = 'v' + APP_VERSION + ' (offline copy v' + versions.sort(versionCompare).pop() + ')';
   }).catch(plain);
 }
 paintVersion();
@@ -5162,11 +5158,6 @@ async function generateWordReport() {
 
   // Same entry set, draft handling and date filter as the ZIP export.
   let allEntries = JSON.parse(JSON.stringify(savedEntries));
-  const loc  = document.getElementById('siteName').value.trim();
-  const prot = document.getElementById('protocolArea').value.trim();
-  const tgc  = document.getElementById('teamGuideCitation').value.trim();
-  const scr  = document.getElementById('entryScore').value.trim();
-  const det  = document.getElementById('entryDetails').value.trim();
   if (draftIsExportable()) allEntries.push(draftEntry());
   const dateRange = getExportDateRange();
   const beforeFilter = allEntries.length;
