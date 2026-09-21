@@ -685,6 +685,12 @@ if ('serviceWorker' in navigator) {
     .header > div:first-child { min-width: 0; flex: 1 1 auto; }
     .header-actions { margin-left: auto; }
     body { overflow-x: hidden; }
+    /* On a phone the 18 sheet chips wrapped into six rows and hid the
+       question results under them; one scrollable row and a taller list. */
+    .tg-chips { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+    .tg-chips::-webkit-scrollbar { display: none; }
+    .tg-chip { flex: 0 0 auto; }
+    #tgResults { max-height: 60vh !important; }
     .container { padding: 14px; }
     .entry-section, .site-section { padding: 14px; }
     .btn-sm { padding: 8px 14px; font-size: 14px; }
@@ -4493,7 +4499,7 @@ loadPriorAudit();
 // every release. The bottom bar shows it, and while a newer service worker
 // is still installing (the page is fresh, the cache is last release's) it
 // says so and settles once the new worker takes control.
-const APP_VERSION = '2.0';
+const APP_VERSION = '2.1';
 let _versionTries = 0;
 // '1.10' sorts after '1.9': compare each dotted part as a number.
 function versionCompare(a, b) {
