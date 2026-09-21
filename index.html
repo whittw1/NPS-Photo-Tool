@@ -982,7 +982,7 @@ if ('serviceWorker' in navigator) {
 <!-- -- BOTTOM BAR -- -->
 <div class="bottom-bar">
   <div>
-    <div class="entry-count"><strong id="entryCountNum">0</strong> entries saved <span id="appVersion" class="app-version" onclick="location.reload()" title="App version. Tap to reload and pick up the latest build."></span></div>
+    <div class="entry-count"><strong id="entryCountNum">0</strong> entries saved <span id="appVersion" class="app-version" onclick="if(confirm('Reload the app to pick up the latest version?'))location.reload()" title="App version. Tap to reload and pick up the latest build."></span></div>
     <div id="storageIndicator" style="margin-top:3px;">
       <div style="display:flex;align-items:center;gap:6px;">
         <div id="storageBar" style="flex:1;height:4px;background:var(--border);border-radius:2px;overflow:hidden;max-width:120px;">
@@ -2481,7 +2481,7 @@ function resetPhotoSettings() {
 // ============================================================================
 function showExportDialog() {
   const total = savedEntries.length + (draftIsExportable() ? 1 : 0);
-  if (total === 0) { showToast('Nothing to export yet', true); return; }
+  if (total === 0) { showToast(draftPendingScore() ? 'Tap a priority or Note and save the entry first' : 'Nothing to export yet', true); return; }
   exportDateMode = 'all';
   document.getElementById('exportFromDate').value = '';
   document.getElementById('exportToDate').value   = '';
@@ -2611,9 +2611,10 @@ function updateExportCount() {
     all.push({ location: loc, timestamp: new Date().toISOString(), details: det });
   }
   const match = all.filter(e => entryInRange(e, range)).length;
-  el.textContent = (match === all.length)
+  el.textContent = ((match === all.length)
     ? `${match} entr${match === 1 ? 'y' : 'ies'} will be exported`
-    : `${match} of ${all.length} entr${all.length === 1 ? 'y' : 'ies'} match this filter`;
+    : `${match} of ${all.length} entr${all.length === 1 ? 'y' : 'ies'} match this filter`)
+    + (draftPendingScore() ? ' — the entry in progress has no priority or Note yet, so it is not included' : '');
 }
 
 function updateRefPreview() {
@@ -2673,25 +2674,7 @@ async function runExport() {
   const det  = document.getElementById('entryDetails').value.trim();
   // NPS-only: the location carries over between entries, so a draft counts
   // only once it has a description or a photo.
-  if (draftIsExportable()) {
-    allEntries.push({
-      id:        currentEntryId,
-      siteName:  loc,
-      location:  loc,
-      park:      currentParkCode(loc),
-      protocolArea: prot,
-      teamGuideCitation: tgc,
-      score:     scr,
-      descCode:  document.getElementById('entryDescCode').value,
-      repeatOf:  currentRepeatOf,
-      details:   det,
-      latitude:  currentGPS ? currentGPS.latitude  : null,
-      longitude: currentGPS ? currentGPS.longitude : null,
-      gpsAccuracy: currentGPS ? currentGPS.accuracy : null,
-      timestamp: new Date().toISOString(),
-      photos:    Object.assign({}, currentPhotos)
-    });
-  }
+  if (draftIsExportable()) allEntries.push(draftEntry());
 
   // Apply the export-dialog date filter
   const dateRange = getExportDateRange();
@@ -2943,19 +2926,7 @@ async function saveBackup() {
   const tgc  = document.getElementById('teamGuideCitation').value.trim();
   const scr  = document.getElementById('entryScore').value.trim();
   const det = document.getElementById('entryDetails').value.trim();
-  if (draftIsExportable()) {
-    all.push({
-      id: currentEntryId,
-      siteName: loc,
-      location: loc, park: currentParkCode(loc), protocolArea: prot, teamGuideCitation: tgc, score: scr,
-      descCode: document.getElementById('entryDescCode').value, repeatOf: currentRepeatOf, details: det,
-      latitude:  currentGPS ? currentGPS.latitude  : null,
-      longitude: currentGPS ? currentGPS.longitude : null,
-      gpsAccuracy: currentGPS ? currentGPS.accuracy : null,
-      timestamp: new Date().toISOString(),
-      photos: {}
-    });
-  }
+  if (draftIsExportable()) all.push(Object.assign(draftEntry(), { photos: {} }));
   if (all.length === 0) { showToast('Nothing to back up', true); return; }
 
   const clean = all.map(({ photos, ...rest }) => rest);
@@ -3633,6 +3604,11 @@ function loadAll() {
     currentPhotos  = state.currentPhotos  || {};
     currentEntryId = state.currentEntryId || genId();
     currentGPS     = state.currentGPS    || null;
+    // NPS-only: a reload mid-edit (the version stamp is one tap away) comes
+    // back in edit mode, so the form's copy cannot become a second entry
+    // sharing the saved one's photos.
+    const editIdx = savedEntries.findIndex(en => en.id === currentEntryId);
+    if (editIdx >= 0) { editingIndex = editIdx; setEditModeUI(true, savedEntries[editIdx].location || 'entry'); }
     updateGPSDisplay();
 
     // Restore any extra photo slots
@@ -3951,7 +3927,31 @@ function setHint(id, text) {
 function draftIsExportable() {
   // While an entry is open for editing the form is a copy of a saved entry, not a new one.
   if (editingIndex !== null) return false;
+  // An unscored draft stays on the device rather than becoming a numbered blank finding.
+  if (!document.getElementById('entryScore').value) return false;
   return !!(document.getElementById('entryDetails').value.trim() || Object.keys(currentPhotos).length > 0);
+}
+// A draft with something in it but no priority or Note yet: reported in the export dialog.
+function draftPendingScore() {
+  return editingIndex === null && !document.getElementById('entryScore').value &&
+    !!(document.getElementById('entryDetails').value.trim() || Object.keys(currentPhotos).length > 0);
+}
+// The entry in progress as the exports and the backup see it — the same Note rule as saving.
+function draftEntry() {
+  const loc = document.getElementById('siteName').value.trim();
+  const scr = document.getElementById('entryScore').value.trim();
+  const note = scr === NOTE;
+  return {
+    id: currentEntryId, siteName: loc, location: loc, park: currentParkCode(loc),
+    protocolArea: note ? '' : document.getElementById('protocolArea').value.trim(),
+    teamGuideCitation: document.getElementById('teamGuideCitation').value.trim(),
+    score: scr, descCode: note ? '' : document.getElementById('entryDescCode').value,
+    repeatOf: note ? null : currentRepeatOf,
+    details: document.getElementById('entryDetails').value.trim(),
+    latitude: currentGPS ? currentGPS.latitude : null, longitude: currentGPS ? currentGPS.longitude : null,
+    gpsAccuracy: currentGPS ? currentGPS.accuracy : null,
+    timestamp: new Date().toISOString(), photos: Object.assign({}, currentPhotos)
+  };
 }
 function sheetCodeOf(text) {
   const t = String(text || '');
@@ -4047,8 +4047,9 @@ function suggestDescCode(text) {
   return '';
 }
 function setDescCode(code, auto) {
-  document.getElementById('entryDescCode').value = code || '';
-  descCodeAuto = !!auto && !!code;
+  const sel = document.getElementById('entryDescCode');
+  sel.value = code || '';
+  descCodeAuto = !!auto && !!code && sel.value === code;
   setHint('descCodeHint', descCodeAuto ? 'Suggested from the question — change if it does not fit' : '');
 }
 function descCodeManual() { descCodeAuto = false; setHint('descCodeHint', ''); autoSaveCurrent(); }
@@ -4068,7 +4069,7 @@ function updateRepeatDisplay() {
   if (!el) return;
   if (currentRepeatOf) {
     el.innerHTML = '<b style="color:var(--accent);">Repeat of ' + esc(repeatCitation(currentRepeatOf)) + '</b>' +
-      (currentRepeatOf.priority ? ' (' + esc(currentRepeatOf.priority) + ')' : '') +
+      (currentRepeatOf.priority ? ' (' + esc(currentRepeatOf.priority === NOTE ? 'Note' : currentRepeatOf.priority) + ')' : '') +
       (currentRepeatOf.desc ? '<br>' + esc(currentRepeatOf.desc) : '');
     el.style.color = 'var(--text)';
     btn.style.display = '';
@@ -4087,6 +4088,7 @@ function migrateSavedEntries() {
     if (sheet !== (e.protocolArea || '')) { e.protocolArea = sheet; changed++; }
     const pri = normalisePriority(e.score || '');
     if (pri !== (e.score || '')) { e.score = pri; changed++; rescored++; }
+    if (pri === NOTE && (e.protocolArea || e.descCode || e.repeatOf)) { e.protocolArea = ''; e.descCode = ''; e.repeatOf = null; changed++; }
     if (!e.park) { const p = entryParkCode(e); if (p) { e.park = p; changed++; } }
   });
   if (changed) {
@@ -4347,7 +4349,7 @@ function renderPriorList() {
     const cite = f.citation || f.bmp;
     html += '<div class="tg-item"' + (priorPickMode ? ' tabindex="0" onclick="pickPriorFinding(' + idx + ')"' : ' style="cursor:default;"') + '>' +
       '<div><span class="tg-item-code">' + esc(priorAudit.year + '-Finding ' + String(f.num).padStart(3, '0')) + '</span>' +
-      '<span class="tg-item-section">' + esc([f.priority ? 'Priority ' + f.priority : '', f.code || f.sheet, f.location].filter(Boolean).join(' · ')) + '</span></div>' +
+      '<span class="tg-item-section">' + esc([f.priority ? (f.priority === NOTE ? 'Note' : 'Priority ' + f.priority) : '', f.code || f.sheet, f.location].filter(Boolean).join(' · ')) + '</span></div>' +
       '<div class="tg-item-desc">' + esc(f.desc) + '</div>' +
       (cite || f.descCode ? '<div class="tg-item-cite">' + esc([cite, f.descCode].filter(Boolean).join(' · ')) + '</div>' : '') +
       (f.repeat && /^y/i.test(f.repeat) ? '<div class="tg-item-cite">Was itself a repeat' + (f.repeatCite ? ' of ' + esc(f.repeatCite) : '') + '</div>' : '') +
@@ -4437,21 +4439,21 @@ function addNotesSheet(wb, entries, photosOf) {
   const notes = findingOrder(entries).map(i => entries[i]).filter(isNote);
   if (!notes.length) return;
   const ws = wb.addWorksheet('Field Notes', { views: [{ state: 'frozen', ySplit: 1, showGridLines: false }] });
-  ws.addRow(['Park', 'Date', 'Location', 'Note', 'GPS', 'Photos']);
+  ws.addRow(['Park', 'Date', 'Location', 'Note', 'Question', 'GPS', 'Photos']);
   _styleHeader(ws.getRow(1));
   for (const e of notes) {
     const d = e.timestamp ? new Date(e.timestamp) : null;
     const row = ws.addRow([entryParkCode(e), (d && !isNaN(d)) ? new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())) : '',
-      entryLocationName(e) || entryParkCode(e), e.details || '',
+      entryLocationName(e) || entryParkCode(e), e.details || '', e.teamGuideCitation || '',
       e.latitude != null ? Number(e.latitude).toFixed(6) + ', ' + Number(e.longitude).toFixed(6) : '', photosOf(e)]);
     row.eachCell({ includeEmpty: true }, (c, col) => {
       c.font = { name: 'Arial', size: 10 }; c.border = TANK_BORDER;
-      c.alignment = { horizontal: (col === 3 || col === 4) ? 'left' : 'center', vertical: 'top', wrapText: true };
+      c.alignment = { horizontal: (col === 3 || col === 4 || col === 5) ? 'left' : 'center', vertical: 'top', wrapText: true };
       if (col === 2 && c.value) c.numFmt = 'm/d/yyyy';
     });
     row.height = Math.max(20, Math.ceil(String(e.details || '').length / 64) * 14 + 8);
   }
-  [8, 12, 30, 70, 22, 14].forEach((w, i) => { ws.getColumn(i + 1).width = w; });
+  [8, 12, 30, 60, 26, 22, 14].forEach((w, i) => { ws.getColumn(i + 1).width = w; });
 }
 function addAuditSummarySheet(wb, entries, numbers, tankExport) {
   const ws = wb.addWorksheet('Audit Summary', { views: [{ showGridLines: false }] });
@@ -4474,7 +4476,7 @@ function addAuditSummarySheet(wb, entries, numbers, tankExport) {
     finds.forEach(e => { src[citationSource(e)]++; });
     const locs = [...new Set(es.map(entryLocationName).filter(Boolean))].sort();
     const r = ws.addRow([park, parkNameOf(park), dateSpan(es), locs.join('; '), ...PRIORITIES.map(p => pc[p]), finds.length,
-      es.length - finds.length, es.filter(e => e.repeatOf).length, ...CITATION_SOURCES.map(s => src[s])]);
+      es.length - finds.length, finds.filter(e => e.repeatOf).length, ...CITATION_SOURCES.map(s => src[s])]);
     r.eachCell({ includeEmpty: true }, (c, col) => {
       c.font = { name: 'Arial', size: 10 }; c.border = TANK_BORDER;
       c.alignment = { horizontal: col <= 4 ? 'left' : 'center', vertical: 'top', wrapText: true };
@@ -4501,20 +4503,21 @@ loadPriorAudit();
 // every release. The bottom bar shows it, and while a newer service worker
 // is still installing (the page is fresh, the cache is last release's) it
 // says so and settles once the new worker takes control.
-const APP_VERSION = '1.8';
+const APP_VERSION = '1.9';
+let _versionTries = 0;
 function paintVersion() {
   const el = document.getElementById('appVersion'); if (!el) return;
-  el.textContent = 'v' + APP_VERSION;
-  el.classList.remove('stale');
-  if (!('caches' in window)) return;
-  caches.keys().then(keys => {
-    const versions = keys.map(k => (k.match(/-v([\d.]+)$/) || [])[1]).filter(Boolean);
-    if (versions.length && !versions.includes(APP_VERSION)) {
-      el.textContent = 'v' + APP_VERSION + ' · updating…';
-      el.classList.add('stale');
-      setTimeout(paintVersion, 4000);
-    }
-  }).catch(() => {});
+  const plain = () => { el.textContent = 'v' + APP_VERSION; el.classList.remove('stale'); };
+  if (!el.textContent) el.textContent = 'v' + APP_VERSION;
+  // Reading window.caches can throw synchronously when site data is blocked.
+  let keysP; try { if (!('caches' in window)) { plain(); return; } keysP = caches.keys(); } catch (e) { plain(); return; }
+  keysP.then(keys => {
+    const versions = keys.map(k => (k.match(/^nps-collector-v([\d.]+)$/) || [])[1]).filter(Boolean);
+    if (!versions.length || versions.includes(APP_VERSION)) { plain(); _versionTries = 0; return; }
+    el.classList.add('stale');
+    if (++_versionTries < 15) { el.textContent = 'v' + APP_VERSION + ' · updating…'; setTimeout(paintVersion, 4000); }
+    else el.textContent = 'v' + APP_VERSION + ' (offline copy v' + versions.sort().pop() + ')';
+  }).catch(plain);
 }
 paintVersion();
 if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('controllerchange', () => setTimeout(paintVersion, 500));
@@ -5164,18 +5167,7 @@ async function generateWordReport() {
   const tgc  = document.getElementById('teamGuideCitation').value.trim();
   const scr  = document.getElementById('entryScore').value.trim();
   const det  = document.getElementById('entryDetails').value.trim();
-  if (draftIsExportable()) {
-    allEntries.push({
-      id: currentEntryId, siteName: loc, location: loc, park: currentParkCode(loc), protocolArea: prot,
-      teamGuideCitation: tgc, score: scr, descCode: document.getElementById('entryDescCode').value,
-      repeatOf: currentRepeatOf, details: det,
-      latitude:    currentGPS ? currentGPS.latitude  : null,
-      longitude:   currentGPS ? currentGPS.longitude : null,
-      gpsAccuracy: currentGPS ? currentGPS.accuracy  : null,
-      timestamp: new Date().toISOString(),
-      photos: Object.assign({}, currentPhotos)
-    });
-  }
+  if (draftIsExportable()) allEntries.push(draftEntry());
   const dateRange = getExportDateRange();
   const beforeFilter = allEntries.length;
   allEntries = allEntries.filter(e => entryInRange(e, dateRange));

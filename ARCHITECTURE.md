@@ -176,7 +176,7 @@ Key details:
 | Native FS | `DATA/nps_photos/<sanitized dbKey>.jpg` | Durable full-res JPEG (native app only) |
 | SW Cache | `nps-collector-v1.0` | App shell + data JSON + the two CDN libraries |
 
-`autoSaveCurrent()` runs on effectively every input event, so a mid-entry app kill (including iOS killing the WebView while the camera is open — a real iOS behavior) restores the full draft, thumbnails included, on next launch. The storage monitor tallies every localStorage key starting with `nps_` or `photo_full_`.
+**NPS:** `loadAll()` also restores **edit mode** when the autosaved draft's id matches a saved entry, so a reload mid-edit (the version stamp is a one-tap reload, behind a confirm) cannot leave a duplicate draft sharing the saved entry's photos. `autoSaveCurrent()` runs on effectively every input event, so a mid-entry app kill (including iOS killing the WebView while the camera is open — a real iOS behavior) restores the full draft, thumbnails included, on next launch. The storage monitor tallies every localStorage key starting with `nps_` or `photo_full_`.
 
 ## 6. Startup sequence (`init()`)
 
@@ -287,7 +287,7 @@ Note: going through `<input type=file>` means **iOS strips EXIF and re-encodes**
 
 ## 11. Export pipeline (`runExport`)
 
-**Dialog:** shows the naming preview, a date filter (chips All / Today / Yesterday / Custom with two date inputs, defaulting to today), and a live count "N entries will be exported" / "M of N match this filter". **NPS divergence:** the in-progress draft counts as an entry only if it has a description or photos, and never while an entry is open for editing — the form is then a copy of a saved entry (`draftIsExportable()`); the location carries over between entries, so a location-only draft is just the carried-over field. The JSON backup applies the same rule. (USFS counts a location-only draft.)
+**Dialog:** shows the naming preview, a date filter (chips All / Today / Yesterday / Custom with two date inputs, defaulting to today), and a live count "N entries will be exported" / "M of N match this filter". **NPS divergence:** the in-progress draft counts as an entry only if it has a description or photos, and never while an entry is open for editing — the form is then a copy of a saved entry (`draftIsExportable()`); the location carries over between entries, so a location-only draft is just the carried-over field. An unscored draft is never exported (it would be a numbered blank finding); the dialog says so (`draftPendingScore()`). The exports and the backup build the draft through one `draftEntry()`, which applies the Note rule (no sheet, code or repeat). The JSON backup applies the same rule. (USFS counts a location-only draft.)
 
 **Selection:** deep-clone `savedEntries`, append the draft (with its live form values) if exportable, then filter by the date range (`entryInRange` on `timestamp`; open-ended bounds allowed). Empty result → abort with a toast. Then `findingNumbers()` (§19) assigns each entry its per-park finding number.
 
@@ -398,7 +398,7 @@ Region labels come from the boundary data's `REGION` field (`AKR IMR MWR NCR NER
 ## 17. How to extend safely (checklist)
 
 - **Sibling first:** before changing shared code, diff `index.html` against the USFS copy; apply the identical hunk to both apps (or note why not).
-- Editing `index.html`/data JSON → test in a browser (`python3 -m http.server 8080` or the deployed URL), **bump `CACHE_NAME` in `sw.js` and `APP_VERSION` in `index.html` together** (the bottom bar shows `v1.8`; it reads the cache names and says "updating…" while they disagree, so a missed bump is visible), push to `main` (web ships), and note the iOS channel stays behind until the next TestFlight build.
+- Editing `index.html`/data JSON → test in a browser (`python3 -m http.server 8080` or the deployed URL), **bump `CACHE_NAME` in `sw.js` and `APP_VERSION` in `index.html` together** (the bottom bar shows `v1.9`; it reads the cache names and says "updating…" while they disagree, so a missed bump is visible), push to `main` (web ships), and note the iOS channel stays behind until the next TestFlight build.
 - New cached asset → add to `URLS_TO_CACHE` *and* bump the cache name *and* (if it must ship in the iOS bundle) add it to package.json's `build` copy list.
 - New entry field → touch all of: the form HTML, `saveEntryAndNew()`, `saveEdit()`, `editEntry()` (via `loadNpsFields()` for NPS fields), `autoSaveCurrent()`/`loadAll()`, `normaliseEntry()`, the draft objects in `runExport()`, `generateWordReport()` and `saveBackup()`, the CSV row, the XLSX sheets, and the saved-panel renderer.
 - New photo behavior → preserve the verify-after-write contract and the three-tier delete.
