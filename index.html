@@ -332,6 +332,7 @@ if ('serviceWorker' in navigator) {
   }
   .st-chips button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
   .st-chips.dir button { min-width: 38px; padding: 6px 6px; }
+  .saved-filter { padding: 8px 0 10px; margin: 0; }
   .st-gps { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; font-size: 12px; color: var(--text-dim); }
   .st-photo { padding: 8px 0; border-bottom: 1px dashed var(--border); }
   .st-photo-top { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
@@ -1848,6 +1849,20 @@ function clearEntryForm(confirmFirst = true) {
 // ============================================================================
 // SAVED PANEL
 // ============================================================================
+// NPS-only: date filter for the saved list. Display only; the export dialog has its own filter.
+var savedDateFilter = 'all';
+function savedFilterMatch(e, mode) {
+  if (mode === 'all') return true;
+  const t = e.timestamp ? new Date(e.timestamp).getTime() : NaN;
+  if (isNaN(t)) return mode === 'earlier';
+  const now = new Date(), y = new Date(now); y.setDate(y.getDate() - 1);
+  if (mode === 'today') return t >= _startOfDay(now);
+  if (mode === 'yesterday') return t >= _startOfDay(y) && t <= _endOfDay(y);
+  if (mode === 'earlier') return t < _startOfDay(y);
+  return true;
+}
+function setSavedFilter(mode) { savedDateFilter = mode; renderSavedPanel(); }
+
 function renderSavedPanel() {
   const body  = document.getElementById('savedPanelBody');
   const badge = document.getElementById('savedCountBadge');
@@ -1860,10 +1875,23 @@ function renderSavedPanel() {
     return;
   }
 
-  body.innerHTML = savedEntries.map((e, i) => {
+  const modes = [['all', 'All'], ['today', 'Today'], ['yesterday', 'Yesterday'], ['earlier', 'Earlier']];
+  const chips = '<div class="st-chips saved-filter">' + modes.map(([m, label]) =>
+    `<button type="button" class="${savedDateFilter === m ? 'on' : ''}" onclick="setSavedFilter('${m}')">${label} ${savedEntries.filter(e => savedFilterMatch(e, m)).length}</button>`).join('') + '</div>';
+  // Rows keep their index in savedEntries, so edit and delete act on the right entry.
+  const shown = savedEntries.map((e, i) => ({ e, i })).filter(x => savedFilterMatch(x.e, savedDateFilter));
+  if (!shown.length) {
+    body.innerHTML = chips + '<div class="saved-empty">No entries saved ' + ({ today: 'today', yesterday: 'yesterday', earlier: 'before yesterday' }[savedDateFilter] || '') + '. Tap All to see every entry.</div>';
+    return;
+  }
+  const todayStart = _startOfDay(new Date());
+  body.innerHTML = chips + shown.map(({ e, i }) => {
     const thumb = e.photos && e.photos.p_main && e.photos.p_main.thumbnail;
     const photoCount = e.photos ? Object.keys(e.photos).length : 0;
-    const ts = e.timestamp ? new Date(e.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '';
+    const when = e.timestamp ? new Date(e.timestamp) : null;
+    const ts = when && !isNaN(when) ? (when.getTime() >= todayStart
+      ? when.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})
+      : when.toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})) : '';
     return `
       <div class="saved-item">
         ${thumb
@@ -4564,7 +4592,7 @@ loadPriorAudit();
 // every release. The bottom bar shows it, and while a newer service worker
 // is still installing (the page is fresh, the cache is last release's) it
 // says so and settles once the new worker takes control.
-const APP_VERSION = '2.3';
+const APP_VERSION = '2.4';
 let _versionTries = 0;
 // '1.10' sorts after '1.9': compare each dotted part as a number.
 function versionCompare(a, b) {
