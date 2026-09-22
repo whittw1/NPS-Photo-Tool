@@ -333,6 +333,7 @@ if ('serviceWorker' in navigator) {
   .st-chips button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
   .st-chips.dir button { min-width: 38px; padding: 6px 6px; }
   .saved-filter { padding: 8px 0 10px; margin: 0; }
+  #compassChip.on { border-color: var(--accent); color: var(--accent); font-variant-numeric: tabular-nums; }
   .st-gps { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; font-size: 12px; color: var(--text-dim); }
   .st-photo { padding: 8px 0; border-bottom: 1px dashed var(--border); }
   .st-photo-top { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
@@ -1151,6 +1152,7 @@ if ('serviceWorker' in navigator) {
     <div id="locSiteSummary" style="font-size:12px;color:var(--text-dim);margin-bottom:8px;"></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
       <button class="btn btn-outline btn-sm" onclick="addSite()">&#10133; New Site</button>
+      <button class="btn btn-outline btn-sm" id="compassChip" onclick="toggleCompass()" title="Pre-select the way the camera faced on new site photos">&#129517; Compass off</button>
     </div>
     <div id="locSiteList" style="flex:1;overflow-y:auto;min-height:0;"></div>
     <div class="dialog-actions" style="margin-top:10px;">
@@ -4622,7 +4624,7 @@ loadPriorAudit();
 // every release. The bottom bar shows it, and while a newer service worker
 // is still installing (the page is fresh, the cache is last release's) it
 // says so and settles once the new worker takes control.
-const APP_VERSION = '2.6';
+const APP_VERSION = '2.7';
 let _versionTries = 0;
 // '1.10' sorts after '1.9': compare each dotted part as a number.
 function versionCompare(a, b) {
@@ -5195,10 +5197,69 @@ function exportableSites() {
     Object.keys(s.photos || {}).length || Object.keys(SITE_CHOICES).some(k => [].concat(s[k] || []).filter(Boolean).length));
 }
 
+// ---- Compass: pre-selects the way the camera faced on new site photos ----
+// iOS reports webkitCompassHeading (degrees from magnetic north) once motion and
+// orientation access is allowed, and Safari only asks for that inside a tap: the
+// Compass button, or opening this list with the compass already on.
+var compassOn = false;
+try { compassOn = localStorage.getItem('nps_compass') === 'on'; } catch (e) {}
+let compassHeading = null;   // { deg, at }
+let _compassListening = false;
+const COMPASS_POINTS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+function headingPoint(deg) { return COMPASS_POINTS[Math.round((((deg % 360) + 360) % 360) / 45) % 8]; }
+function onCompass(ev) {
+  let deg = null;
+  if (typeof ev.webkitCompassHeading === 'number' && ev.webkitCompassHeading >= 0) deg = ev.webkitCompassHeading;
+  else if (ev.absolute === true && typeof ev.alpha === 'number') deg = (360 - ev.alpha) % 360;
+  if (deg == null || isNaN(deg)) return;
+  compassHeading = { deg, at: Date.now() };
+  paintCompassChip();
+}
+function paintCompassChip() {
+  const el = document.getElementById('compassChip'); if (!el) return;
+  el.classList.toggle('on', !!compassOn);
+  const t = !compassOn ? '🧭 Compass off' : (compassHeading && Date.now() - compassHeading.at < 5000
+    ? '🧭 ' + headingPoint(compassHeading.deg) + ' ' + Math.round(compassHeading.deg) + '°' : '🧭 Compass on');
+  if (el.textContent !== t) el.textContent = t;
+}
+function startCompass() {
+  const listen = () => {
+    if (!_compassListening) { window.addEventListener('deviceorientation', onCompass, true); window.addEventListener('deviceorientationabsolute', onCompass, true); _compassListening = true; }
+    return true;
+  };
+  if (typeof DeviceOrientationEvent === 'undefined') return Promise.resolve(false);
+  if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+    let asked; try { asked = DeviceOrientationEvent.requestPermission(); } catch (e) { return Promise.resolve(false); }
+    return Promise.resolve(asked).then(r => r === 'granted' ? listen() : false, () => false);
+  }
+  return Promise.resolve(listen());
+}
+function stopCompass() {
+  window.removeEventListener('deviceorientation', onCompass, true); window.removeEventListener('deviceorientationabsolute', onCompass, true);
+  _compassListening = false; compassHeading = null;
+}
+function toggleCompass() {
+  if (compassOn && _compassListening) {
+    compassOn = false; try { localStorage.setItem('nps_compass', 'off'); } catch (e) {}
+    stopCompass(); paintCompassChip(); return;
+  }
+  startCompass().then(ok => {
+    compassOn = ok;
+    try { localStorage.setItem('nps_compass', ok ? 'on' : 'off'); } catch (e) {}
+    paintCompassChip();
+    showToast(ok ? 'Compass on — new camera photos pre-select the way you face' : 'Compass not available — motion and orientation access was not allowed', !ok);
+  });
+}
+
 // ---- The site list ----
 const _attr = v => esc(String(v == null ? '' : v)).replace(/"/g, '&quot;');
-function showSiteList() { renderSiteList(); document.getElementById('locSiteOverlay').style.display = 'flex'; }
-function closeSiteList() { saveSites(); document.getElementById('locSiteOverlay').style.display = 'none'; }
+function showSiteList() {
+  renderSiteList(); document.getElementById('locSiteOverlay').style.display = 'flex';
+  // Opening the list is a tap, so iOS lets the compass start here without a prompt once allowed.
+  if (compassOn) startCompass().then(paintCompassChip);
+  paintCompassChip();
+}
+function closeSiteList() { saveSites(); stopCompass(); document.getElementById('locSiteOverlay').style.display = 'none'; }
 
 function siteChipsHtml(s, key) {
   const c = SITE_CHOICES[key];
@@ -5215,6 +5276,7 @@ function sitePhotoHtml(s, slot, label) {
     '<div class="st-chips dir">' + Object.keys(SITE_FACING).map(k =>
       '<button type="button" class="' + (p.facing === k ? 'on' : '') + '" onclick="setSitePhotoFacing(\'' + s.id + '\',\'' + slot + '\',\'' + k + '\')">' + (k === 'MAP' ? 'Map' : k === 'AERIAL' ? 'Aerial' : k) + '</button>').join('') + '</div>' +
     '<div class="tk-sub" id="stcap_' + s.id + '_' + slot + '">' + esc(label) + '</div>' +
+    (p.facingAuto && p.facing ? '<div class="tk-sub">🧭 Set by the compass, ' + esc(String(p.heading)) + '° magnetic. Tap another direction to change it.</div>' : '') +
     (p.unsaved ? '<div class="tk-sub" style="color:var(--danger);font-weight:600;">⚠ Not in device storage — retake this photo</div>' : '') +
   '</div>';
 }
@@ -5339,11 +5401,11 @@ function addSitePhoto(id, fromLibrary) {
   // The camera for site photos; the library for a map screenshot or an aerial.
   if (!fromLibrary) input.setAttribute('capture', 'environment');
   input.id = inputId; input.style.display = 'none';
-  input.onchange = function () { handleSitePhoto(this, id); };
+  input.onchange = function () { handleSitePhoto(this, id, !!fromLibrary); };
   document.body.appendChild(input);
   input.click();
 }
-function handleSitePhoto(input, id) {
+function handleSitePhoto(input, id, fromLibrary) {
   const file = input.files && input.files[0];
   if (!file) return;
   const s = siteById(id);
@@ -5370,15 +5432,18 @@ function handleSitePhoto(input, id) {
       tc.getContext('2d').drawImage(canvas, 0, 0, tc.width, tc.height);
       const res = await storePhotoBytes(dbKey, dataUrl);
       s.photos = s.photos || {};
+      // A camera photo taken with the compass on starts with the way the iPad faced.
+      const hd = !fromLibrary && compassOn && compassHeading && Date.now() - compassHeading.at < 120000 ? compassHeading : null;
       s.photos[slot] = {
         timestamp: new Date().toISOString(), thumbnail: tc.toDataURL('image/jpeg', 0.5),
-        fileType: 'image/jpeg', dbKey, unsaved: !res.ok, caption: '', facing: '',
+        fileType: 'image/jpeg', dbKey, unsaved: !res.ok, caption: '',
+        facing: hd ? headingPoint(hd.deg) : '', heading: hd ? Math.round(hd.deg) : null, facingAuto: !!hd,
       };
       openSiteId = s.id;
       saveSites();
       renderSiteList();
       updateIntegrityBadge();
-      showToast(res.ok ? 'Site photo saved — add what it shows and the direction' : '⚠ Photo did NOT save — storage problem', !res.ok);
+      showToast(!res.ok ? '⚠ Photo did NOT save — storage problem' : hd ? 'Site photo saved — facing ' + SITE_FACING[headingPoint(hd.deg)] + ' by the compass; tap to change' : 'Site photo saved — add what it shows and the direction', !res.ok);
     };
     img.src = e.target.result;
   };
@@ -5400,6 +5465,7 @@ function setSitePhotoCaption(id, slot, value) {
 function setSitePhotoFacing(id, slot, key) {
   const s = siteById(id); if (!s || !s.photos || !s.photos[slot]) return;
   s.photos[slot].facing = s.photos[slot].facing === key ? '' : key;
+  s.photos[slot].facingAuto = false;
   saveSites();
   renderSiteList();
 }

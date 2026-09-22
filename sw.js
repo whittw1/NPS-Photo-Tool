@@ -1,5 +1,5 @@
 // Keep the number in step with APP_VERSION in index.html (shown in the bottom bar).
-const CACHE_NAME = 'nps-collector-v2.6';
+const CACHE_NAME = 'nps-collector-v2.7';
 const URLS_TO_CACHE = [
   './',
   './index.html',
