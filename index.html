@@ -321,6 +321,26 @@ if ('serviceWorker' in navigator) {
     border: none; border-radius: 50%; background: var(--danger); color: #fff; font-size: 11px; cursor: pointer;
   }
   .tk-empty { padding: 26px 16px; text-align: center; color: var(--text-dim); font-size: 13px; line-height: 1.6; }
+  /* -- LOC / EDL sites (NPS only) -- */
+  .st-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-dim); margin: 8px 0 5px; }
+  .st-label span { font-weight: 400; text-transform: none; letter-spacing: 0; }
+  .st-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 6px; }
+  .st-chips button {
+    padding: 6px 10px; font-family: inherit; font-size: 12px; font-weight: 600; line-height: 1.2;
+    border: 1.5px solid var(--border); border-radius: 14px; background: var(--input-bg);
+    color: var(--text-dim); cursor: pointer; -webkit-tap-highlight-color: transparent;
+  }
+  .st-chips button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .st-chips.dir button { min-width: 38px; padding: 6px 6px; }
+  .st-gps { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; font-size: 12px; color: var(--text-dim); }
+  .st-photo { padding: 8px 0; border-bottom: 1px dashed var(--border); }
+  .st-photo-top { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+  .st-photo img { width: 76px; height: 57px; object-fit: cover; border-radius: 5px; border: 1px solid var(--border); flex-shrink: 0; }
+  .st-photo-top .tk-field { flex: 1; min-width: 0; margin: 0; }
+  .st-photo-x {
+    width: 26px; height: 26px; padding: 0; flex-shrink: 0; border: none; border-radius: 50%;
+    background: var(--danger); color: #fff; font-size: 13px; line-height: 1; cursor: pointer;
+  }
   .pp-row { display: flex; align-items: center; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--border); }
   .pp-row:last-child { border-bottom: none; }
   .pp-name { font-size: 14px; font-weight: 600; }
@@ -721,6 +741,7 @@ if ('serviceWorker' in navigator) {
   <div class="header-actions">
     <button class="btn btn-outline btn-sm header-btn-secondary" onclick="showSavedList()">&#128203; List</button>
     <button class="btn btn-outline btn-sm header-btn-secondary" onclick="showTankList()">&#128738; Tanks</button>
+    <button class="btn btn-outline btn-sm header-btn-secondary" onclick="showSiteList()">&#128681; Sites</button>
     <button class="btn btn-outline btn-sm header-btn-secondary" onclick="showPriorAudit()">&#128257; Prior</button>
     <button class="btn btn-outline btn-sm header-btn-secondary" onclick="showPeople()">&#128101; People</button>
     <button class="btn btn-outline btn-sm header-btn-secondary" onclick="showSettings()">&#9881;</button>
@@ -735,6 +756,9 @@ if ('serviceWorker' in navigator) {
         </button>
         <button class="overflow-item" onclick="showTankList();closeOverflow()">
           <span class="oi-icon">&#128738;</span> SPCC Tank Check
+        </button>
+        <button class="overflow-item" onclick="showSiteList();closeOverflow()">
+          <span class="oi-icon">&#128681;</span> LOC / EDL Sites
         </button>
         <button class="overflow-item" onclick="showPriorAudit();closeOverflow()">
           <span class="oi-icon">&#128257;</span> Prior Audit
@@ -1117,6 +1141,21 @@ if ('serviceWorker' in navigator) {
   </div>
 </div>
 <input type="file" id="tankFileInput" accept=".docx" style="display:none" onchange="handleTankFile(event)">
+
+<!-- -- LOC / EDL SITES (NPS only) -- -->
+<div class="dialog-overlay" id="locSiteOverlay" style="display:none;" onclick="if(event.target===this)closeSiteList()">
+  <div class="dialog" style="max-width:560px;max-height:88vh;display:flex;flex-direction:column;">
+    <h3>&#128681; LOC / EDL Sites</h3>
+    <div id="locSiteSummary" style="font-size:12px;color:var(--text-dim);margin-bottom:8px;"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+      <button class="btn btn-outline btn-sm" onclick="addSite()">&#10133; New Site</button>
+    </div>
+    <div id="locSiteList" style="flex:1;overflow-y:auto;min-height:0;"></div>
+    <div class="dialog-actions" style="margin-top:10px;">
+      <button class="btn btn-accent btn-sm" onclick="closeSiteList()">Done</button>
+    </div>
+  </div>
+</div>
 
 <!-- -- AUDIT TEAM + PERSONNEL (NPS only) -- -->
 <div class="dialog-overlay" id="peopleOverlay" style="display:none;" onclick="if(event.target===this)closePeople()">
@@ -2318,6 +2357,8 @@ function allReferencedPhotoKeys() {
   Object.keys(currentPhotos).forEach(s => { if (currentPhotos[s] && currentPhotos[s].dbKey) keys.push(currentPhotos[s].dbKey); });
   // NPS-only: tank-check photos are watched by the integrity badge too.
   if (typeof tankRows === 'function') tankRows().forEach(r => Object.values(r.photos || {}).forEach(p => { if (p && p.dbKey) keys.push(p.dbKey); }));
+  // NPS-only: LOC site photos too.
+  (locSites || []).forEach(st => Object.values(st.photos || {}).forEach(p => { if (p && p.dbKey) keys.push(p.dbKey); }));
   return keys;
 }
 function paintIntegrityBadge(total, missing, checking) {
@@ -2745,6 +2786,10 @@ async function runExport() {
   const tankExport = await buildTankExport(photosFolder, globalSeq, getBytes, (tankData && tankData.park) || exportParkCode());
   globalSeq   = tankExport.nextSeq;
   photoCount += tankExport.photoCount;
+  // NPS-only: LOC site photos follow the tank photos.
+  const siteExport = await buildSiteExport(photosFolder, globalSeq, getBytes);
+  globalSeq   = siteExport.nextSeq;
+  photoCount += siteExport.photoCount;
 
   const maxPhotos = Math.max(2, ...entryMaps.map(m => Object.keys(m).length));
 
@@ -2809,7 +2854,7 @@ async function runExport() {
   const photosOf = e => formatPhotoNumbers(Object.values(entryMaps[allEntries.indexOf(e)] || {}).map(photoSeqOf));
 
   // ===== Sheets 1–2: Audit Summary, then one WASO "Audit Report" per park =====
-  addAuditSummarySheet(wb, allEntries, numbers, tankExport);
+  addAuditSummarySheet(wb, allEntries, numbers, tankExport, siteExport);
   addWasoSheets(wb, allEntries, numbers, photosOf);
   addNotesSheet(wb, allEntries, photosOf);
 
@@ -2866,11 +2911,27 @@ async function runExport() {
 
   // NPS-only sheets, both skipped when there is nothing in them.
   addTankSheet(wb, tankExport);
+  addSiteSheet(wb, siteExport);
   addPersonnelSheet(wb);
 
   const xlsxBuf = await wb.xlsx.writeBuffer();
   zip.file('NPS_Report_' + datestamp() + '.xlsx', xlsxBuf);
   zip.file('NPS_Data_'   + datestamp() + '.csv', csv);
+
+  // NPS-only: the field notes and the LOC site forms as Word files in the same ZIP.
+  // A Word problem never blocks the export itself; the toast says what was left out.
+  const wordFiles = [];
+  let wordSkipped = false;
+  const wantNotes = allEntries.some(isNote), wantSites = siteExport.sites.length > 0;
+  if (wantNotes || wantSites) {
+    if (typeof docx === 'undefined') wordSkipped = true;
+    else {
+      try { const b = wantNotes && await buildNotesDocx(allEntries, photosOf); if (b) { zip.file('NPS_Notes_' + datestamp() + '.docx', b); wordFiles.push('notes'); } }
+      catch (e) { console.error('Notes document:', e); wordSkipped = true; }
+      try { const b = wantSites && await buildSitesDocx(siteExport); if (b) { zip.file('NPS_LOC_Sites_' + datestamp() + '.docx', b); wordFiles.push('LOC site forms'); } }
+      catch (e) { console.error('LOC site forms:', e); wordSkipped = true; }
+    }
+  }
 
   // ---- INTEGRITY GUARD: never silently ship a short export ----
   if (misses > 0) {
@@ -2878,6 +2939,7 @@ async function runExport() {
     const affected = [];
     allEntries.forEach(e => { const ph = e.photos || {}; if (Object.keys(ph).some(s => ph[s] && missSet.has(ph[s].dbKey))) affected.push(e.location || e.siteName || '(unnamed)'); });
     tankExport.missingLabels.forEach(l => affected.push(l));
+    siteExport.missingLabels.forEach(l => affected.push(l));
     const proceed = confirm('⚠️ ' + misses + ' photo(s) could NOT be found and will be MISSING from this export.\n\n' +
       'Affected entries (' + affected.length + '): ' + (affected.slice(0, 12).join(', ') + (affected.length > 12 ? ', …' : '')) + '\n\n' +
       'Those full-res photos are not in device storage. Do NOT rely on this export for them.\n\n' +
@@ -2889,7 +2951,7 @@ async function runExport() {
     const blob = await zip.generateAsync({ type: 'blob' });
     // A cancelled share sheet means nothing left the device: no record, no offer to delete.
     if (!await shareOrDownload(blob, 'NPS_Export_' + datestamp() + '.zip')) { showToast('Export cancelled \u2014 nothing was saved or sent', true); return; }
-    showToast(`Exported ${allEntries.length} entries, ${photoCount} photos${misses ? ' (⚠ ' + misses + ' missing)' : ''}`);
+    showToast(`Exported ${allEntries.length} entries, ${photoCount} photos${wordFiles.length ? ' + ' + wordFiles.join(' and ') : ''}${misses ? ' (⚠ ' + misses + ' missing)' : ''}${wordSkipped ? ' — Word files left out, go online once' : ''}`, !!(misses || wordSkipped));
 
     // Offer to batch-delete the just-exported entries from this device.
     const exportedIds = allEntries.map(e => e.id).filter(Boolean);
@@ -2924,7 +2986,7 @@ async function saveBackup() {
   if (all.length === 0) { showToast('Nothing to back up', true); return; }
 
   const clean = all.map(({ photos, ...rest }) => rest);
-  const blob  = new Blob([JSON.stringify({ version:1, exported: new Date().toISOString(), entries: clean, tanks: tankData, people: peopleList, audit: auditInfo, prior: priorAudit }, null, 2)], { type:'application/json' });
+  const blob  = new Blob([JSON.stringify({ version:1, exported: new Date().toISOString(), entries: clean, tanks: tankData, people: peopleList, audit: auditInfo, prior: priorAudit, sites: locSites }, null, 2)], { type:'application/json' });
   if (!await shareOrDownload(blob, `NPS_Backup_${datestamp()}.json`)) { showToast('Backup cancelled', true); return; }
   showToast(`Backup saved \u2014 ${clean.length} entries`);
 }
@@ -2973,6 +3035,7 @@ function handleBackupFile(event) {
       if (Array.isArray(parsed.people) && !peopleList.length) { peopleList = parsed.people; savePeople(); }
       if (parsed.audit && !auditInfoFilled()) { auditInfo = normaliseAuditInfo(parsed.audit); saveAuditInfo(); }
       if (parsed.prior && parsed.prior.findings && !priorFindings().length) { priorAudit = parsed.prior; savePriorAudit(); }
+      if (Array.isArray(parsed.sites) && parsed.sites.length && !(locSites || []).length) { locSites = parsed.sites; saveSites(); }
       renderSavedPanel();
       updateHeaderBadge();
       if (!action) showToast(`Loaded ${entries.length} entries`);
@@ -4452,7 +4515,7 @@ function addNotesSheet(wb, entries, photosOf) {
   }
   [8, 12, 30, 60, 26, 22, 14].forEach((w, i) => { ws.getColumn(i + 1).width = w; });
 }
-function addAuditSummarySheet(wb, entries, numbers, tankExport) {
+function addAuditSummarySheet(wb, entries, numbers, tankExport, siteExport) {
   const ws = wb.addWorksheet('Audit Summary', { views: [{ showGridLines: false }] });
   const title = t => { const r = ws.addRow([t]); r.getCell(1).font = { name: 'Arial', size: 13, bold: true, color: { argb: 'FF5C3B1E' } }; r.height = 22; return r; };
   const plain = (vals, bold) => { const r = ws.addRow(vals); r.eachCell(c => { c.font = { name: 'Arial', size: 10, bold: !!bold }; c.alignment = { vertical: 'top', wrapText: true }; }); return r; };
@@ -4486,6 +4549,7 @@ function addAuditSummarySheet(wb, entries, numbers, tankExport) {
     plain(['SPCC tank check', t.length + ' checked: ' + ['ok', 'diff', 'missing'].map(k => t.filter(x => x.status === k).length + ' ' + TANK_STATUS[k].toLowerCase()).join(', ') +
       (t.filter(x => x.added).length ? ', ' + t.filter(x => x.added).length + ' found on site' : '')]);
   }
+  if (siteExport && siteExport.sites.length) plain(['LOC / EDL sites', siteExport.sites.length + ': ' + siteExport.sites.map(x => siteLabel(x.site)).join('; ')]);
   if (peopleList.length) plain(['Park personnel contacted', peopleList.map(p => p.name + (p.title ? ' — ' + p.title : '')).join('; ')]);
   ws.getColumn(1).width = 26; ws.getColumn(2).width = 34; ws.getColumn(3).width = 20; ws.getColumn(4).width = 50;
   for (let c = 5; c <= head.cellCount; c++) ws.getColumn(c).width = 11;
@@ -4500,7 +4564,7 @@ loadPriorAudit();
 // every release. The bottom bar shows it, and while a newer service worker
 // is still installing (the page is fresh, the cache is last release's) it
 // says so and settles once the new worker takes control.
-const APP_VERSION = '2.2';
+const APP_VERSION = '2.3';
 let _versionTries = 0;
 // '1.10' sorts after '1.9': compare each dotted part as a number.
 function versionCompare(a, b) {
@@ -4603,8 +4667,11 @@ function updateExportExtrasNote() {
   const bits = [];
   const n = checkedTankRows().length;
   if (n) bits.push(n + ' tank check' + (n === 1 ? '' : 's'));
+  const ns = exportableSites().length;
+  if (ns) bits.push(ns + ' LOC site' + (ns === 1 ? '' : 's'));
   if (peopleList.length) bits.push(peopleList.length + ' name' + (peopleList.length === 1 ? '' : 's'));
-  el.textContent = bits.length ? 'Also included, whatever the date filter: ' + bits.join(' and ') + '.' : '';
+  const list = bits.length > 1 ? bits.slice(0, -1).join(', ') + ' and ' + bits[bits.length - 1] : bits[0];
+  el.textContent = bits.length ? 'Also included, whatever the date filter: ' + list + '.' : '';
 }
 
 // ---- Import the SPCC tables out of the park's Word file ----
@@ -4959,6 +5026,310 @@ async function promoteTank(rowId) {
   showToast('Finding started from ' + tankLabel(r).slice(0, 40) + (copied ? ' with ' + copied + ' photo' + (copied === 1 ? '' : 's') : '') + ' — pick a question, then Save');
 }
 
+// ============================================================================
+// LOC / EDL SITES (NPS only)
+// A Location of Concern gets the NPS EDL site data form. The phone captures
+// what only the visit can: photos with a caption and the way the camera faced,
+// GPS, and the quick site observations. The database fields (site ID, phase,
+// type, ownership, contaminants, funding and the rest) stay off the phone: the
+// export writes every row of the form, highlights the answers picked here the
+// way the NPS form does, and leaves the rest for the office to finish in Word.
+// ============================================================================
+const LS_LOC_SITES = 'nps_loc_sites';
+const SITE_FACING = { N: 'North', NE: 'Northeast', E: 'East', SE: 'Southeast', S: 'South', SW: 'Southwest', W: 'West', NW: 'Northwest', MAP: 'Location map', AERIAL: 'Aerial view' };
+// The form row by row, in its own wording. `opts` holds the form's two lists of
+// answers (one list = a single cell); `pick` is the site field the phone fills.
+const EDL_FORM = [
+  { n: 1,  label: 'Site ID Number', text: s => s.siteId || '' },
+  { n: 2,  label: 'Site ID Number', hint: '(Confirmation)', text: s => s.siteId || '' },
+  { n: 3,  label: 'Auditor Name', text: () => ((auditInfo && auditInfo.team) || []).map(t => t.name).filter(Boolean).join(', ') },
+  { n: 4,  label: 'Auditor Site Visit Date', text: s => siteVisitDate(s) },
+  { n: 5,  label: 'Site Name', text: s => (s.name || '').trim() },
+  { n: 6,  label: 'NPS Region', opts: [['AKR', 'IMR', 'MWR', 'NCR'], ['NER', 'PWR', 'SER']], chosen: s => [siteRegion(s)] },
+  { n: 7,  label: 'National Park Unit', hint: '(Four-Letter Park Alpha)', text: s => sitePark(s) },
+  { n: 8,  label: 'Point(s) of Contact', text: s => s.contacts || '' },
+  { n: 9,  label: 'Latitude (Decimal format)', text: s => s.latitude != null ? Number(s.latitude).toFixed(6) : '' },
+  { n: 10, label: 'Longitude (Decimal format – negative number)', text: s => s.longitude != null ? Number(s.longitude).toFixed(6) : '' },
+  { n: 11, label: 'Site Phase', opts: [['Phase 1: Site Scoping', 'Phase 2: Cleanup Action Selection', 'Phase 3: Cleanup Action Implementation'], ['Phase 4: Site Monitoring', 'Phase 5: No Further Agency Action Required']] },
+  { n: 12, label: 'Site Sub-phase', opts: [['1a: Categorization', '1b: Prioritization', '1c: Site Assessment', '1d: Go/Hold Site Activation', '2a: Site Investigation Planning', '2b: Site Fieldwork', '2c: Site Analysis', '2d: Cleanup Action Vetting'], ['3a: Cleanup Action Planning', '3b: Cleanup Action Implementation', '4a: Post Cleanup Action Monitoring', '4b: Five-Year Review Monitoring', '4c: Long-Term Monitoring', '5a: Cleanup Complete', '5b: No Action Conclusion', '5c: Administrative Removal']] },
+  // The form says "choose one", but auditors mark several (the example does): the phone allows several.
+  { n: 13, label: 'Site Access', hint: '(Choose one response)', pick: 'access', multi: true, opts: [['Easy access', 'Far from road', 'Dense vegetation', 'Island', 'Other'], ['Rocky', 'Sandy', 'Steep slope', 'Wetland', 'Wilderness']] },
+  { n: 14, label: 'Site Type', hint: '(Choose one response)', opts: [['Active Oil and Gas', 'Abandoned Oil and Gas', 'Aboveground Storage Tank (AST)', 'Agriculture/Dip Vat', 'Contaminated Floodplain Sediment', 'Firing Range', 'Industrial Facility'], ['Landfill/Dump', 'Mine/Mill', 'Plant Nursery and Industrial', 'Spill/Leak', 'Underground Storage Tank (UST)', 'Wood Treating Facility']] },
+  { n: 15, label: 'Former Ownership', hint: '(Choose one response)', opts: [['BRAC', 'FUDS', 'Local Municipality', 'Mixed'], ['NPS', 'Private', 'State', 'Unknown']] },
+  { n: 16, label: 'External Jurisdiction (Choose all that apply)', opts: [['Federal', 'Municipal', 'Private', 'State'], ['Tribe', 'None', 'Unknown']] },
+  { n: 17, label: 'Contaminants or Potential Contaminants', hint: '(Choose all that apply)', opts: [['Asbestos or Asbestos-Containing Material (ACM)', 'Cyanide', 'Dioxins/Furans', 'Explosives/UXOs', 'Metals or Metalloids (e.g., Arsenic)', 'Methane Gas', 'Non-Aqueous Phase Liquids (NAPLs), including DNAPLs & LNAPLs', 'Pentachlorophenol (PCP) or Creosote', 'Per- and polyfluoroalkyl substances (PFAS)', 'Pesticides, herbicides, fungicides, insecticides, etc.'], ['Polychlorinated Biphenyls (PCBs)', 'Polynuclear Aromatic Hydrocarbons (PAHs), including Semi-Volatile Organic Compounds (SVOCs) and Coal Tar', 'Radionuclides', 'Radon Gas', 'Total Petroleum Hydrocarbons (TPHs), including Petroleum', 'Volatile Organic Compounds (VOCs), including Chlorinated Solvents', 'Unknown']] },
+  { n: 18, label: 'Affected or Potentially Affected Media', hint: '(Choose all that apply)', pick: 'media', multi: true, opts: [['Air', 'Groundwater', 'Sediments'], ['Soil', 'Surface Water']] },
+  { n: 19, label: 'Resource Impact', hint: '(Choose all that apply)', pick: 'resource', multi: true, opts: [['Cultural Resources', 'Natural Resources', 'None'], ['Threatened/Endangered Plants or Animals', 'Unknown', 'Visual Impact']] },
+  { n: 20, label: 'Social Impact', opts: [['Economic Opportunity', 'Environmental Justice', 'None', 'Recreational Resources', 'Tribal Resources', 'Unknown']] },
+  { n: 21, label: 'Site Footprint', pick: 'footprint', opts: [['Less than 1 acre', '1-9 acres', '10-49 acres', 'More than 50 acres']] },
+  { n: 22, label: 'Funding Source', hint: '(Choose all that apply)', opts: [['Central Hazardous Materials Fund (CHF)', 'Project Management Information System (PMIS)', 'Department of Defense (DOD)', 'EPA'], ['NRDA', 'None', 'Park Funds', 'Potentially Responsible Party (PRP)', 'Regional Funds', 'State LUST Fund']] },
+  { n: 23, label: 'Cost Recovery Phase', hint: '(Choose one response)', opts: [['CRa-Case Development', 'CRb-Negotiation', 'CRc-Litigation'], ['CRd-Resolution', 'N/A (Not applicable)', 'Unknown']] },
+  { n: 24, label: 'Emergency Response', pick: 'emergency', opts: [['Yes', 'No'], []] },
+  { n: 25, label: 'Impairment of Fundamental Resources', hint: '& Values', text: () => 'Input “Yes” or “No.” If “Yes” please explain.' },
+  { n: 26, label: 'Site Stability', pick: 'stability', opts: [['Stable', 'Unstable'], []] },
+  { n: 27, label: 'Additional Site Info', text: s => s.notes || '' },
+];
+// The rows the phone fills, as tap buttons: site field → { label, opts, multi }.
+const SITE_CHOICES = {};
+EDL_FORM.forEach(r => { if (r.pick) SITE_CHOICES[r.pick] = { label: r.label, opts: [].concat(...r.opts), multi: !!r.multi }; });
+
+var locSites = [];   // var, not let: the photo integrity check can run before this line
+let openSiteId = null;
+let _siteSaveTimer = null;
+
+function loadSites() {
+  try { locSites = JSON.parse(localStorage.getItem(LS_LOC_SITES) || '[]') || []; } catch (e) { locSites = []; }
+  if (!Array.isArray(locSites)) locSites = [];
+}
+function saveSites() {
+  clearTimeout(_siteSaveTimer);
+  try { localStorage.setItem(LS_LOC_SITES, JSON.stringify(locSites)); }
+  catch (e) { showToast('Storage issue — export soon', true); }
+  updateExportExtrasNote();
+}
+function siteById(id) { return (locSites || []).find(s => s.id === id) || null; }
+function siteLabel(s) { return (s && String(s.name || '').trim()) || 'Unnamed site'; }
+function sitePark(s) { return (s && s.park) || exportParkCode(); }
+function siteRegion(s) {
+  const name = parkNameOf(sitePark(s));
+  return String((name && FOREST_TO_REGION[name]) || '').split(' ')[0];
+}
+// The visit is when the site was photographed, else when its GPS was taken.
+function siteVisitDate(s) {
+  const times = Object.values(s.photos || {}).map(p => p && p.timestamp).filter(Boolean).sort();
+  const d = new Date(times[0] || s.gpsAt || s.createdAt || '');
+  return isNaN(d) ? '' : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+function sitePhotoSlots(s) {
+  const ph = (s && s.photos) || {};
+  return Object.keys(ph).sort((a, b) => String(ph[a].timestamp || '').localeCompare(String(ph[b].timestamp || '')) || (a < b ? -1 : a > b ? 1 : 0));
+}
+// Captions in the form's wording, "Photo 1 – Parking lot (North)". The first
+// photo tagged Map and the first tagged Aerial fill the form's two fixed spots;
+// every other photo is numbered in the order it was taken.
+function sitePhotoLabels(items) {
+  let n = 0, map = false, aer = false;
+  return items.map(it => {
+    const p = it.info || {};
+    if (p.facing === 'MAP' && !map) { map = true; return { item: it, kind: 'MAP', label: 'Location map' }; }
+    if (p.facing === 'AERIAL' && !aer) { aer = true; return { item: it, kind: 'AERIAL', label: 'Aerial view' }; }
+    n++;
+    const dir = p.facing && p.facing !== 'MAP' && p.facing !== 'AERIAL' ? SITE_FACING[p.facing] : '';
+    const what = String(p.caption || '').trim() || (p.facing === 'MAP' || p.facing === 'AERIAL' ? SITE_FACING[p.facing] : '');
+    return { item: it, kind: 'VIEW', label: 'Photo ' + n + (what ? ' – ' + what : '') + (dir ? ' (' + dir + ')' : '') };
+  });
+}
+// A site goes into the export once it holds anything at all.
+function exportableSites() {
+  return (locSites || []).filter(s => String(s.name || '').trim() || s.siteId || s.latitude != null || s.contacts || s.notes ||
+    Object.keys(s.photos || {}).length || Object.keys(SITE_CHOICES).some(k => [].concat(s[k] || []).filter(Boolean).length));
+}
+
+// ---- The site list ----
+const _attr = v => esc(String(v == null ? '' : v)).replace(/"/g, '&quot;');
+function showSiteList() { renderSiteList(); document.getElementById('locSiteOverlay').style.display = 'flex'; }
+function closeSiteList() { saveSites(); document.getElementById('locSiteOverlay').style.display = 'none'; }
+
+function siteChipsHtml(s, key) {
+  const c = SITE_CHOICES[key];
+  const cur = [].concat(s[key] || []);
+  return '<div class="st-label">' + esc(c.label) + (c.multi ? ' <span>· tap all that fit</span>' : '') + '</div><div class="st-chips">' +
+    c.opts.map((o, i) => '<button type="button" class="' + (cur.includes(o) ? 'on' : '') + '" onclick="toggleSiteChoice(\'' + s.id + '\',\'' + key + '\',' + i + ')">' + esc(o) + '</button>').join('') + '</div>';
+}
+function sitePhotoHtml(s, slot, label) {
+  const p = s.photos[slot];
+  return '<div class="st-photo">' +
+    '<div class="st-photo-top"><img src="' + _attr(p.thumbnail || '') + '" alt="">' +
+      '<input type="text" class="tk-field" placeholder="What it shows, e.g. Parking lot" value="' + _attr(p.caption) + '" oninput="setSitePhotoCaption(\'' + s.id + '\',\'' + slot + '\',this.value)">' +
+      '<button type="button" class="st-photo-x" onclick="removeSitePhoto(\'' + s.id + '\',\'' + slot + '\')" title="Remove photo">✕</button></div>' +
+    '<div class="st-chips dir">' + Object.keys(SITE_FACING).map(k =>
+      '<button type="button" class="' + (p.facing === k ? 'on' : '') + '" onclick="setSitePhotoFacing(\'' + s.id + '\',\'' + slot + '\',\'' + k + '\')">' + (k === 'MAP' ? 'Map' : k === 'AERIAL' ? 'Aerial' : k) + '</button>').join('') + '</div>' +
+    '<div class="tk-sub" id="stcap_' + s.id + '_' + slot + '">' + esc(label) + '</div>' +
+    (p.unsaved ? '<div class="tk-sub" style="color:var(--danger);font-weight:600;">⚠ Not in device storage — retake this photo</div>' : '') +
+  '</div>';
+}
+function siteRowHtml(s) {
+  const slots = sitePhotoSlots(s);
+  const labels = sitePhotoLabels(slots.map(slot => ({ slot, info: s.photos[slot] })));
+  const gps = s.latitude != null ? Number(s.latitude).toFixed(6) + ', ' + Number(s.longitude).toFixed(6) + (s.gpsAccuracy != null ? '  ±' + s.gpsAccuracy + ' m' : '') : '';
+  const sub = [sitePark(s), slots.length ? slots.length + ' photo' + (slots.length === 1 ? '' : 's') : 'no photos', gps ? 'GPS ✓' : 'no GPS'].filter(Boolean).join('  ·  ');
+  return '<div class="tk-row' + (openSiteId === s.id ? ' open' : '') + '" id="locsite_' + s.id + '">' +
+    '<div class="tk-head" onclick="toggleSiteRow(\'' + s.id + '\')">' +
+      '<span class="tk-dot' + (slots.length && gps ? ' ok' : (slots.length || gps ? ' diff' : '')) + '"></span>' +
+      '<span class="tk-label"><span class="tk-id">' + esc(siteLabel(s)) + '</span><span class="tk-sub">' + esc(sub) + '</span></span>' +
+    '</div>' +
+    '<div class="tk-body">' +
+      '<input type="text" class="tk-field" id="locSiteName_' + s.id + '" placeholder="Site name, e.g. Former Camp Wellfleet" value="' + _attr(s.name) + '" oninput="setSiteText(\'' + s.id + '\',\'name\',this.value)">' +
+      '<input type="text" class="tk-field" placeholder="EDL site ID if known, e.g. EDL 5NER3464" value="' + _attr(s.siteId) + '" oninput="setSiteText(\'' + s.id + '\',\'siteId\',this.value)">' +
+      '<div class="st-gps"><button type="button" class="btn btn-outline btn-sm" onclick="captureSiteGPS(\'' + s.id + '\')">&#128205; ' + (gps ? 'Update GPS' : 'Get GPS here') + '</button><span>' + esc(gps || 'Stand at the site and tap to record its position') + '</span></div>' +
+      '<div class="st-label">Photos <span>· what it shows and the way the camera faced</span></div>' +
+      labels.map(l => sitePhotoHtml(s, l.item.slot, l.label)).join('') +
+      '<div style="margin:6px 0 10px;"><button type="button" class="btn btn-outline btn-sm" onclick="addSitePhoto(\'' + s.id + '\')">&#128247; Photo</button></div>' +
+      Object.keys(SITE_CHOICES).map(k => siteChipsHtml(s, k)).join('') +
+      '<div class="st-label">Point(s) of contact</div>' +
+      '<input type="text" class="tk-field" placeholder="Name, title" value="' + _attr(s.contacts) + '" oninput="setSiteText(\'' + s.id + '\',\'contacts\',this.value)">' +
+      '<div class="st-label">Field notes <span>· for Additional Site Info</span></div>' +
+      '<textarea class="tk-field" rows="3" placeholder="What you saw on site" oninput="setSiteText(\'' + s.id + '\',\'notes\',this.value)">' + esc(s.notes || '') + '</textarea>' +
+      '<div class="tk-sub" style="margin:2px 0 8px;">Site ID, phase, type, ownership, contaminants and funding are left for the office on the exported form.</div>' +
+      '<button type="button" class="btn btn-outline btn-sm" style="color:var(--danger);border-color:var(--danger);" onclick="deleteSite(\'' + s.id + '\')">Remove site</button>' +
+    '</div></div>';
+}
+function renderSiteList() {
+  const list = document.getElementById('locSiteList'), sum = document.getElementById('locSiteSummary');
+  if (!list) return;
+  const sites = locSites || [];
+  if (!sites.length) {
+    sum.textContent = '';
+    list.innerHTML = '<div class="tk-empty">No Locations of Concern yet.<br>At the site, tap <b>New Site</b>, record its GPS and take its photos.<br>The export writes each one as an EDL site data form.</div>';
+    return;
+  }
+  const n = sites.reduce((t, s) => t + Object.keys(s.photos || {}).length, 0);
+  sum.innerHTML = '<b>' + sites.length + '</b> site' + (sites.length === 1 ? '' : 's') + ' · ' + n + ' photo' + (n === 1 ? '' : 's') + ' · exported as EDL site forms in the ZIP';
+  list.innerHTML = sites.map(siteRowHtml).join('');
+}
+function toggleSiteRow(id) { openSiteId = openSiteId === id ? null : id; renderSiteList(); }
+
+function addSite() {
+  const s = { id: 'st_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6), park: exportParkCode(), name: '', siteId: '',
+    createdAt: new Date().toISOString(), latitude: null, longitude: null, gpsAccuracy: null, gpsAt: null, contacts: '', notes: '', photos: {} };
+  Object.keys(SITE_CHOICES).forEach(k => { s[k] = SITE_CHOICES[k].multi ? [] : ''; });
+  locSites.push(s);
+  openSiteId = s.id;
+  saveSites();
+  renderSiteList();
+  // Focus during the tap itself: iOS opens the keyboard only for a focus made inside the gesture.
+  const el = document.getElementById('locSiteName_' + s.id);
+  if (el) { el.focus(); el.scrollIntoView({ block: 'nearest' }); }
+}
+// Text saves on a debounce and never re-renders, so the field keeps focus.
+function setSiteText(id, field, value) {
+  const s = siteById(id); if (!s) return;
+  s[field] = value;
+  if (field === 'name') { const el = document.querySelector('#locsite_' + id + ' .tk-id'); if (el) el.textContent = siteLabel(s); }
+  clearTimeout(_siteSaveTimer);
+  _siteSaveTimer = setTimeout(saveSites, 400);
+}
+function toggleSiteChoice(id, key, idx) {
+  const s = siteById(id), c = SITE_CHOICES[key]; if (!s || !c) return;
+  const o = c.opts[idx];
+  if (c.multi) { const cur = [].concat(s[key] || []); s[key] = cur.includes(o) ? cur.filter(x => x !== o) : cur.concat(o); }
+  else s[key] = s[key] === o ? '' : o;
+  saveSites();
+  renderSiteList();
+}
+function captureSiteGPS(id) {
+  const s = siteById(id); if (!s) return;
+  if (!navigator.geolocation) { showToast('Geolocation not available on this device', true); return; }
+  showToast('Getting the site position…');
+  navigator.geolocation.getCurrentPosition(pos => {
+    s.latitude = pos.coords.latitude; s.longitude = pos.coords.longitude;
+    s.gpsAccuracy = Math.round(pos.coords.accuracy); s.gpsAt = new Date().toISOString();
+    saveSites();
+    renderSiteList();
+    showToast('Site GPS recorded (±' + s.gpsAccuracy + ' m)');
+  }, err => {
+    const msgs = { 1: 'Location permission denied — check Settings > Privacy > Location', 2: 'Location unavailable — try again outdoors', 3: 'Location request timed out — try again' };
+    showToast(msgs[err.code] || 'Location error', true);
+  }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+}
+function deleteSite(id) {
+  const s = siteById(id); if (!s) return;
+  const n = Object.keys(s.photos || {}).length;
+  if (!confirm('Remove "' + siteLabel(s) + '"' + (n ? ' and its ' + n + ' photo' + (n === 1 ? '' : 's') : '') + '?')) return;
+  Object.values(s.photos || {}).forEach(p => { if (p && p.dbKey) deletePhotoFromDB(p.dbKey); });
+  locSites = locSites.filter(x => x.id !== id);
+  if (openSiteId === id) openSiteId = null;
+  saveSites();
+  renderSiteList();
+  updateIntegrityBadge();
+}
+
+// ---- Site photos: same resize settings and durable write as entry photos ----
+function addSitePhoto(id) {
+  const inputId = 'sitephoto_' + id;
+  const old = document.getElementById(inputId);
+  if (old) old.remove();
+  const input = document.createElement('input');
+  input.type = 'file'; input.accept = 'image/*';
+  input.setAttribute('capture', 'environment');
+  input.id = inputId; input.style.display = 'none';
+  input.onchange = function () { handleSitePhoto(this, id); };
+  document.body.appendChild(input);
+  input.click();
+}
+function handleSitePhoto(input, id) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  const s = siteById(id);
+  if (!s) return;
+  const settings = getPhotoSettings();
+  const slot = 'p_site_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 5);
+  const dbKey = photoDBKey(s.id, slot);
+  const reader = new FileReader();
+  reader.onload = e => {
+    const img = new Image();
+    img.onload = async () => {
+      let w = img.width, h = img.height;
+      if (w > settings.maxWidth || h > settings.maxHeight) {
+        const ratio = Math.min(settings.maxWidth / w, settings.maxHeight / h);
+        w = Math.round(w * ratio); h = Math.round(h * ratio);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      const dataUrl = canvas.toDataURL('image/jpeg', settings.quality);
+      const tc = document.createElement('canvas');
+      const ts = Math.min(120 / w, 1);
+      tc.width = Math.round(w * ts); tc.height = Math.round(h * ts);
+      tc.getContext('2d').drawImage(canvas, 0, 0, tc.width, tc.height);
+      const res = await storePhotoBytes(dbKey, dataUrl);
+      s.photos = s.photos || {};
+      s.photos[slot] = {
+        timestamp: new Date().toISOString(), thumbnail: tc.toDataURL('image/jpeg', 0.5),
+        fileType: 'image/jpeg', dbKey, unsaved: !res.ok, caption: '', facing: '',
+      };
+      openSiteId = s.id;
+      saveSites();
+      renderSiteList();
+      updateIntegrityBadge();
+      showToast(res.ok ? 'Site photo saved — add what it shows and the direction' : '⚠ Photo did NOT save — storage problem', !res.ok);
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+function refreshSiteCaptions(s) {
+  sitePhotoLabels(sitePhotoSlots(s).map(slot => ({ slot, info: s.photos[slot] }))).forEach(l => {
+    const el = document.getElementById('stcap_' + s.id + '_' + l.item.slot);
+    if (el) el.textContent = l.label;
+  });
+}
+function setSitePhotoCaption(id, slot, value) {
+  const s = siteById(id); if (!s || !s.photos || !s.photos[slot]) return;
+  s.photos[slot].caption = value;
+  refreshSiteCaptions(s);
+  clearTimeout(_siteSaveTimer);
+  _siteSaveTimer = setTimeout(saveSites, 400);
+}
+function setSitePhotoFacing(id, slot, key) {
+  const s = siteById(id); if (!s || !s.photos || !s.photos[slot]) return;
+  s.photos[slot].facing = s.photos[slot].facing === key ? '' : key;
+  saveSites();
+  renderSiteList();
+}
+function removeSitePhoto(id, slot) {
+  const s = siteById(id);
+  if (!s || !s.photos || !s.photos[slot]) return;
+  if (!confirm('Remove this photo?')) return;
+  const key = s.photos[slot].dbKey;
+  delete s.photos[slot];
+  if (key) deletePhotoFromDB(key);
+  openSiteId = s.id;
+  saveSites();
+  renderSiteList();
+  updateIntegrityBadge();
+}
+
 // ---- Personnel ----
 function showPeople() {
   renderPeople();
@@ -5122,8 +5493,188 @@ function wordPersonnelBlock(D, PAGE_W, FONT, BROWN, RULE) {
   return out;
 }
 
+// ---- LOC sites and field notes in the export (NPS only) ----
+// Site photos continue the export's numbering after the tank photos. The bytes
+// stay in hand for the EDL form document, which embeds them.
+async function buildSiteExport(photosFolder, startSeq, getBytes) {
+  const out = { sites: [], nextSeq: startSeq, photoCount: 0, missingLabels: [] };
+  for (const s of exportableSites()) {
+    const photos = [];
+    for (const slot of sitePhotoSlots(s)) {
+      const info = s.photos[slot];
+      if (!info || !info.dbKey) continue;
+      const pd = await getBytes(info.dbKey, info.fileType || 'image/jpeg');
+      if (!pd) { out.missingLabels.push(siteLabel(s)); continue; }
+      const seq = out.nextSeq++;
+      const park = sitePark(s);
+      const name = buildPhotoName({ location: siteLabel(s) + (park ? ' — ' + park : ''), timestamp: info.timestamp || s.createdAt }, seq);
+      const file = name + (pd.type.includes('png') ? '.png' : '.jpg');
+      photosFolder.file(file, pd.bytes);
+      photos.push({ slot, info, seq, file, bytes: pd.bytes, type: pd.type });
+      out.photoCount++;
+    }
+    out.sites.push({ site: s, photos });
+  }
+  return out;
+}
+
+function addSiteSheet(wb, siteExport) {
+  if (!siteExport || !siteExport.sites.length) return;
+  const ws = wb.addWorksheet('LOC Sites', { views: [{ state: 'frozen', ySplit: 1, showGridLines: false }] });
+  ws.addRow(['Park', 'Site Name', 'EDL Site ID', 'Site Visit Date', 'Latitude', 'Longitude', 'GPS Accuracy (m)', 'Point(s) of Contact',
+             'Site Access', 'Affected Media', 'Resource Impact', 'Site Footprint', 'Emergency Response', 'Site Stability', 'Field Notes', 'Photos']);
+  _styleHeader(ws.getRow(1));
+  for (const { site: s, photos } of siteExport.sites) {
+    const d = new Date((photos[0] && photos[0].info.timestamp) || s.gpsAt || s.createdAt || '');
+    const row = ws.addRow([
+      sitePark(s), siteLabel(s), s.siteId || '', isNaN(d) ? '' : new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())),
+      s.latitude != null ? Number(Number(s.latitude).toFixed(6)) : '', s.longitude != null ? Number(Number(s.longitude).toFixed(6)) : '',
+      s.gpsAccuracy != null ? s.gpsAccuracy : '', s.contacts || '',
+      [].concat(s.access || []).join('; '), [].concat(s.media || []).join('; '), [].concat(s.resource || []).join('; '),
+      s.footprint || '', s.emergency || '', s.stability || '', s.notes || '',
+      sitePhotoLabels(photos).map(l => String(l.item.seq).padStart(3, '0') + '  ' + l.label).join('\n'),
+    ]);
+    row.eachCell({ includeEmpty: true }, (c, col) => {
+      c.font = { name: 'Arial', size: 10 }; c.border = TANK_BORDER;
+      c.alignment = { horizontal: [2, 8, 9, 10, 11, 15, 16].includes(col) ? 'left' : 'center', vertical: 'top', wrapText: true };
+      if (col === 4 && c.value) c.numFmt = 'm/d/yyyy';
+    });
+    row.height = Math.max(20, Math.max(photos.length, Math.ceil(String(s.notes || '').length / 50)) * 14 + 8);
+  }
+  [8, 28, 16, 12, 12, 12, 10, 24, 24, 20, 22, 14, 11, 11, 44, 40].forEach((w, i) => { ws.getColumn(i + 1).width = w; });
+}
+
+// One EDL site data form per site, laid out like the NPS form: the 27 rows with
+// every answer listed and the ones picked on site highlighted yellow, then the
+// photo page (location map, aerial, site photos two to a row).
+async function buildSitesDocx(siteExport) {
+  if (typeof docx === 'undefined' || !siteExport || !siteExport.sites.length) return null;
+  const D = docx, F = 'Calibri';
+  const GRID = [442, 2070, 3290, 3545], W = 9347;   // the form's own column widths (DXA)
+  const edge = { style: D.BorderStyle.SINGLE, size: 4, color: '000000' };
+  const edges = { top: edge, bottom: edge, left: edge, right: edge };
+  const none = { style: D.BorderStyle.NONE, size: 0, color: 'FFFFFF' };
+  const nones = { top: none, bottom: none, left: none, right: none };
+  const grey = { fill: 'D9D9D9', type: D.ShadingType.CLEAR };
+  const run = (text, o) => new D.TextRun(Object.assign({ text: String(text == null ? '' : text), font: F, size: 18 }, o || {}));
+  const para = (runs, o) => new D.Paragraph(Object.assign({ spacing: { before: 0, after: 0 }, children: runs }, o || {}));
+  const cell = (paras, width, o) => new D.TableCell(Object.assign({
+    width: { size: width, type: D.WidthType.DXA }, borders: edges,
+    margins: { top: 30, bottom: 30, left: 80, right: 80 }, children: paras.length ? paras : [para([])],
+  }, o || {}));
+  const optParas = (list, chosen) => list.map(o => para([run(o, chosen.includes(o) ? { highlight: 'yellow' } : {})]));
+  const textParas = t => String(t || '').split(/\r?\n/).map(x => para([run(x)]));
+  const head = () => new D.TableRow({ tableHeader: true, children: [
+    cell([para([run('Data Field #', { bold: true })])], GRID[0], { shading: grey }),
+    cell([para([run('Data Field', { bold: true })])], GRID[1], { shading: grey }),
+    cell([para([run('Response', { bold: true })])], GRID[2] + GRID[3], { columnSpan: 2, shading: grey }),
+  ] });
+  const formRow = (r, s) => {
+    const cells = [cell([para([run(r.n)])], GRID[0]), cell([para([run(r.label)])].concat(r.hint ? [para([run(r.hint)])] : []), GRID[1])];
+    if (r.opts) {
+      const chosen = r.pick ? [].concat(s[r.pick] || []) : (r.chosen ? r.chosen(s) : []);
+      if (r.opts.length === 1) cells.push(cell(optParas(r.opts[0], chosen), GRID[2] + GRID[3], { columnSpan: 2 }));
+      else cells.push(cell(optParas(r.opts[0], chosen), GRID[2]), cell(optParas(r.opts[1], chosen), GRID[3]));
+    } else {
+      cells.push(cell(textParas(r.text(s)), GRID[2] + GRID[3], { columnSpan: 2 }));
+    }
+    return new D.TableRow({ cantSplit: true, children: cells });
+  };
+  const img = (it, maxW, maxH) => {
+    const sc = Math.min(maxW / it.size.w, maxH / it.size.h, 1);
+    return new D.Paragraph({ alignment: D.AlignmentType.CENTER, spacing: { before: 80, after: 40 }, children: [new D.ImageRun({
+      type: (it.type || '').includes('png') ? 'png' : 'jpg', data: it.bytes,
+      transformation: { width: Math.max(1, Math.round(it.size.w * sc)), height: Math.max(1, Math.round(it.size.h * sc)) },
+    })] });
+  };
+  const cap = t => new D.Paragraph({ alignment: D.AlignmentType.CENTER, spacing: { before: 0, after: 160 }, children: [new D.TextRun({ text: t, font: F, size: 20, bold: true })] });
+  const hole = t => new D.Paragraph({ alignment: D.AlignmentType.CENTER, spacing: { before: 480, after: 480 }, children: [new D.TextRun({ text: t, font: F, size: 18, italics: true, color: '808080' })] });
+  const pc = (kids, span) => new D.TableCell({ columnSpan: span || 1, width: { size: span === 2 ? 9350 : 4675, type: D.WidthType.DXA }, borders: nones, children: kids });
+
+  const children = [];
+  for (let si = 0; si < siteExport.sites.length; si++) {
+    const { site: s, photos } = siteExport.sites[si];
+    for (const it of photos) it.size = await wordImageSize(it.bytes, it.type);
+    const labels = sitePhotoLabels(photos);
+    const name = siteLabel(s), park = sitePark(s);
+    children.push(new D.Paragraph({ pageBreakBefore: si > 0, spacing: { before: 0, after: 160 },
+      children: [new D.TextRun({ text: name, font: F, size: 28, bold: true, underline: {} })] }));
+    children.push(new D.Table({ width: { size: W, type: D.WidthType.DXA }, columnWidths: GRID, rows: [head(), ...EDL_FORM.map(r => formRow(r, s))] }));
+    const mapIt = labels.find(l => l.kind === 'MAP'), aerIt = labels.find(l => l.kind === 'AERIAL');
+    const rows = [
+      new D.TableRow({ children: [pc([mapIt ? img(mapIt.item, 600, 330) : hole('Location map — insert in the office')], 2)] }),
+      new D.TableRow({ children: [pc([cap('Location of ' + name + (park ? ' within ' + park : ''))], 2)] }),
+      new D.TableRow({ children: [pc([aerIt ? img(aerIt.item, 600, 330) : hole('Aerial photograph — insert in the office')], 2)] }),
+      new D.TableRow({ children: [pc([cap('Aerial Photograph of ' + name + ' EDL Site')], 2)] }),
+    ];
+    const views = labels.filter(l => l.kind === 'VIEW');
+    for (let i = 0; i < views.length; i += 2) {
+      const a = views[i], b = views[i + 1];
+      rows.push(new D.TableRow({ cantSplit: true, children: [pc([img(a.item, 300, 225)]), pc([b ? img(b.item, 300, 225) : new D.Paragraph({})])] }));
+      rows.push(new D.TableRow({ cantSplit: true, children: [pc([cap(a.label)]), pc([b ? cap(b.label) : new D.Paragraph({})])] }));
+    }
+    children.push(new D.Paragraph({ pageBreakBefore: true, spacing: { before: 0, after: 0 }, children: [] }));
+    children.push(new D.Table({ width: { size: 9350, type: D.WidthType.DXA }, columnWidths: [4675, 4675],
+      borders: { top: none, bottom: none, left: none, right: none, insideHorizontal: none, insideVertical: none }, rows }));
+  }
+  const parks = [...new Set(siteExport.sites.map(x => sitePark(x.site)).filter(Boolean))].sort();
+  const doc = new D.Document({ sections: [{
+    properties: { page: { size: { width: 12240, height: 15840 }, margin: { top: 1440, right: 1440, bottom: 1440, left: 1440, header: 720, footer: 720 } } },
+    headers: { default: new D.Header({ children: [new D.Paragraph({ alignment: D.AlignmentType.RIGHT,
+      children: [new D.TextRun({ text: (parks.join(', ') || 'NPS') + ' – EDL Site Data Forms', font: F, italics: true, color: '5A6470', size: 16 })] })] }) },
+    footers: { default: new D.Footer({ children: [new D.Paragraph({ alignment: D.AlignmentType.CENTER,
+      children: [new D.TextRun({ text: 'Page ', font: F, color: '5A6470', size: 16 }), new D.TextRun({ children: [D.PageNumber.CURRENT], font: F, color: '5A6470', size: 16 })] })] }) },
+    children,
+  }] });
+  return D.Packer.toBlob(doc);
+}
+
+// The export's field notes on their own: per park, in the same order and with
+// the same photo numbers as the Field Notes sheet and the photo log.
+async function buildNotesDocx(entries, photosOf) {
+  if (typeof docx === 'undefined') return null;
+  const notes = findingOrder(entries).map(i => entries[i]).filter(isNote);
+  if (!notes.length) return null;
+  const D = docx, FONT = 'Arial', BROWN = '5C3B1E', GRAY = '5A6470';
+  const P = (text, o, p) => new D.Paragraph(Object.assign({ spacing: { before: 0, after: 60 },
+    children: [new D.TextRun(Object.assign({ text: String(text), font: FONT, size: 20 }, o || {}))] }, p || {}));
+  const parks = [...new Set(notes.map(entryParkCode))].sort();
+  const parkTitle = code => code ? code + (parkNameOf(code) ? ' — ' + parkNameOf(code) : '') : 'Park not set';
+  const children = [
+    P('FIELD NOTES', { bold: true, size: 32, color: BROWN }, { spacing: { before: 0, after: 40 } }),
+    P([parks.filter(Boolean).join(', '), notes.length + ' note' + (notes.length === 1 ? '' : 's'), dateSpan(notes)].filter(Boolean).join('   •   '),
+      { color: GRAY, size: 18 }, { spacing: { before: 0, after: 200 } }),
+  ];
+  parks.forEach((park, pi) => {
+    children.push(P(parkTitle(park), { bold: true, size: 26, color: BROWN }, { spacing: { before: pi ? 320 : 120, after: 80 }, keepNext: true,
+      border: { bottom: { style: D.BorderStyle.SINGLE, size: 6, color: BROWN, space: 3 } } }));
+    notes.filter(e => entryParkCode(e) === park).forEach((e, k) => {
+      const d = e.timestamp ? new Date(e.timestamp) : null;
+      const when = d && !isNaN(d) ? d.toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+      const photos = photosOf(e);
+      const facts = [when, e.latitude != null && e.longitude != null ? 'GPS ' + Number(e.latitude).toFixed(6) + ', ' + Number(e.longitude).toFixed(6) : '',
+        photos ? 'Photos ' + photos : 'No photo'].filter(Boolean).join('   •   ');
+      children.push(P((k + 1) + '.   ' + (entryLocationName(e) || park || 'No location'), { bold: true, size: 21 }, { spacing: { before: 180, after: 20 }, keepNext: true }));
+      children.push(P(facts, { italics: true, color: GRAY, size: 17 }, { spacing: { before: 0, after: 40 }, keepNext: true }));
+      if (e.teamGuideCitation) children.push(P(e.teamGuideCitation, { bold: true, color: BROWN, size: 18 }, { spacing: { before: 0, after: 40 }, keepNext: true }));
+      children.push(new D.Paragraph({ spacing: { before: 0, after: 80 },
+        children: String(e.details || '(no text)').split(/\r?\n/).map((t, i) => new D.TextRun({ text: t, font: FONT, size: 20, break: i ? 1 : 0 })) }));
+    });
+  });
+  const doc = new D.Document({ sections: [{
+    properties: { page: { size: { width: 12240, height: 15840 }, margin: { top: 1080, right: 1080, bottom: 1080, left: 1080, header: 708, footer: 708 } } },
+    headers: { default: new D.Header({ children: [new D.Paragraph({ alignment: D.AlignmentType.RIGHT,
+      children: [new D.TextRun({ text: (parks.filter(Boolean).join(', ') || 'National Park Service') + ' – Environmental Audit Field Notes', font: FONT, italics: true, color: GRAY, size: 16 })] })] }) },
+    footers: { default: new D.Footer({ children: [new D.Paragraph({ alignment: D.AlignmentType.CENTER,
+      children: [new D.TextRun({ text: 'NPS Photo Collector  |  Page ', font: FONT, color: GRAY, size: 16 }), new D.TextRun({ children: [D.PageNumber.CURRENT], font: FONT, bold: true, color: BROWN, size: 16 })] })] }) },
+    children,
+  }] });
+  return D.Packer.toBlob(doc);
+}
+
 loadTankData();
 loadPeople();
+loadSites();
 updateExportExtrasNote();
 
 // ============================================================================
