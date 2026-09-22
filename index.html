@@ -1046,6 +1046,7 @@ if ('serviceWorker' in navigator) {
         <button type="button" class="tg-chip active" data-export-mode="all"       onclick="setExportDateMode('all')">All</button>
         <button type="button" class="tg-chip"        data-export-mode="today"     onclick="setExportDateMode('today')">Today</button>
         <button type="button" class="tg-chip"        data-export-mode="yesterday" onclick="setExportDateMode('yesterday')">Yesterday</button>
+        <button type="button" class="tg-chip"        data-export-mode="earlier"   onclick="setExportDateMode('earlier')">Earlier</button>
         <button type="button" class="tg-chip"        data-export-mode="custom"    onclick="setExportDateMode('custom')">Custom</button>
       </div>
       <div id="exportCustomRange" style="display:none;margin-top:8px;gap:8px;align-items:center;">
@@ -2557,7 +2558,8 @@ function resetPhotoSettings() {
 function showExportDialog() {
   const total = savedEntries.length + (draftIsExportable() ? 1 : 0);
   if (total === 0) { showToast(draftPendingScore() ? 'Tap a priority or Note and save the entry first' : 'Nothing to export yet', true); return; }
-  exportDateMode = 'all';
+  // NPS-only: opens on whatever the saved list is filtered to, so the two stay in step.
+  exportDateMode = (typeof savedDateFilter === 'string' && savedDateFilter) || 'all';
   document.getElementById('exportFromDate').value = '';
   document.getElementById('exportToDate').value   = '';
   _syncExportChips();
@@ -2624,7 +2626,10 @@ async function deleteExportedEntries() {
 }
 
 // ---- Date filter for export ----
-let exportDateMode = 'all'; // 'all' | 'today' | 'yesterday' | 'custom'
+let exportDateMode = 'all'; // 'all' | 'today' | 'yesterday' | 'earlier' | 'custom'
+// NPS-only: the chip modes use the saved list's own rule, so a chip's count is exactly what it exports.
+// An entry with no date counts as Earlier on the chips, so a date range never claims it.
+function exportMatch(e, range) { return exportDateMode === 'custom' ? (!!e.timestamp && entryInRange(e, range || getExportDateRange())) : savedFilterMatch(e, exportDateMode); }
 
 function _startOfDay(d) { const x = new Date(d); x.setHours(0,0,0,0); return x.getTime(); }
 function _endOfDay  (d) { const x = new Date(d); x.setHours(23,59,59,999); return x.getTime(); }
@@ -2685,7 +2690,12 @@ function updateExportCount() {
   if (draftIsExportable()) {
     all.push({ location: loc, timestamp: new Date().toISOString(), details: det });
   }
-  const match = all.filter(e => entryInRange(e, range)).length;
+  const match = all.filter(e => exportMatch(e, range)).length;
+  // NPS-only: each chip shows how many entries it would export.
+  document.querySelectorAll('#exportOverlay [data-export-mode]').forEach(b => {
+    const m = b.dataset.exportMode, label = { all: 'All', today: 'Today', yesterday: 'Yesterday', earlier: 'Earlier', custom: 'Custom' }[m] || m;
+    b.textContent = m === 'custom' ? label : label + ' ' + all.filter(e => savedFilterMatch(e, m)).length;
+  });
   el.textContent = ((match === all.length)
     ? `${match} entr${match === 1 ? 'y' : 'ies'} will be exported`
     : `${match} of ${all.length} entr${all.length === 1 ? 'y' : 'ies'} match this filter`)
@@ -2749,7 +2759,7 @@ async function runExport() {
   // Apply the export-dialog date filter
   const dateRange = getExportDateRange();
   const beforeFilter = allEntries.length;
-  allEntries = allEntries.filter(e => entryInRange(e, dateRange));
+  allEntries = allEntries.filter(e => exportMatch(e, dateRange));
   if (allEntries.length === 0) {
     showToast(beforeFilter === 0 ? 'Nothing to export' : 'No entries in selected date range', true);
     return;
@@ -2780,6 +2790,7 @@ async function runExport() {
   // NPS-only: photos are numbered in finding order (park, priority, sheet,
   // citation, location), so photo 001 belongs to finding 001.
   const entryMaps = [];
+  const notePhotoBytes = new Map();   // NPS-only: note photos, reused by the Notes Word file
   for (const ei of findingOrder(allEntries)) {
     const entry = allEntries[ei];
     // A typed location has no " — CODE" suffix; give its photos the park code too.
@@ -2799,6 +2810,7 @@ async function runExport() {
           const ext = pd.type.includes('png') ? '.png' : '.jpg';
           photosFolder.file(photoName + ext, pd.bytes);
           map[slot] = photoName + ext;
+          if (isNote(entry)) notePhotoBytes.set(photoName + ext, { bytes: pd.bytes, type: pd.type });
           photoCount++;
         } else {
           map[slot] = null;
@@ -2954,7 +2966,10 @@ async function runExport() {
   if (wantNotes || wantSites) {
     if (typeof docx === 'undefined') wordSkipped = true;
     else {
-      try { const b = wantNotes && await buildNotesDocx(allEntries, photosOf); if (b) { zip.file('NPS_Notes_' + datestamp() + '.docx', b); wordFiles.push('notes'); } }
+      // Each note's photos in ZIP order, with the bytes already read for the ZIP.
+      const notePhotosOf = e => { const m = entryMaps[allEntries.indexOf(e)] || {};
+        return wordPhotoSlots({ photos: m }).map(sl => m[sl]).filter(Boolean).map(fn => Object.assign({ num: photoSeqOf(fn) }, notePhotoBytes.get(fn))).filter(it => it.bytes); };
+      try { const b = wantNotes && await buildNotesDocx(allEntries, photosOf, notePhotosOf); if (b) { zip.file('NPS_Notes_' + datestamp() + '.docx', b); wordFiles.push('notes'); } }
       catch (e) { console.error('Notes document:', e); wordSkipped = true; }
       try { const b = wantSites && await buildSitesDocx(siteExport); if (b) { zip.file('NPS_LOC_Sites_' + datestamp() + '.docx', b); wordFiles.push('LOC site forms'); } }
       catch (e) { console.error('LOC site forms:', e); wordSkipped = true; }
@@ -3063,7 +3078,7 @@ function handleBackupFile(event) {
       if (Array.isArray(parsed.people) && !peopleList.length) { peopleList = parsed.people; savePeople(); }
       if (parsed.audit && !auditInfoFilled()) { auditInfo = normaliseAuditInfo(parsed.audit); saveAuditInfo(); }
       if (parsed.prior && parsed.prior.findings && !priorFindings().length) { priorAudit = parsed.prior; savePriorAudit(); }
-      if (Array.isArray(parsed.sites) && parsed.sites.length && !(locSites || []).length) { locSites = parsed.sites; saveSites(); }
+      if (Array.isArray(parsed.sites) && parsed.sites.length && !(locSites || []).length) { locSites = cleanSites(parsed.sites); saveSites(); }
       renderSavedPanel();
       updateHeaderBadge();
       if (!action) showToast(`Loaded ${entries.length} entries`);
@@ -4592,7 +4607,7 @@ loadPriorAudit();
 // every release. The bottom bar shows it, and while a newer service worker
 // is still installing (the page is fresh, the cache is last release's) it
 // says so and settles once the new worker takes control.
-const APP_VERSION = '2.4';
+const APP_VERSION = '2.5';
 let _versionTries = 0;
 // '1.10' sorts after '1.9': compare each dotted part as a number.
 function versionCompare(a, b) {
@@ -5105,9 +5120,21 @@ var locSites = [];   // var, not let: the photo integrity check can run before t
 let openSiteId = null;
 let _siteSaveTimer = null;
 
+// Keep only real site objects, so damaged storage or a hand-edited backup can
+// never stop the app from loading or the list from drawing.
+function cleanSites(list) {
+  return (Array.isArray(list) ? list : []).filter(s => s && typeof s === 'object' && !Array.isArray(s)).map(s => {
+    if (!s.id || typeof s.id !== 'string') s.id = 'st_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
+    s.id = s.id.replace(/[^\w-]/g, '_');
+    if (!s.photos || typeof s.photos !== 'object' || Array.isArray(s.photos)) s.photos = {};
+    Object.keys(s.photos).forEach(k => { if (!s.photos[k] || typeof s.photos[k] !== 'object' || !/^[\w-]+$/.test(k)) delete s.photos[k]; });
+    ['name', 'siteId', 'contacts', 'notes', 'park'].forEach(f => { if (s[f] != null && typeof s[f] !== 'string') s[f] = String(s[f]); });
+    return s;
+  });
+}
 function loadSites() {
-  try { locSites = JSON.parse(localStorage.getItem(LS_LOC_SITES) || '[]') || []; } catch (e) { locSites = []; }
-  if (!Array.isArray(locSites)) locSites = [];
+  let v; try { v = JSON.parse(localStorage.getItem(LS_LOC_SITES) || '[]'); } catch (e) { v = []; }
+  locSites = cleanSites(v);
 }
 function saveSites() {
   clearTimeout(_siteSaveTimer);
@@ -5659,7 +5686,7 @@ async function buildSitesDocx(siteExport) {
 
 // The export's field notes on their own: per park, in the same order and with
 // the same photo numbers as the Field Notes sheet and the photo log.
-async function buildNotesDocx(entries, photosOf) {
+async function buildNotesDocx(entries, photosOf, photoItemsOf) {
   if (typeof docx === 'undefined') return null;
   const notes = findingOrder(entries).map(i => entries[i]).filter(isNote);
   if (!notes.length) return null;
@@ -5673,10 +5700,12 @@ async function buildNotesDocx(entries, photosOf) {
     P([parks.filter(Boolean).join(', '), notes.length + ' note' + (notes.length === 1 ? '' : 's'), dateSpan(notes)].filter(Boolean).join('   •   '),
       { color: GRAY, size: 18 }, { spacing: { before: 0, after: 200 } }),
   ];
-  parks.forEach((park, pi) => {
+  for (let pi = 0; pi < parks.length; pi++) {
+    const park = parks[pi], list = notes.filter(e => entryParkCode(e) === park);
     children.push(P(parkTitle(park), { bold: true, size: 26, color: BROWN }, { spacing: { before: pi ? 320 : 120, after: 80 }, keepNext: true,
       border: { bottom: { style: D.BorderStyle.SINGLE, size: 6, color: BROWN, space: 3 } } }));
-    notes.filter(e => entryParkCode(e) === park).forEach((e, k) => {
+    for (let k = 0; k < list.length; k++) {
+      const e = list[k];
       const d = e.timestamp ? new Date(e.timestamp) : null;
       const when = d && !isNaN(d) ? d.toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
       const photos = photosOf(e);
@@ -5687,8 +5716,19 @@ async function buildNotesDocx(entries, photosOf) {
       if (e.teamGuideCitation) children.push(P(e.teamGuideCitation, { bold: true, color: BROWN, size: 18 }, { spacing: { before: 0, after: 40 }, keepNext: true }));
       children.push(new D.Paragraph({ spacing: { before: 0, after: 80 },
         children: String(e.details || '(no text)').split(/\r?\n/).map((t, i) => new D.TextRun({ text: t, font: FONT, size: 20, break: i ? 1 : 0 })) }));
-    });
-  });
+      // The note's photos under it, numbered as in the ZIP and the workbook.
+      for (const it of (photoItemsOf ? photoItemsOf(e) : [])) {
+        const size = await wordImageSize(it.bytes, it.type);
+        const sc = Math.min(WORD_MAX_W / size.w, WORD_MAX_H / size.h, 1);
+        children.push(new D.Paragraph({ alignment: D.AlignmentType.CENTER, keepNext: true, spacing: { before: 60, after: 20 }, children: [new D.ImageRun({
+          type: (it.type || '').includes('png') ? 'png' : 'jpg', data: it.bytes,
+          transformation: { width: Math.max(1, Math.round(size.w * sc)), height: Math.max(1, Math.round(size.h * sc)) },
+          altText: { title: 'Photo ' + it.num, description: e.details || 'Field note photo', name: 'Photo ' + it.num },
+        })] }));
+        children.push(P('Photo ' + String(it.num).padStart(3, '0'), { bold: true, color: BROWN, size: 18 }, { alignment: D.AlignmentType.CENTER, spacing: { before: 0, after: 140 } }));
+      }
+    }
+  }
   const doc = new D.Document({ sections: [{
     properties: { page: { size: { width: 12240, height: 15840 }, margin: { top: 1080, right: 1080, bottom: 1080, left: 1080, header: 708, footer: 708 } } },
     headers: { default: new D.Header({ children: [new D.Paragraph({ alignment: D.AlignmentType.RIGHT,
@@ -5747,7 +5787,7 @@ async function generateWordReport() {
   if (draftIsExportable()) allEntries.push(draftEntry());
   const dateRange = getExportDateRange();
   const beforeFilter = allEntries.length;
-  allEntries = allEntries.filter(e => entryInRange(e, dateRange));
+  allEntries = allEntries.filter(e => exportMatch(e, dateRange));
   if (allEntries.length === 0) {
     showToast(beforeFilter === 0 ? 'Nothing to export' : 'No entries in selected date range', true);
     return;
