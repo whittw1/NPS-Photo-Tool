@@ -334,6 +334,8 @@ if ('serviceWorker' in navigator) {
   .st-chips.dir button { min-width: 38px; padding: 6px 6px; }
   .saved-filter { padding: 8px 0 10px; margin: 0; }
   #compassChip.on { border-color: var(--accent); color: var(--accent); font-variant-numeric: tabular-nums; }
+  .st-gap { font-size: 11px; font-weight: 600; color: var(--warning); margin-bottom: 8px; line-height: 1.4; }
+  .st-gap.done { color: var(--success); }
   .st-gps { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; font-size: 12px; color: var(--text-dim); }
   .st-photo { padding: 8px 0; border-bottom: 1px dashed var(--border); }
   .st-photo-top { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
@@ -1057,6 +1059,7 @@ if ('serviceWorker' in navigator) {
       </div>
       <div id="exportCount" style="font-size:12px;color:var(--text-dim);margin-top:6px;"></div>
       <div id="exportExtras" style="font-size:12px;color:var(--text-dim);margin-top:4px;"></div>
+      <div id="exportGaps" style="font-size:12px;color:var(--warning);margin-top:4px;"></div>
     </div>
 
     <div class="dialog-actions" style="flex-wrap:wrap;">
@@ -2568,6 +2571,7 @@ function showExportDialog() {
   _syncExportChips();
   updateRefPreview();
   updateExportCount();
+  updateExportGapsNote();
   document.getElementById('exportOverlay').style.display = 'flex';
 }
 
@@ -4624,7 +4628,7 @@ loadPriorAudit();
 // every release. The bottom bar shows it, and while a newer service worker
 // is still installing (the page is fresh, the cache is last release's) it
 // says so and settles once the new worker takes control.
-const APP_VERSION = '2.7';
+const APP_VERSION = '2.8';
 let _versionTries = 0;
 // '1.10' sorts after '1.9': compare each dotted part as a number.
 function versionCompare(a, b) {
@@ -4732,6 +4736,14 @@ function updateExportExtrasNote() {
   if (peopleList.length) bits.push(peopleList.length + ' name' + (peopleList.length === 1 ? '' : 's'));
   const list = bits.length > 1 ? bits.slice(0, -1).join(', ') + ' and ' + bits[bits.length - 1] : bits[0];
   el.textContent = bits.length ? 'Also included, whatever the date filter: ' + list + '.' : '';
+  updateExportGapsNote();
+}
+// NPS-only: what the LOC sites still lack, as a heads-up. It never blocks an export.
+function updateExportGapsNote() {
+  const el = document.getElementById('exportGaps');
+  if (!el) return;
+  const bits = exportableSites().map(s => { const g = siteGapText(s); return g ? siteLabel(s) + ' (' + g + ')' : ''; }).filter(Boolean);
+  el.textContent = bits.length ? '\u26a0 Still blank on ' + (bits.length === 1 ? 'this LOC site' : 'these LOC sites') + ': ' + bits.join('; ') + '. The export goes ahead either way.' : '';
 }
 
 // ---- Import the SPCC tables out of the park's Word file ----
@@ -5191,6 +5203,22 @@ function sitePhotoLabels(items) {
     return { item: it, kind: 'VIEW', label: 'Photo ' + n + (what ? ' – ' + what : '') + (dir ? ' (' + dir + ')' : '') };
   });
 }
+// The rows the phone fills, so a site can say what is still blank. The office
+// rows (site ID, phase, type, ownership, contaminants, funding…) are not counted.
+const SITE_GAP_LABELS = { gps: 'GPS', photos: 'photos', access: 'site access', media: 'affected media',
+  resource: 'resource impact', footprint: 'site footprint', emergency: 'emergency response', stability: 'site stability' };
+function siteGaps(s) {
+  const out = [];
+  if (s.latitude == null) out.push('gps');
+  if (!sitePhotoSlots(s).length) out.push('photos');
+  Object.keys(SITE_CHOICES).forEach(k => { if (![].concat(s[k] || []).filter(Boolean).length) out.push(k); });
+  return out;
+}
+function siteGapText(s) { return siteGaps(s).map(k => SITE_GAP_LABELS[k] || k).join(', '); }
+function siteGapHtml(s) {
+  const g = siteGapText(s);
+  return '<div class="st-gap' + (g ? '' : ' done') + '" id="stgap_' + s.id + '">' + (g ? 'Still blank: ' + esc(g) : 'All field rows filled') + '</div>';
+}
 // A site goes into the export once it holds anything at all.
 function exportableSites() {
   return (locSites || []).filter(s => String(s.name || '').trim() || s.siteId || s.latitude != null || s.contacts || s.notes ||
@@ -5282,8 +5310,9 @@ function sitePhotoHtml(s, slot, label) {
 }
 function siteGpsText(s) { return s.latitude != null ? Number(s.latitude).toFixed(6) + ', ' + Number(s.longitude).toFixed(6) + (s.gpsAccuracy != null ? '  ±' + s.gpsAccuracy + ' m' : '') : ''; }
 function siteSubText(s) {
-  const n = sitePhotoSlots(s).length;
-  return [sitePark(s), n ? n + ' photo' + (n === 1 ? '' : 's') : 'no photos', s.latitude != null ? 'GPS ✓' : 'no GPS'].filter(Boolean).join('  ·  ');
+  const n = sitePhotoSlots(s).length, g = siteGaps(s).length;
+  return [sitePark(s), n ? n + ' photo' + (n === 1 ? '' : 's') : 'no photos', s.latitude != null ? 'GPS ✓' : 'no GPS',
+    g ? g + ' still blank' : 'complete'].filter(Boolean).join('  ·  ');
 }
 function siteDotClass(s) { const n = sitePhotoSlots(s).length, g = s.latitude != null; return 'tk-dot' + (n && g ? ' ok' : (n || g ? ' diff' : '')); }
 function siteRowHtml(s) {
@@ -5296,6 +5325,7 @@ function siteRowHtml(s) {
       '<span class="tk-label"><span class="tk-id">' + esc(siteLabel(s)) + '</span><span class="tk-sub" id="stsub_' + s.id + '">' + esc(siteSubText(s)) + '</span></span>' +
     '</div>' +
     '<div class="tk-body">' +
+      siteGapHtml(s) +
       '<input type="text" class="tk-field" id="locSiteName_' + s.id + '" placeholder="Site name, e.g. Former Camp Wellfleet" value="' + _attr(s.name) + '" oninput="setSiteText(\'' + s.id + '\',\'name\',this.value)">' +
       '<input type="text" class="tk-field" placeholder="EDL site ID if known, e.g. EDL 5NER3464" value="' + _attr(s.siteId) + '" oninput="setSiteText(\'' + s.id + '\',\'siteId\',this.value)">' +
       '<div class="st-gps"><button type="button" class="btn btn-outline btn-sm" id="stgpsbtn_' + s.id + '" onclick="captureSiteGPS(\'' + s.id + '\')">&#128205; ' + (gps ? 'Update GPS' : 'Get GPS here') + '</button><span id="stgps_' + s.id + '">' + esc(gps || 'Stand at the site and tap to record its position') + '</span></div>' +
@@ -5322,7 +5352,9 @@ function renderSiteList() {
     return;
   }
   const n = sites.reduce((t, s) => t + Object.keys(s.photos || {}).length, 0);
-  sum.innerHTML = '<b>' + sites.length + '</b> site' + (sites.length === 1 ? '' : 's') + ' · ' + n + ' photo' + (n === 1 ? '' : 's') + ' · exported as EDL site forms in the ZIP';
+  const gappy = sites.filter(x => siteGaps(x).length).length;
+  sum.innerHTML = '<b>' + sites.length + '</b> site' + (sites.length === 1 ? '' : 's') + ' · ' + n + ' photo' + (n === 1 ? '' : 's') +
+    (gappy ? ' · <b>' + gappy + '</b> with blank field rows' : '') + ' · exported as EDL site forms in the ZIP';
   list.innerHTML = sites.map(siteRowHtml).join('');
 }
 function toggleSiteRow(id) { openSiteId = openSiteId === id ? null : id; renderSiteList(); }
@@ -5338,6 +5370,8 @@ function addSite() {
   // Focus during the tap itself: iOS opens the keyboard only for a focus made inside the gesture.
   const el = document.getElementById('locSiteName_' + s.id);
   if (el) { el.focus(); el.scrollIntoView({ block: 'nearest' }); }
+  // You are standing at the site when you add it, so take its position now.
+  captureSiteGPS(s.id, true);
 }
 // Text saves on a debounce and never re-renders, so the field keeps focus.
 function setSiteText(id, field, value) {
@@ -5355,11 +5389,18 @@ function toggleSiteChoice(id, key, idx) {
   saveSites();
   renderSiteList();
 }
-function captureSiteGPS(id) {
+let _siteGpsPending = {};
+// `auto` is the fix the app starts by itself when a site is created or takes its
+// first photo: it says nothing if the device refuses, so the field work is not interrupted.
+function captureSiteGPS(id, auto) {
   const s = siteById(id); if (!s) return;
-  if (!navigator.geolocation) { showToast('Geolocation not available on this device', true); return; }
-  showToast('Getting the site position…');
+  if (!navigator.geolocation) { if (!auto) showToast('Geolocation not available on this device', true); return; }
+  if (_siteGpsPending[id]) return;
+  _siteGpsPending[id] = true;
+  const btn0 = document.getElementById('stgpsbtn_' + id); if (btn0) btn0.innerHTML = '&#128205; Locating…';
+  if (!auto) showToast('Getting the site position…');
   navigator.geolocation.getCurrentPosition(pos => {
+    delete _siteGpsPending[id];
     s.latitude = pos.coords.latitude; s.longitude = pos.coords.longitude;
     s.gpsAccuracy = Math.round(pos.coords.accuracy); s.gpsAt = new Date().toISOString();
     saveSites();
@@ -5372,11 +5413,15 @@ function captureSiteGPS(id) {
       set('stgpsbtn_', el => { el.innerHTML = '&#128205; Update GPS'; });
       set('stsub_', el => { el.textContent = siteSubText(s); });
       set('stdot_', el => { el.className = siteDotClass(s); });
+      set('stgap_', el => { const g = siteGapText(s); el.textContent = g ? 'Still blank: ' + g : 'All field rows filled'; el.className = 'st-gap' + (g ? '' : ' done'); });
     } else renderSiteList();
     showToast('Site GPS recorded (±' + s.gpsAccuracy + ' m)');
   }, err => {
+    delete _siteGpsPending[id];
+    const b = document.getElementById('stgpsbtn_' + id);
+    if (b) b.innerHTML = '&#128205; ' + (s.latitude != null ? 'Update GPS' : 'Get GPS here');
     const msgs = { 1: 'Location permission denied — check Settings > Privacy > Location', 2: 'Location unavailable — try again outdoors', 3: 'Location request timed out — try again' };
-    showToast(msgs[err.code] || 'Location error', true);
+    if (!auto) showToast(msgs[err.code] || 'Location error', true);
   }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
 }
 function deleteSite(id) {
@@ -5443,6 +5488,8 @@ function handleSitePhoto(input, id, fromLibrary) {
       saveSites();
       renderSiteList();
       updateIntegrityBadge();
+      // A site photographed without a position yet: try once more now.
+      if (s.latitude == null) captureSiteGPS(s.id, true);
       showToast(!res.ok ? '⚠ Photo did NOT save — storage problem' : hd ? 'Site photo saved — facing ' + SITE_FACING[headingPoint(hd.deg)] + ' by the compass; tap to change' : 'Site photo saved — add what it shows and the direction', !res.ok);
     };
     img.src = e.target.result;
