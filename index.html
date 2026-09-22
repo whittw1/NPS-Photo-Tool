@@ -2557,7 +2557,8 @@ function resetPhotoSettings() {
 // ============================================================================
 function showExportDialog() {
   const total = savedEntries.length + (draftIsExportable() ? 1 : 0);
-  if (total === 0) { showToast(draftPendingScore() ? 'Tap a priority or Note and save the entry first' : 'Nothing to export yet', true); return; }
+  // NPS-only: LOC sites and tank checks can go out on their own.
+  if (total === 0 && !exportableSites().length && !checkedTankRows().length) { showToast(draftPendingScore() ? 'Tap a priority or Note and save the entry first' : 'Nothing to export yet', true); return; }
   // NPS-only: opens on whatever the saved list is filtered to, so the two stay in step.
   exportDateMode = (typeof savedDateFilter === 'string' && savedDateFilter) || 'all';
   document.getElementById('exportFromDate').value = '';
@@ -2760,7 +2761,8 @@ async function runExport() {
   const dateRange = getExportDateRange();
   const beforeFilter = allEntries.length;
   allEntries = allEntries.filter(e => exportMatch(e, dateRange));
-  if (allEntries.length === 0) {
+  // NPS-only: LOC sites and tank checks are exported whatever the filter, even with no entries in it.
+  if (allEntries.length === 0 && !exportableSites().length && !checkedTankRows().length) {
     showToast(beforeFilter === 0 ? 'Nothing to export' : 'No entries in selected date range', true);
     return;
   }
@@ -3009,10 +3011,13 @@ async function runExport() {
 
     if (exportedIds.length > 0) showPostExportPrompt(exportedIds);
 
-    // Clean up the localStorage fallback copies of the photos this export shipped.
+    // Clean up the localStorage fallback copies of the entry photos this export shipped.
     // Photos of entries outside the date filter stay: they have not been exported yet.
+    // NPS-only: tank and LOC site photos stay too, since those lists go out in every export.
     try {
-      shippedKeys.forEach(k => localStorage.removeItem('photo_full_' + k));
+      const entryKeys = new Set();
+      allEntries.forEach(en => Object.values(en.photos || {}).forEach(p => { if (p && p.dbKey) entryKeys.add(p.dbKey); }));
+      shippedKeys.filter(k => entryKeys.has(k)).forEach(k => localStorage.removeItem('photo_full_' + k));
     } catch(e) {}
   } catch(e) {
     console.error('Export error:', e);
@@ -3026,12 +3031,14 @@ async function runExport() {
 async function saveBackup() {
   let all = JSON.parse(JSON.stringify(savedEntries));
   if (draftIsExportable()) all.push(Object.assign(draftEntry(), { photos: {} }));
-  if (all.length === 0) { showToast('Nothing to back up', true); return; }
+  // NPS-only: LOC sites, tank checks and personnel are worth a backup on their own.
+  if (all.length === 0 && !(locSites || []).length && !tankRows().length && !peopleList.length) { showToast('Nothing to back up', true); return; }
 
   const clean = all.map(({ photos, ...rest }) => rest);
   const blob  = new Blob([JSON.stringify({ version:1, exported: new Date().toISOString(), entries: clean, tanks: tankData, people: peopleList, audit: auditInfo, prior: priorAudit, sites: locSites }, null, 2)], { type:'application/json' });
   if (!await shareOrDownload(blob, `NPS_Backup_${datestamp()}.json`)) { showToast('Backup cancelled', true); return; }
-  showToast(`Backup saved \u2014 ${clean.length} entries`);
+  const nSites = (locSites || []).length;
+  showToast(`Backup saved \u2014 ${clean.length} entries` + (nSites ? `, ${nSites} LOC site${nSites === 1 ? '' : 's'}` : ''));
 }
 
 function importBackup() {
@@ -3046,19 +3053,25 @@ function handleBackupFile(event) {
   reader.onload = e => {
     try {
       const parsed  = JSON.parse(e.target.result);
-      let entries   = Array.isArray(parsed) ? parsed : (parsed.entries || null);
+      // NPS-only: a backup may hold only LOC sites, a tank check or personnel.
+      const extras  = !Array.isArray(parsed) && !!((Array.isArray(parsed.sites) && parsed.sites.length) ||
+        (parsed.tanks && parsed.tanks.rows && parsed.tanks.rows.length) || (Array.isArray(parsed.people) && parsed.people.length));
+      let entries   = Array.isArray(parsed) ? parsed : (parsed.entries || (extras ? [] : null));
       if (!entries || !Array.isArray(entries)) throw new Error('Unrecognised format');
       entries       = entries.filter(en => en && (en.location || en.details));
 
-      if (entries.length === 0) { showToast('No valid entries found', true); return; }
+      if (entries.length === 0 && !extras) { showToast('No valid entries found', true); return; }
 
-      const action = confirm(
+      // A backup with no entries leaves the entries on this device exactly as they are.
+      const action = entries.length === 0 ? true : confirm(
         `Found ${entries.length} entries in backup.\n\n` +
         `OK = MERGE with existing ${savedEntries.length} entries\n` +
         `Cancel = REPLACE all current entries`
       );
 
-      if (!action) {
+      if (entries.length === 0) {
+        // nothing to merge
+      } else if (!action) {
         savedEntries = entries.map(normaliseEntry);
       } else {
         const existing = new Set(savedEntries.map(e => e.location + '|' + e.timestamp));
@@ -3078,10 +3091,12 @@ function handleBackupFile(event) {
       if (Array.isArray(parsed.people) && !peopleList.length) { peopleList = parsed.people; savePeople(); }
       if (parsed.audit && !auditInfoFilled()) { auditInfo = normaliseAuditInfo(parsed.audit); saveAuditInfo(); }
       if (parsed.prior && parsed.prior.findings && !priorFindings().length) { priorAudit = parsed.prior; savePriorAudit(); }
-      if (Array.isArray(parsed.sites) && parsed.sites.length && !(locSites || []).length) { locSites = cleanSites(parsed.sites); saveSites(); }
+      let sitesRestored = 0;
+      if (Array.isArray(parsed.sites) && parsed.sites.length && !(locSites || []).length) { locSites = cleanSites(parsed.sites); sitesRestored = locSites.length; saveSites(); }
       renderSavedPanel();
       updateHeaderBadge();
       if (!action) showToast(`Loaded ${entries.length} entries`);
+      if (entries.length === 0) showToast(sitesRestored ? `Restored ${sitesRestored} LOC site${sitesRestored === 1 ? '' : 's'} from the backup` : 'Backup read: this device already had its own sites, tanks and personnel, so nothing was replaced');
     } catch(err) {
       showToast('Import failed: ' + err.message, true);
     }
@@ -4607,7 +4622,7 @@ loadPriorAudit();
 // every release. The bottom bar shows it, and while a newer service worker
 // is still installing (the page is fresh, the cache is last release's) it
 // says so and settles once the new worker takes control.
-const APP_VERSION = '2.5';
+const APP_VERSION = '2.6';
 let _versionTries = 0;
 // '1.10' sorts after '1.9': compare each dotted part as a number.
 function versionCompare(a, b) {
@@ -5203,23 +5218,29 @@ function sitePhotoHtml(s, slot, label) {
     (p.unsaved ? '<div class="tk-sub" style="color:var(--danger);font-weight:600;">⚠ Not in device storage — retake this photo</div>' : '') +
   '</div>';
 }
+function siteGpsText(s) { return s.latitude != null ? Number(s.latitude).toFixed(6) + ', ' + Number(s.longitude).toFixed(6) + (s.gpsAccuracy != null ? '  ±' + s.gpsAccuracy + ' m' : '') : ''; }
+function siteSubText(s) {
+  const n = sitePhotoSlots(s).length;
+  return [sitePark(s), n ? n + ' photo' + (n === 1 ? '' : 's') : 'no photos', s.latitude != null ? 'GPS ✓' : 'no GPS'].filter(Boolean).join('  ·  ');
+}
+function siteDotClass(s) { const n = sitePhotoSlots(s).length, g = s.latitude != null; return 'tk-dot' + (n && g ? ' ok' : (n || g ? ' diff' : '')); }
 function siteRowHtml(s) {
   const slots = sitePhotoSlots(s);
   const labels = sitePhotoLabels(slots.map(slot => ({ slot, info: s.photos[slot] })));
-  const gps = s.latitude != null ? Number(s.latitude).toFixed(6) + ', ' + Number(s.longitude).toFixed(6) + (s.gpsAccuracy != null ? '  ±' + s.gpsAccuracy + ' m' : '') : '';
-  const sub = [sitePark(s), slots.length ? slots.length + ' photo' + (slots.length === 1 ? '' : 's') : 'no photos', gps ? 'GPS ✓' : 'no GPS'].filter(Boolean).join('  ·  ');
+  const gps = siteGpsText(s);
   return '<div class="tk-row' + (openSiteId === s.id ? ' open' : '') + '" id="locsite_' + s.id + '">' +
     '<div class="tk-head" onclick="toggleSiteRow(\'' + s.id + '\')">' +
-      '<span class="tk-dot' + (slots.length && gps ? ' ok' : (slots.length || gps ? ' diff' : '')) + '"></span>' +
-      '<span class="tk-label"><span class="tk-id">' + esc(siteLabel(s)) + '</span><span class="tk-sub">' + esc(sub) + '</span></span>' +
+      '<span class="' + siteDotClass(s) + '" id="stdot_' + s.id + '"></span>' +
+      '<span class="tk-label"><span class="tk-id">' + esc(siteLabel(s)) + '</span><span class="tk-sub" id="stsub_' + s.id + '">' + esc(siteSubText(s)) + '</span></span>' +
     '</div>' +
     '<div class="tk-body">' +
       '<input type="text" class="tk-field" id="locSiteName_' + s.id + '" placeholder="Site name, e.g. Former Camp Wellfleet" value="' + _attr(s.name) + '" oninput="setSiteText(\'' + s.id + '\',\'name\',this.value)">' +
       '<input type="text" class="tk-field" placeholder="EDL site ID if known, e.g. EDL 5NER3464" value="' + _attr(s.siteId) + '" oninput="setSiteText(\'' + s.id + '\',\'siteId\',this.value)">' +
-      '<div class="st-gps"><button type="button" class="btn btn-outline btn-sm" onclick="captureSiteGPS(\'' + s.id + '\')">&#128205; ' + (gps ? 'Update GPS' : 'Get GPS here') + '</button><span>' + esc(gps || 'Stand at the site and tap to record its position') + '</span></div>' +
+      '<div class="st-gps"><button type="button" class="btn btn-outline btn-sm" id="stgpsbtn_' + s.id + '" onclick="captureSiteGPS(\'' + s.id + '\')">&#128205; ' + (gps ? 'Update GPS' : 'Get GPS here') + '</button><span id="stgps_' + s.id + '">' + esc(gps || 'Stand at the site and tap to record its position') + '</span></div>' +
       '<div class="st-label">Photos <span>· what it shows and the way the camera faced</span></div>' +
       labels.map(l => sitePhotoHtml(s, l.item.slot, l.label)).join('') +
-      '<div style="margin:6px 0 10px;"><button type="button" class="btn btn-outline btn-sm" onclick="addSitePhoto(\'' + s.id + '\')">&#128247; Photo</button></div>' +
+      '<div style="margin:6px 0 10px;display:flex;gap:8px;flex-wrap:wrap;"><button type="button" class="btn btn-outline btn-sm" onclick="addSitePhoto(\'' + s.id + '\')">&#128247; Photo</button>' +
+        '<button type="button" class="btn btn-outline btn-sm" onclick="addSitePhoto(\'' + s.id + '\',true)" title="Pick from the photo library, e.g. a map screenshot">&#128444; Library</button></div>' +
       Object.keys(SITE_CHOICES).map(k => siteChipsHtml(s, k)).join('') +
       '<div class="st-label">Point(s) of contact</div>' +
       '<input type="text" class="tk-field" placeholder="Name, title" value="' + _attr(s.contacts) + '" oninput="setSiteText(\'' + s.id + '\',\'contacts\',this.value)">' +
@@ -5280,7 +5301,16 @@ function captureSiteGPS(id) {
     s.latitude = pos.coords.latitude; s.longitude = pos.coords.longitude;
     s.gpsAccuracy = Math.round(pos.coords.accuracy); s.gpsAt = new Date().toISOString();
     saveSites();
-    renderSiteList();
+    // If the fix lands while a field in the list is being typed in, update in place:
+    // redrawing the list would close the iOS keyboard mid-word.
+    const list = document.getElementById('locSiteList'), a = document.activeElement;
+    if (list && a && list.contains(a) && /^(INPUT|TEXTAREA)$/.test(a.tagName)) {
+      const set = (pre, fn) => { const el = document.getElementById(pre + s.id); if (el) fn(el); };
+      set('stgps_', el => { el.textContent = siteGpsText(s); });
+      set('stgpsbtn_', el => { el.innerHTML = '&#128205; Update GPS'; });
+      set('stsub_', el => { el.textContent = siteSubText(s); });
+      set('stdot_', el => { el.className = siteDotClass(s); });
+    } else renderSiteList();
     showToast('Site GPS recorded (±' + s.gpsAccuracy + ' m)');
   }, err => {
     const msgs = { 1: 'Location permission denied — check Settings > Privacy > Location', 2: 'Location unavailable — try again outdoors', 3: 'Location request timed out — try again' };
@@ -5300,13 +5330,14 @@ function deleteSite(id) {
 }
 
 // ---- Site photos: same resize settings and durable write as entry photos ----
-function addSitePhoto(id) {
+function addSitePhoto(id, fromLibrary) {
   const inputId = 'sitephoto_' + id;
   const old = document.getElementById(inputId);
   if (old) old.remove();
   const input = document.createElement('input');
   input.type = 'file'; input.accept = 'image/*';
-  input.setAttribute('capture', 'environment');
+  // The camera for site photos; the library for a map screenshot or an aerial.
+  if (!fromLibrary) input.setAttribute('capture', 'environment');
   input.id = inputId; input.style.display = 'none';
   input.onchange = function () { handleSitePhoto(this, id); };
   document.body.appendChild(input);
@@ -5555,7 +5586,11 @@ async function buildSiteExport(photosFolder, startSeq, getBytes) {
   const out = { sites: [], nextSeq: startSeq, photoCount: 0, missingLabels: [] };
   for (const s of exportableSites()) {
     const photos = [];
-    for (const slot of sitePhotoSlots(s)) {
+    // Labels come from every photo the site holds, as on the phone, so a missing
+    // photo leaves a gap instead of renumbering the rest.
+    const slots = sitePhotoSlots(s);
+    const labelOf = new Map(sitePhotoLabels(slots.map(slot => ({ slot, info: s.photos[slot] }))).map(l => [l.item.slot, l]));
+    for (const slot of slots) {
       const info = s.photos[slot];
       if (!info || !info.dbKey) continue;
       const pd = await getBytes(info.dbKey, info.fileType || 'image/jpeg');
@@ -5565,7 +5600,8 @@ async function buildSiteExport(photosFolder, startSeq, getBytes) {
       const name = buildPhotoName({ location: siteLabel(s) + (park ? ' — ' + park : ''), timestamp: info.timestamp || s.createdAt }, seq);
       const file = name + (pd.type.includes('png') ? '.png' : '.jpg');
       photosFolder.file(file, pd.bytes);
-      photos.push({ slot, info, seq, file, bytes: pd.bytes, type: pd.type });
+      const l = labelOf.get(slot) || { kind: 'VIEW', label: '' };
+      photos.push({ slot, info, seq, file, bytes: pd.bytes, type: pd.type, kind: l.kind, label: l.label });
       out.photoCount++;
     }
     out.sites.push({ site: s, photos });
@@ -5587,7 +5623,7 @@ function addSiteSheet(wb, siteExport) {
       s.gpsAccuracy != null ? s.gpsAccuracy : '', s.contacts || '',
       [].concat(s.access || []).join('; '), [].concat(s.media || []).join('; '), [].concat(s.resource || []).join('; '),
       s.footprint || '', s.emergency || '', s.stability || '', s.notes || '',
-      sitePhotoLabels(photos).map(l => String(l.item.seq).padStart(3, '0') + '  ' + l.label).join('\n'),
+      photos.map(p => String(p.seq).padStart(3, '0') + '  ' + p.label).join('\n'),
     ]);
     row.eachCell({ includeEmpty: true }, (c, col) => {
       c.font = { name: 'Arial', size: 10 }; c.border = TANK_BORDER;
@@ -5650,7 +5686,7 @@ async function buildSitesDocx(siteExport) {
   for (let si = 0; si < siteExport.sites.length; si++) {
     const { site: s, photos } = siteExport.sites[si];
     for (const it of photos) it.size = await wordImageSize(it.bytes, it.type);
-    const labels = sitePhotoLabels(photos);
+    const labels = photos.map(p => ({ item: p, kind: p.kind, label: p.label }));
     const name = siteLabel(s), park = sitePark(s);
     children.push(new D.Paragraph({ pageBreakBefore: si > 0, spacing: { before: 0, after: 160 },
       children: [new D.TextRun({ text: name, font: F, size: 28, bold: true, underline: {} })] }));
