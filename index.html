@@ -2572,6 +2572,14 @@ function handlePhoto(input, slotId) {
       tc.getContext('2d').drawImage(canvas, 0, 0, tc.width, tc.height);
       const thumbnail = tc.toDataURL('image/jpeg', 0.4);
 
+      if (currentEntryId !== entryAtCapture) {
+        // Save & New or Cancel Edit happened while this photo was being decoded:
+        // it must not be stamped onto the entry that is on the form now, and you
+        // need to know it did not make it.
+        try { deletePhotoFromDB(dbKey); } catch (e) {}
+        showToast('⚠ Photo discarded — the entry moved on before it finished. Take it again.', true);
+        return;
+      }
       currentPhotos[slotId] = { timestamp: ts, thumbnail, fileType: 'image/jpeg', dbKey };
 
       const container = document.getElementById('photo_' + slotId);
@@ -2584,6 +2592,7 @@ function handlePhoto(input, slotId) {
       if (currentEntryId !== entryAtCapture) {
         // The form moved to another entry while this was being written.
         try { deletePhotoFromDB(dbKey); } catch (e) {}
+        showToast('⚠ Photo discarded — the entry moved on before it finished. Take it again.', true);
         return;
       }
       const sizeKB = Math.round(dataUrl.length * 0.75 / 1024);
@@ -4763,7 +4772,7 @@ loadPriorAudit();
 // every release. The bottom bar shows it, and while a newer service worker
 // is still installing (the page is fresh, the cache is last release's) it
 // says so and settles once the new worker takes control.
-const APP_VERSION = '3.4';
+const APP_VERSION = '3.5';
 let _versionTries = 0;
 // '1.10' sorts after '1.9': compare each dotted part as a number.
 function versionCompare(a, b) {
@@ -5172,12 +5181,20 @@ function handleTankPhoto(input, rowId) {
       tc.width = Math.round(w * ts); tc.height = Math.round(h * ts);
       tc.getContext('2d').drawImage(canvas, 0, 0, tc.width, tc.height);
       const res = await storePhotoBytes(dbKey, dataUrl);
-      r.photos = r.photos || {};
-      r.photos[slot] = {
+      // The row can be removed, or the whole list replaced, while the photo is
+      // being resized and written.
+      const row = tankRowById(rowId);
+      if (!row) {
+        try { deletePhotoFromDB(dbKey); } catch (e) {}
+        showToast('Photo discarded — that tank is no longer in the list', true);
+        return;
+      }
+      row.photos = row.photos || {};
+      row.photos[slot] = {
         timestamp: new Date().toISOString(), thumbnail: tc.toDataURL('image/jpeg', 0.4),
         fileType: 'image/jpeg', dbKey, unsaved: !res.ok,
       };
-      openTankId = r.id;
+      openTankId = row.id;
       saveTankData();
       renderTankList();
       updateIntegrityBadge();
