@@ -29,8 +29,8 @@ jobs:
           action: "upload"
           # App content is at the repo root — no build step needed
           app_location: "/"
-          # No API backend
-          api_location: ""
+          # Managed function for the live backup endpoint
+          api_location: "api"
           # No build output folder — the files at app_location ARE the output
           output_location: ""
           skip_app_build: true

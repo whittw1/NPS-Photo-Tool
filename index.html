@@ -740,6 +740,7 @@ if ('serviceWorker' in navigator) {
       <h1 style="font-size:16px;font-weight:700;letter-spacing:0.3px;">NPS Photo Collector</h1>
     </div>
     <span class="header-badge" id="headerBadge" style="display:none;"></span>
+    <span id="backupBadge" onclick="showSettings()" style="display:none;font-size:11px;font-weight:600;margin-left:6px;padding:2px 8px;border-radius:10px;cursor:pointer;" title="Live backup to SharePoint. Tap for settings."></span>
     <span id="integrityBadge" onclick="runIntegrityCheck(true)" style="display:none;font-size:11px;font-weight:600;margin-left:8px;padding:2px 8px;border-radius:10px;cursor:pointer;" title="Photo storage health. Tap to re-check and list any missing photos."></span>
   </div>
   <div class="header-actions">
@@ -1098,6 +1099,18 @@ if ('serviceWorker' in navigator) {
             style="width:100%;padding:8px;background:var(--input-bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;">
         </div>
       </div>
+    </div>
+    <div style="margin:16px 0 14px;padding-top:12px;border-top:1px solid var(--border);">
+      <label style="display:block;font-size:13px;color:var(--text-label);margin-bottom:6px;">&#9729; Live backup to SharePoint <span style="color:var(--warning);font-weight:600;">(prototype)</span></label>
+      <div class="tk-sub" style="margin-bottom:8px;">Sends each saved entry and each new photo to the audit folder while the app is open and online. The export is unchanged.</div>
+      <input type="text" id="backupUrl" class="tk-field" placeholder="Endpoint, e.g. /api/upload">
+      <input type="password" id="backupKey" class="tk-field" placeholder="Upload key">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <label style="font-size:13px;display:flex;align-items:center;gap:6px;"><input type="checkbox" id="backupOn"> Turn it on</label>
+        <button class="btn btn-outline btn-sm" onclick="testBackupEndpoint()">Test</button>
+        <button class="btn btn-outline btn-sm" onclick="backupEverythingNow()">Send everything now</button>
+      </div>
+      <div id="backupStatus" class="tk-sub" style="margin-top:6px;"></div>
     </div>
     <div style="margin-bottom:14px;">
       <label style="display:block;font-size:13px;color:var(--text-label);margin-bottom:6px;">JPEG Quality: <strong id="qualityLabel">80%</strong></label>
@@ -2598,6 +2611,7 @@ function handlePhoto(input, slotId) {
       const sizeKB = Math.round(dataUrl.length * 0.75 / 1024);
       if (_res.ok) {
         currentPhotos[slotId].unsaved = false;
+        queueBackup('photo', dbKey);
         container.innerHTML = `<img src="${thumbnail}"><span class="retake-badge">View</span><span class="saved-badge">\u2713</span>`;
         showToast(`${PHOTO_SLOT_NAMES[slotId] || 'Photo'} saved (~${sizeKB} KB)`);
       } else {
@@ -2631,6 +2645,7 @@ function getPhotoSettings() {
 }
 
 function showSettings() {
+  if (typeof paintBackupSettings === 'function') setTimeout(paintBackupSettings, 0);
   const s = getPhotoSettings();
   document.getElementById('photoPreset').value   = s.preset || '1920x1080';
   document.getElementById('photoMaxW').value     = s.maxWidth;
@@ -2673,6 +2688,7 @@ function savePhotoSettings() {
     quality:   (parseInt(document.getElementById('photoQuality').value) || 80) / 100,
     preset: p
   };
+  if (typeof readBackupSettings === 'function') readBackupSettings();
   let stored = true;
   try { localStorage.setItem(LS_PHOTOS, JSON.stringify(s)); } catch (e) { stored = false; }
   document.getElementById('settingsOverlay').style.display = 'none';
@@ -3797,7 +3813,7 @@ function autoSaveCurrent() {
 // Returns false when the entries could not be written: the caller must not
 // claim success, because nothing would survive a reload.
 function saveAll() {
-  try { localStorage.setItem(LS_SAVED, JSON.stringify(savedEntries)); checkStorage(); return true; }
+  try { localStorage.setItem(LS_SAVED, JSON.stringify(savedEntries)); checkStorage(); if (typeof queueBackup === 'function') queueBackup('state'); return true; }
   catch(e) {
     showToast('\u26a0 NOT saved \u2014 device storage is full. Export, delete some entries, then save again.', true);
     return false;
@@ -4772,7 +4788,7 @@ loadPriorAudit();
 // every release. The bottom bar shows it, and while a newer service worker
 // is still installing (the page is fresh, the cache is last release's) it
 // says so and settles once the new worker takes control.
-const APP_VERSION = '3.5';
+const APP_VERSION = '3.6-prototype';
 let _versionTries = 0;
 // '1.10' sorts after '1.9': compare each dotted part as a number.
 function versionCompare(a, b) {
@@ -4865,7 +4881,7 @@ function cleanPeople(list) {
 }
 function loadTankData() { try { tankData = cleanTankData(JSON.parse(localStorage.getItem(LS_TANKS) || 'null')); } catch (e) { tankData = null; } }
 function saveTankData() {
-  try { localStorage.setItem(LS_TANKS, JSON.stringify(tankData)); }
+  try { localStorage.setItem(LS_TANKS, JSON.stringify(tankData)); if (typeof queueBackup === 'function') queueBackup('state'); }
   catch (e) { showToast('Storage issue — export soon', true); }
   updateExportExtrasNote();
 }
@@ -5194,6 +5210,7 @@ function handleTankPhoto(input, rowId) {
         timestamp: new Date().toISOString(), thumbnail: tc.toDataURL('image/jpeg', 0.4),
         fileType: 'image/jpeg', dbKey, unsaved: !res.ok,
       };
+      if (res.ok) queueBackup('photo', dbKey);
       openTankId = row.id;
       saveTankData();
       renderTankList();
@@ -5351,7 +5368,7 @@ function loadSites() {
 }
 function saveSites() {
   clearTimeout(_siteSaveTimer);
-  try { localStorage.setItem(LS_LOC_SITES, JSON.stringify(locSites)); }
+  try { localStorage.setItem(LS_LOC_SITES, JSON.stringify(locSites)); queueBackup('state'); }
   catch (e) { showToast('Storage issue — export soon', true); }
   updateExportExtrasNote();
 }
@@ -5684,6 +5701,7 @@ function handleSitePhoto(input, id, fromLibrary) {
         fileType: 'image/jpeg', dbKey, unsaved: !res.ok, caption: '',
         facing: hd ? headingPoint(hd.deg) : '', heading: hd ? Math.round(hd.deg) : null, facingAuto: !!hd,
       };
+      if (res.ok) queueBackup('photo', dbKey);
       openSiteId = site.id;
       saveSites();
       renderSiteList();
@@ -5728,6 +5746,175 @@ function removeSitePhoto(id, slot) {
   renderSiteList();
   updateIntegrityBadge();
 }
+
+
+// ============================================================================
+// LIVE BACKUP TO SHAREPOINT (NPS only, prototype)
+// Everything the phone saves is queued for a small endpoint next to the app
+// (api/upload), which holds the Microsoft credentials and writes the file into
+// the audit's SharePoint folder. iOS cannot upload while the app is closed, so
+// the queue drains whenever the app is open and online, and survives reloads.
+// It never blocks saving, capture or export: a failure just leaves the item
+// queued and the badge says how many are waiting.
+// ============================================================================
+const LS_BACKUP_CFG = 'nps_backup_cfg', LS_BACKUP_QUEUE = 'nps_backup_queue', LS_BACKUP_DONE = 'nps_backup_done', LS_DEVICE_ID = 'nps_device_id';
+let backupCfg = { url: '/api/upload', key: '', on: false };
+let backupQueue = [];          // [{ k: 'state' } | { k: 'photo', key: dbKey }]
+let backupDone = [];           // photo keys already up
+let _backupBusy = false, _backupPauseUntil = 0, _backupLastError = '', _backupStateTimer = null;
+
+function deviceId() {
+  let id = '';
+  try { id = localStorage.getItem(LS_DEVICE_ID) || ''; } catch (e) {}
+  if (!id) { id = 'ipad-' + Math.random().toString(36).slice(2, 7); try { localStorage.setItem(LS_DEVICE_ID, id); } catch (e) {} }
+  return id;
+}
+function loadBackupCfg() {
+  try { backupCfg = Object.assign(backupCfg, JSON.parse(localStorage.getItem(LS_BACKUP_CFG) || '{}') || {}); } catch (e) {}
+  try { backupQueue = JSON.parse(localStorage.getItem(LS_BACKUP_QUEUE) || '[]') || []; } catch (e) { backupQueue = []; }
+  try { backupDone = JSON.parse(localStorage.getItem(LS_BACKUP_DONE) || '[]') || []; } catch (e) { backupDone = []; }
+  if (!Array.isArray(backupQueue)) backupQueue = [];
+  if (!Array.isArray(backupDone)) backupDone = [];
+  paintBackupBadge();
+}
+function saveBackupQueue() {
+  try { localStorage.setItem(LS_BACKUP_QUEUE, JSON.stringify(backupQueue.slice(0, 500))); } catch (e) {}
+  try { localStorage.setItem(LS_BACKUP_DONE, JSON.stringify(backupDone.slice(-2000))); } catch (e) {}
+  paintBackupBadge();
+}
+function paintBackupBadge() {
+  const b = document.getElementById('backupBadge');
+  if (!b) return;
+  if (!backupCfg.on) { b.style.display = 'none'; return; }
+  b.style.display = 'inline-block';
+  const waiting = backupQueue.length;
+  const bad = _backupLastError && waiting;
+  b.style.background = bad ? 'rgba(224,164,74,0.9)' : waiting ? 'rgba(90,100,112,0.9)' : 'rgba(74,184,106,0.9)';
+  b.style.color = '#fff';
+  b.textContent = waiting ? '☁ ' + waiting + ' waiting' : '☁ backed up';
+  b.title = bad ? 'Last try: ' + _backupLastError : 'Live backup to SharePoint. Tap for settings.';
+}
+// Queue helpers. The state file is one item however often it changes.
+function queueBackup(kind, key) {
+  if (!backupCfg.on) return;
+  if (kind === 'state') {
+    clearTimeout(_backupStateTimer);
+    _backupStateTimer = setTimeout(() => {
+      if (!backupQueue.some(i => i.k === 'state')) backupQueue.push({ k: 'state' });
+      saveBackupQueue(); drainBackupQueue();
+    }, 2500);
+    return;
+  }
+  if (kind === 'photo' && key && backupDone.indexOf(key) < 0 && !backupQueue.some(i => i.k === 'photo' && i.key === key)) {
+    backupQueue.push({ k: 'photo', key });
+    saveBackupQueue(); drainBackupQueue();
+  }
+}
+function backupStateFile() {
+  const clean = savedEntries.map(({ photos, ...rest }) => rest);
+  return {
+    path: 'state/' + deviceId() + '_state.json',
+    contentType: 'application/json',
+    text: JSON.stringify({ version: 1, device: deviceId(), app: APP_VERSION, savedAt: new Date().toISOString(),
+      park: exportParkCode(), entries: clean, sites: locSites, tanks: tankData, people: peopleList, audit: auditInfo }, null, 1),
+  };
+}
+async function backupPhotoFile(key) {
+  const pd = await loadPhotoBytes(key, 'image/jpeg');
+  if (!pd) return null;                        // bytes gone: nothing to send
+  const d = new Date();
+  const day = d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+  return { path: 'photos/' + day + '/' + String(key).replace(/[^\w.-]/g, '_') + (pd.type.includes('png') ? '.png' : '.jpg'),
+    contentType: pd.type || 'image/jpeg', base64: uint8ToBase64(pd.bytes) };
+}
+async function sendToBackup(file) {
+  const r = await fetch(backupCfg.url, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-upload-key': backupCfg.key },
+    body: JSON.stringify({ path: file.path, contentType: file.contentType,
+      contentBase64: file.base64 !== undefined ? file.base64 : btoa(unescape(encodeURIComponent(file.text))) }),
+  });
+  let j = {}; try { j = await r.json(); } catch (e) {}
+  if (!r.ok || !j.ok) { const err = new Error(j.error || ('upload failed (' + r.status + ')')); err.status = r.status; throw err; }
+  return j;
+}
+async function drainBackupQueue() {
+  if (_backupBusy || !backupCfg.on || !backupCfg.url || !backupCfg.key) return;
+  if (!navigator.onLine || Date.now() < _backupPauseUntil || !backupQueue.length) { paintBackupBadge(); return; }
+  _backupBusy = true;
+  try {
+    while (backupQueue.length && navigator.onLine) {
+      const item = backupQueue[0];
+      let file = null;
+      try {
+        file = item.k === 'state' ? backupStateFile() : await backupPhotoFile(item.key);
+      } catch (e) { file = null; }
+      if (!file) { backupQueue.shift(); saveBackupQueue(); continue; }   // nothing to send for this item
+      try {
+        await sendToBackup(file);
+        backupQueue.shift();
+        if (item.k === 'photo') backupDone.push(item.key);
+        _backupLastError = '';
+        saveBackupQueue();
+      } catch (e) {
+        _backupLastError = e.message;
+        // A rejected key is a settings problem, not a network hiccup: stop trying.
+        _backupPauseUntil = Date.now() + (e.status === 401 || e.status === 503 ? 10 * 60000 : 60000);
+        break;
+      }
+    }
+  } finally {
+    _backupBusy = false;
+    paintBackupBadge();
+  }
+}
+// Settings dialog
+function paintBackupSettings() {
+  const u = document.getElementById('backupUrl'), k = document.getElementById('backupKey'), o = document.getElementById('backupOn');
+  if (!u) return;
+  u.value = backupCfg.url || '/api/upload'; k.value = backupCfg.key || ''; o.checked = !!backupCfg.on;
+  const s = document.getElementById('backupStatus');
+  if (s) s.textContent = !backupCfg.on ? 'Off. Nothing leaves this device except the exports you make.'
+    : backupQueue.length ? backupQueue.length + ' file' + (backupQueue.length === 1 ? '' : 's') + ' waiting' + (_backupLastError ? ' — ' + _backupLastError : '')
+    : 'Up to date.';
+}
+function readBackupSettings() {
+  backupCfg.url = (document.getElementById('backupUrl').value || '').trim() || '/api/upload';
+  backupCfg.key = (document.getElementById('backupKey').value || '').trim();
+  backupCfg.on = !!document.getElementById('backupOn').checked && !!backupCfg.key;
+  try { localStorage.setItem(LS_BACKUP_CFG, JSON.stringify(backupCfg)); } catch (e) {}
+  _backupPauseUntil = 0; _backupLastError = '';
+  paintBackupBadge();
+}
+async function testBackupEndpoint() {
+  readBackupSettings();
+  const s = document.getElementById('backupStatus');
+  s.textContent = 'Checking…';
+  try {
+    const r = await fetch(backupCfg.url, { method: 'GET' });
+    const j = await r.json();
+    if (!j.configured) { s.textContent = 'Endpoint is there but not configured yet (no Microsoft credentials).'; return; }
+    const probe = { path: 'state/' + deviceId() + '_test.txt', contentType: 'text/plain', text: 'live backup test ' + new Date().toISOString() };
+    await sendToBackup(probe);
+    s.textContent = 'Working. Writing to ' + (j.folder || 'the library root') + '.';
+  } catch (e) {
+    s.textContent = 'No: ' + e.message;
+  }
+}
+// Send the lot: the state file plus every photo not already up.
+function backupEverythingNow() {
+  readBackupSettings();
+  if (!backupCfg.on) { document.getElementById('backupStatus').textContent = 'Turn it on first.'; return; }
+  const keys = Array.from(new Set(allReferencedPhotoKeys()));
+  keys.forEach(k => { if (backupDone.indexOf(k) < 0 && !backupQueue.some(i => i.k === 'photo' && i.key === k)) backupQueue.push({ k: 'photo', key: k }); });
+  if (!backupQueue.some(i => i.k === 'state')) backupQueue.push({ k: 'state' });
+  _backupPauseUntil = 0;
+  saveBackupQueue();
+  paintBackupSettings();
+  drainBackupQueue();
+}
+loadBackupCfg();
+window.addEventListener('online', () => { _backupPauseUntil = 0; drainBackupQueue(); });
+setInterval(() => drainBackupQueue(), 30000);
 
 // ---- Personnel ----
 function showPeople() {

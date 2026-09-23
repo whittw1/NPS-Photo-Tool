@@ -1,0 +1,7 @@
+{
+  "name": "nps-collector-api",
+  "version": "1.0.0",
+  "description": "Upload endpoint for the NPS Audit Photo Collector: writes field data to SharePoint via Microsoft Graph.",
+  "private": true,
+  "engines": { "node": ">=18" }
+}

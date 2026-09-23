@@ -35,7 +35,11 @@
   ],
   "navigationFallback": {
     "rewrite": "/index.html",
-    "exclude": ["/sw.js", "/*.json", "/*.{png,jpg,ico,svg,webp}"]
+    "exclude": [
+      "/sw.js",
+      "/*.json",
+      "/*.{png,jpg,ico,svg,webp}"
+    ]
   },
   "mimeTypes": {
     ".json": "application/json",
@@ -45,5 +49,8 @@
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "strict-origin-when-cross-origin"
+  },
+  "platform": {
+    "apiRuntime": "node:20"
   }
 }
