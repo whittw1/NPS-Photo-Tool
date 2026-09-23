@@ -4763,7 +4763,7 @@ loadPriorAudit();
 // every release. The bottom bar shows it, and while a newer service worker
 // is still installing (the page is fresh, the cache is last release's) it
 // says so and settles once the new worker takes control.
-const APP_VERSION = '3.3';
+const APP_VERSION = '3.4';
 let _versionTries = 0;
 // '1.10' sorts after '1.9': compare each dotted part as a number.
 function versionCompare(a, b) {
@@ -5652,20 +5652,27 @@ function handleSitePhoto(input, id, fromLibrary) {
       tc.width = Math.round(w * ts); tc.height = Math.round(h * ts);
       tc.getContext('2d').drawImage(canvas, 0, 0, tc.width, tc.height);
       const res = await storePhotoBytes(dbKey, dataUrl);
-      s.photos = s.photos || {};
+      // The site can be removed while the photo is being resized and written.
+      const site = siteById(id);
+      if (!site) {
+        try { deletePhotoFromDB(dbKey); } catch (e) {}
+        showToast('Photo discarded — that site was removed', true);
+        return;
+      }
+      site.photos = site.photos || {};
       // A camera photo taken with the compass on starts with the way the iPad faced.
       const hd = !fromLibrary && compassOn && compassHeading && Date.now() - compassHeading.at < 120000 ? compassHeading : null;
-      s.photos[slot] = {
+      site.photos[slot] = {
         timestamp: new Date().toISOString(), thumbnail: tc.toDataURL('image/jpeg', 0.5),
         fileType: 'image/jpeg', dbKey, unsaved: !res.ok, caption: '',
         facing: hd ? headingPoint(hd.deg) : '', heading: hd ? Math.round(hd.deg) : null, facingAuto: !!hd,
       };
-      openSiteId = s.id;
+      openSiteId = site.id;
       saveSites();
       renderSiteList();
       updateIntegrityBadge();
       // A site photographed without a position yet: try once more now.
-      if (s.latitude == null) captureSiteGPS(s.id, true);
+      if (site.latitude == null) captureSiteGPS(site.id, true);
       showToast(!res.ok ? '⚠ Photo did NOT save — storage problem' : hd ? 'Site photo saved — facing ' + SITE_FACING[headingPoint(hd.deg)] + ' by the compass; tap to change' : 'Site photo saved — add what it shows and the direction', !res.ok);
     };
     img.src = e.target.result;
