@@ -1803,7 +1803,14 @@ function saveEntryAndNew() {
   };
 
   savedEntries.push(entry);
-  saveAll();
+  if (!saveAll()) {
+    // Nothing was written: take it back out and leave the form as it is so the
+    // entry can be saved again once there is room.
+    savedEntries.pop();
+    renderSavedPanel();
+    updateHeaderBadge();
+    return;
+  }
   clearEntryForm(false);
   renderSavedPanel();
   updateHeaderBadge();
@@ -1957,7 +1964,7 @@ function deleteEntry(index) {
     const wasEditing = editingIndex !== null && editingIndex === index;
     savedEntries.splice(index, 1);
     // Keep the edit pointer on the same entry, or leave edit mode if it went.
-    if (wasEditing) { editingIndex = null; if (typeof setEditModeUI === 'function') setEditModeUI(false); }
+    if (wasEditing) { editingIndex = null; if (typeof setEditModeUI === 'function') setEditModeUI(false); discardEditPhotos(); }
     else if (editingIndex !== null && index < editingIndex) editingIndex--;
     saveAll();
     renderSavedPanel();
@@ -1972,6 +1979,7 @@ function editEntry(index) {
 
   if (editingIndex !== null) {
     if (!confirm('You are already editing an entry. Discard changes?')) return;
+    discardEditPhotos();
   } else {
     const loc = document.getElementById('siteName').value.trim();
     const det = document.getElementById('entryDetails').value.trim();
@@ -2002,6 +2010,9 @@ function editEntry(index) {
   updateGPSDisplay();
 
   currentEntryId = entry.id || genId();
+  // Remember what this entry had, so a replaced photo can be cleaned up on save.
+  _editPhotoKeys = [];
+  _editOriginalPhotos = JSON.parse(JSON.stringify(entry.photos || {}));
 
   // Restore photos into base slots
   currentPhotos = {};
@@ -2109,7 +2120,17 @@ function saveEdit() {
   if (!replaced) showToast('The entry you were editing was no longer in the list \u2014 saved as a new entry', true);
 
   const updatedPark = savedEntries[target].park;
-  saveAll();
+  if (!saveAll()) {
+    // Put the entry back as it was and stay in edit mode.
+    if (replaced) savedEntries[target] = replaced; else savedEntries.splice(target, 1);
+    renderSavedPanel();
+    return;
+  }
+  // The photos this edit replaced are no longer referenced by anything.
+  const stillUsed = new Set();
+  savedEntries.forEach(en => Object.values(en.photos || {}).forEach(ph => { if (ph && ph.dbKey) stillUsed.add(ph.dbKey); }));
+  Object.values(_editOriginalPhotos || {}).forEach(ph => { if (ph && ph.dbKey && !stillUsed.has(ph.dbKey)) { try { deletePhotoFromDB(ph.dbKey); } catch (e) {} } });
+  _editPhotoKeys = []; _editOriginalPhotos = {};
   editingIndex = null;
   setEditModeUI(false);
   clearEntryForm(false);
@@ -2121,8 +2142,9 @@ function saveEdit() {
 function cancelEdit() {
   editingIndex = null;
   setEditModeUI(false);
+  discardEditPhotos();
   clearEntryForm(false);
-  showToast('Edit cancelled');
+  showToast('Edit cancelled — the entry keeps the photos it had');
 }
 
 function setEditModeUI(editing, locationName) {
@@ -2488,12 +2510,30 @@ function updateIntegrityBadge() {
   _integrityTimer = setTimeout(() => { _integrityTimer = null; runIntegrityCheck(false); }, 500);
 }
 
+// Photos written during an edit, and the photos the entry had when it opened.
+let _editPhotoKeys = [], _editOriginalPhotos = {};
+// Leaving an edit without saving throws away whatever was taken during it.
+function discardEditPhotos() {
+  const keys = _editPhotoKeys.splice(0);
+  _editOriginalPhotos = {};
+  if (!keys.length) return;
+  const inUse = new Set();
+  savedEntries.forEach(en => Object.values(en.photos || {}).forEach(p => { if (p && p.dbKey) inUse.add(p.dbKey); }));
+  keys.forEach(k => { if (!inUse.has(k)) { try { deletePhotoFromDB(k); } catch (e) {} } });
+}
+
 function handlePhoto(input, slotId) {
   const file = input.files[0];
   if (!file) return;
 
   const ts       = new Date().toISOString();
-  const dbKey    = photoDBKey(currentEntryId, slotId);
+  // While a saved entry is open for editing, a retake goes to a fresh key: the
+  // entry keeps the photo it points at until the edit is saved, and Cancel
+  // leaves it untouched.
+  const dbKey    = editingIndex !== null
+    ? photoDBKey(currentEntryId, slotId + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 4))
+    : photoDBKey(currentEntryId, slotId);
+  if (editingIndex !== null) _editPhotoKeys.push(dbKey);
   const settings = getPhotoSettings();
 
   const reader = new FileReader();
@@ -3072,20 +3112,23 @@ function handleBackupFile(event) {
       if (entries.length === 0 && !extras) { showToast('No valid entries found', true); return; }
 
       // A backup with no entries leaves the entries on this device exactly as they are.
-      let action = entries.length === 0 ? true : confirm(
-        `Found ${entries.length} entries in backup.\n\n` +
-        `OK = MERGE with existing ${savedEntries.length} entries\n` +
-        `Cancel = REPLACE all current entries`
-      );
+      // Plain questions, and Cancel is never the destructive answer.
+      let action = true;
+      if (entries.length) {
+        if (!confirm(`This backup holds ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}.\n\n` +
+          `OK = continue\nCancel = do nothing`)) { showToast('Import cancelled'); return; }
+        action = confirm(`Add them to the ${savedEntries.length} entr${savedEntries.length === 1 ? 'y' : 'ies'} already on this device?\n\n` +
+          `OK = ADD, keeping what is here\nCancel = REPLACE, deleting what is here`);
+      }
 
       // Replacing wipes the entries on this device, so it asks again.
-      if (!action && entries.length && !confirm('Second check.\n\nREPLACE deletes the ' + savedEntries.length + ' entries on this device and keeps only the ' + entries.length + ' from the backup.\n\nOK = replace, Cancel = merge instead')) action = true;
+      if (!action && entries.length && !confirm('Second check.\n\nREPLACE deletes the ' + savedEntries.length + ' entr' + (savedEntries.length === 1 ? 'y' : 'ies') + ' on this device and keeps only the ' + entries.length + ' from the backup.\n\nOK = replace them\nCancel = add instead, keeping everything')) action = true;
       if (entries.length === 0) {
         // nothing to merge
       } else if (!action) {
         savedEntries = entries.map(normaliseEntry);
         // The list was rebuilt: whatever was open for editing is no longer in it.
-        if (editingIndex !== null) { editingIndex = null; if (typeof setEditModeUI === 'function') setEditModeUI(false); }
+        if (editingIndex !== null) { editingIndex = null; if (typeof setEditModeUI === 'function') setEditModeUI(false); discardEditPhotos(); }
       } else {
         const existing = new Set(savedEntries.map(e => e.location + '|' + e.timestamp));
         let added = 0;
@@ -3501,23 +3544,25 @@ function _renderItem(idx, terms) {
   </div>`;
 }
 
-let _citationTries = 0;
+let _citationRetryAt = 0;
 function _filterCitations() {
   const query = document.getElementById('tgSearch').value.trim().toLowerCase();
   const resultsDiv = document.getElementById('tgResults');
 
   if (!tgLoaded) {
-    // Offline on a fresh install the download cannot succeed; retrying for ever
-    // would pin the processor, so it gives up after three tries and says so.
-    if (_citationTries >= 3) {
-      resultsDiv.innerHTML = _renderChips() + '<div class="tg-no-results">The question list has not downloaded yet.<br>Go online once and reopen the app.</div>';
+    // Offline on a fresh install the download cannot succeed. One attempt at a
+    // time, a few seconds apart, and never a retry loop: the next keystroke
+    // tries again, so the search comes back by itself once there is signal.
+    const now = Date.now();
+    if (now < _citationRetryAt) {
+      resultsDiv.innerHTML = _renderChips() + '<div class="tg-no-results">The question list has not downloaded yet.<br>Go online for a moment and type again.</div>';
       resultsDiv.style.display = 'block';
       return;
     }
-    _citationTries++;
+    _citationRetryAt = now + 3000;
     resultsDiv.innerHTML = _renderChips() + '<div class="tg-no-results">Loading citations...</div>';
     resultsDiv.style.display = 'block';
-    loadCitations().then(() => { if (tgLoaded) _citationTries = 0; _filterCitations(); });
+    loadCitations().then(() => { if (tgLoaded) { _citationRetryAt = 0; _filterCitations(); } });
     return;
   }
 
@@ -3713,9 +3758,14 @@ function autoSaveCurrent() {
   } catch(e) { showToast('Storage issue \u2014 export soon', true); }
 }
 
+// Returns false when the entries could not be written: the caller must not
+// claim success, because nothing would survive a reload.
 function saveAll() {
-  try { localStorage.setItem(LS_SAVED, JSON.stringify(savedEntries)); checkStorage(); }
-  catch(e) { showToast('Storage error \u2014 export soon!', true); }
+  try { localStorage.setItem(LS_SAVED, JSON.stringify(savedEntries)); checkStorage(); return true; }
+  catch(e) {
+    showToast('\u26a0 NOT saved \u2014 device storage is full. Export, delete some entries, then save again.', true);
+    return false;
+  }
 }
 
 function loadAll() {
@@ -3748,7 +3798,10 @@ function loadAll() {
     // back in edit mode, so the form's copy cannot become a second entry
     // sharing the saved one's photos.
     const editIdx = savedEntries.findIndex(en => en.id === currentEntryId);
-    if (editIdx >= 0) { editingIndex = editIdx; setEditModeUI(true, savedEntries[editIdx].location || 'entry'); }
+    if (editIdx >= 0) {
+      editingIndex = editIdx; setEditModeUI(true, savedEntries[editIdx].location || 'entry');
+      _editPhotoKeys = []; _editOriginalPhotos = JSON.parse(JSON.stringify(savedEntries[editIdx].photos || {}));
+    }
     updateGPSDisplay();
 
     // Restore any extra photo slots
@@ -4679,7 +4732,7 @@ loadPriorAudit();
 // every release. The bottom bar shows it, and while a newer service worker
 // is still installing (the page is fresh, the cache is last release's) it
 // says so and settles once the new worker takes control.
-const APP_VERSION = '3.1';
+const APP_VERSION = '3.2';
 let _versionTries = 0;
 // '1.10' sorts after '1.9': compare each dotted part as a number.
 function versionCompare(a, b) {

@@ -1,5 +1,5 @@
 // Keep the number in step with APP_VERSION in index.html (shown in the bottom bar).
-const CACHE_NAME = 'nps-collector-v3.1';
+const CACHE_NAME = 'nps-collector-v3.2';
 const URLS_TO_CACHE = [
   './',
   './index.html',
@@ -36,27 +36,30 @@ self.addEventListener('activate', event => {
 // or hotel wifi portal answers 200 with its own login page, which would
 // otherwise be cached as the app and served offline for ever.
 async function cacheIfGenuine(request, response) {
+  // Both copies are taken now, before any await: once the page starts reading
+  // the response, it can no longer be cloned.
+  let probe, copy;
   try {
     if (!response || !response.ok || response.redirected || response.type === 'opaque') return;
+    probe = response.clone();
+    copy = response.clone();
+  } catch (e) { return; }
+  try {
     const url = new URL(request.url);
     const type = (response.headers && response.headers.get('content-type') || '').toLowerCase();
     if (url.pathname.endsWith('.json')) {
-      if (type && type.indexOf('json') < 0) return;             // a portal answers HTML
-      const len = Number(response.headers && response.headers.get('content-length'));
-      if (len && len > 1500000) {
-        // Only the 4 MB location file takes this path: its first characters
-        // decide, so it is not parsed on every launch.
-        const head = (await readHead(response.clone(), 64)).replace(/^\uFEFF/, '').trim();
-        if (!/^[[{]/.test(head)) return;
-      } else {
-        JSON.parse(await response.clone().text());              // small files are checked in full
-      }
+      // Content-Length is the compressed size and says nothing about the real
+      // file, so every data file is judged by its type and first characters,
+      // which a portal's HTML fails. None of them is parsed on this thread.
+      if (type && type.indexOf('json') < 0) return;
+      const head = (await readHead(probe, 64)).replace(/^\uFEFF/, '').trim();
+      if (!/^[[{]/.test(head)) return;
     } else {
-      const body = await response.clone().text();
+      const body = await probe.text();
       if (!/NPS Photo Collector/.test(body)) return;                 // not our page
     }
     const cache = await caches.open(CACHE_NAME);
-    await cache.put(request, response.clone());
+    await cache.put(request, copy);
   } catch (e) { /* leave the cached copy alone */ }
 }
 
@@ -85,7 +88,11 @@ self.addEventListener('fetch', event => {
       // ETag) so the HTTP cache's max-age can't serve stale HTML/JSON.
       fetch(event.request, { cache: 'no-cache' })
         .then(response => { cacheIfGenuine(event.request, response); return response; })
-        .catch(() => caches.match(event.request).then(c => c || caches.match('./index.html')).then(c => c || Response.error()))
+        // Offline: the cached copy, then the app shell for a page, but never
+        // HTML in place of a data file.
+        .catch(() => caches.match(event.request)
+          .then(c => c || (event.request.mode === 'navigate' ? caches.match('./index.html') : null))
+          .then(c => c || Response.error()))
     );
   } else {
     event.respondWith(
