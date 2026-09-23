@@ -2474,6 +2474,9 @@ async function runIntegrityCheck(verbose) {
     if (!missingKeys.length) { alert('✅ All ' + uniq.length + ' photos are safe in device storage.'); return; }
     const missSet = new Set(missingKeys); const affected = [];
     savedEntries.forEach(e => { const ph = e.photos || {}; if (Object.keys(ph).some(s => ph[s] && missSet.has(ph[s].dbKey))) affected.push(e.location || e.siteName || '(unnamed)'); });
+    // NPS-only: tank and LOC site photos are watched too, so name them as well.
+    if (typeof tankRows === 'function') tankRows().forEach(r => { if (Object.values(r.photos || {}).some(p => p && missSet.has(p.dbKey))) affected.push('Tank: ' + tankLabel(r)); });
+    (locSites || []).forEach(st => { if (Object.values(st.photos || {}).some(p => p && missSet.has(p.dbKey))) affected.push('Site: ' + siteLabel(st)); });
     alert('⚠️ ' + missingKeys.length + ' of ' + uniq.length + ' photos are MISSING from device storage.\n\nAffected entries (' + affected.length + '): ' + (affected.slice(0, 20).join(', ') + (affected.length > 20 ? ', …' : '')) + '\n\nRecover them from an earlier export that still has them.');
   }
 }
@@ -3094,8 +3097,8 @@ function handleBackupFile(event) {
       try { localStorage.setItem(LS_SAVED, JSON.stringify(savedEntries)); } catch(e) {}
       // NPS-only: restore the tank list and personnel only when this device has
       // none, so a backup can never wipe work in progress.
-      if (parsed.tanks && parsed.tanks.rows && !tankRows().length) { tankData = parsed.tanks; saveTankData(); }
-      if (Array.isArray(parsed.people) && !peopleList.length) { peopleList = parsed.people; savePeople(); }
+      if (parsed.tanks && parsed.tanks.rows && !tankRows().length) { tankData = cleanTankData(parsed.tanks); saveTankData(); }
+      if (Array.isArray(parsed.people) && !peopleList.length) { peopleList = cleanPeople(parsed.people); savePeople(); }
       if (parsed.audit && !auditInfoFilled()) { auditInfo = normaliseAuditInfo(parsed.audit); saveAuditInfo(); }
       if (parsed.prior && parsed.prior.findings && !priorFindings().length) { priorAudit = parsed.prior; savePriorAudit(); }
       let sitesRestored = 0;
@@ -4131,6 +4134,14 @@ function entryParkCode(e) {
 function entryLocationName(e) { return String(e.location || e.siteName || '').replace(/ — [A-Z]{4}$/, '').trim(); }
 function entryQuestionCode(e) { const c = (e.teamGuideCitation || '').trim(); return c ? c.split(' — ')[0].trim() : ''; }
 function entryRegCitation(e)  { const c = (e.teamGuideCitation || '').trim(); const i = c.indexOf(' — '); return i >= 0 ? c.slice(i + 3).trim() : ''; }
+// "AQ.69" on its own is a question number, not a citation: 18 of the 810
+// questions carry no regulatory reference, and their code must never land in
+// the citation column or be counted as a citation source.
+const _isQuestionCode = t => /^[A-Za-z]{2,6}\.\d{1,3}$/.test(String(t || '').trim());
+function entryCitationText(e) {
+  const tg = (e.teamGuideCitation || '').trim();
+  return entryRegCitation(e) || (_isQuestionCode(tg) ? '' : tg) || (e.repeatOf && e.repeatOf.citation) || '';
+}
 // The location's own " — CODE" suffix wins over the park dropdown, so editing
 // an ACAD entry after switching the dropdown to the next park keeps it in ACAD.
 function currentParkCode(location, fallback) {
@@ -4153,7 +4164,7 @@ function repeatCitation(r) { return r ? `${r.year}-Finding ${String(r.num).padSt
 function citationSource(e) {
   const p = e.score || '';
   if (p === 'P') return 'BMP-P';
-  const c = entryRegCitation(e) || (e.teamGuideCitation || '') || (e.repeatOf && e.repeatOf.citation) || '';
+  const c = entryCitationText(e);
   if (p === '4' || /\bBMP\b|best management/i.test(c)) return 'BMP';
   if (!c.trim()) return 'No citation';
   if (/\b40 CFR\b/.test(c)) return '40 CFR (EPA)';
@@ -4302,6 +4313,7 @@ function saveAuditInfo() { try { localStorage.setItem(LS_AUDIT, JSON.stringify(a
 function auditInfoFilled() { return !!(auditInfo.team.length || auditInfo.coordinator); }
 function renderTeam() {
   const el = document.getElementById('teamList'); if (!el) return;
+  auditInfo = normaliseAuditInfo(auditInfo);
   el.innerHTML = auditInfo.team.length
     ? auditInfo.team.map((p, i) =>
         '<div class="pp-row"><div style="flex:1;min-width:0;"><div class="pp-name">' + esc(p.name) + '</div>' +
@@ -4536,7 +4548,7 @@ function _styleHeader(row, fill) {
 function wasoRow(e, n, photos) {
   const pri = e.score || '';
   // No question picked on a repeat: the citation is the one the prior finding carried.
-  const reg = entryRegCitation(e) || (e.teamGuideCitation || '') || (e.repeatOf && e.repeatOf.citation) || '';
+  const reg = entryCitationText(e);
   const isBmp = pri === '4', isPos = pri === 'P', isFinding = !isBmp && !isPos;
   const d = e.timestamp ? new Date(e.timestamp) : null;
   const date = (d && !isNaN(d)) ? new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())) : '';
@@ -4647,7 +4659,7 @@ loadPriorAudit();
 // every release. The bottom bar shows it, and while a newer service worker
 // is still installing (the page is fresh, the cache is last release's) it
 // says so and settles once the new worker takes control.
-const APP_VERSION = '2.9';
+const APP_VERSION = '3.0';
 let _versionTries = 0;
 // '1.10' sorts after '1.9': compare each dotted part as a number.
 function versionCompare(a, b) {
@@ -4705,13 +4717,46 @@ let peopleList = [];
 let openTankId = null;
 let _tankSaveTimer = null;
 
-function loadTankData() { try { tankData = JSON.parse(localStorage.getItem(LS_TANKS) || 'null'); } catch (e) { tankData = null; } }
+// Tank rows and people can arrive from a hand-edited backup or damaged storage.
+// Everything is forced to the shape the list and the export expect: ids and photo
+// slots to [A-Za-z0-9_-], thumbnails to real data URLs, all text to strings.
+function cleanTankData(t) {
+  if (!t || typeof t !== 'object' || !Array.isArray(t.rows)) return null;
+  const groups = (Array.isArray(t.groups) ? t.groups : []).filter(g => g && typeof g === 'object')
+    .map(g => ({ title: String(g.title || ''), headers: (Array.isArray(g.headers) ? g.headers : []).map(h => String(h == null ? '' : h)) }));
+  const rows = t.rows.filter(r => r && typeof r === 'object' && !Array.isArray(r)).map(r => {
+    const cols = {}; const src = (r.cols && typeof r.cols === 'object' && !Array.isArray(r.cols)) ? r.cols : {};
+    Object.keys(src).forEach(k => { cols[String(k)] = String(src[k] == null ? '' : src[k]); });
+    const photos = {}; const ps = (r.photos && typeof r.photos === 'object' && !Array.isArray(r.photos)) ? r.photos : {};
+    Object.keys(ps).forEach(k => {
+      const ph = ps[k];
+      if (!ph || typeof ph !== 'object' || !/^[\w-]+$/.test(k)) return;
+      photos[k] = { timestamp: String(ph.timestamp || ''), thumbnail: /^data:image\//.test(String(ph.thumbnail || '')) ? String(ph.thumbnail) : '',
+        fileType: String(ph.fileType || 'image/jpeg'), dbKey: String(ph.dbKey || '').replace(/[^\w-]/g, '_') };
+    });
+    return {
+      id: (typeof r.id === 'string' ? r.id : '').replace(/[^\w-]/g, '_') || ('tk_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6)),
+      group: Number.isFinite(r.group) ? r.group : -1, cols,
+      status: ['ok', 'diff', 'missing'].indexOf(r.status) >= 0 ? r.status : '',
+      note: String(r.note || ''), observed: String(r.observed || ''), photos,
+      added: !!r.added, checkedAt: r.checkedAt ? String(r.checkedAt) : null,
+      promotedAt: r.promotedAt ? String(r.promotedAt) : undefined,
+    };
+  });
+  return rows.length ? { source: String(t.source || 'Imported list'), importedAt: String(t.importedAt || new Date().toISOString()),
+    park: String(t.park || ''), groups, rows } : null;
+}
+function cleanPeople(list) {
+  return (Array.isArray(list) ? list : []).filter(p => p && typeof p === 'object' && !Array.isArray(p))
+    .map(p => ({ name: String(p.name || ''), title: String(p.title || '') }));
+}
+function loadTankData() { try { tankData = cleanTankData(JSON.parse(localStorage.getItem(LS_TANKS) || 'null')); } catch (e) { tankData = null; } }
 function saveTankData() {
   try { localStorage.setItem(LS_TANKS, JSON.stringify(tankData)); }
   catch (e) { showToast('Storage issue — export soon', true); }
   updateExportExtrasNote();
 }
-function loadPeople() { try { peopleList = JSON.parse(localStorage.getItem(LS_PEOPLE) || '[]') || []; } catch (e) { peopleList = []; } }
+function loadPeople() { try { peopleList = cleanPeople(JSON.parse(localStorage.getItem(LS_PEOPLE) || '[]')); } catch (e) { peopleList = []; } }
 function savePeople() {
   try { localStorage.setItem(LS_PEOPLE, JSON.stringify(peopleList)); } catch (e) {}
   updateExportExtrasNote();
@@ -4894,7 +4939,7 @@ function tankRowHtml(r) {
       '<input type="text" class="tk-field" placeholder="What it actually is — capacity, contents, containment" value="' + esc(r.observed || '').replace(/"/g, '&quot;') + '" oninput="setTankText(\'' + r.id + '\',\'observed\',this.value)">' +
       '<textarea class="tk-field" rows="2" placeholder="Notes" oninput="setTankText(\'' + r.id + '\',\'note\',this.value)">' + esc(r.note || '') + '</textarea>' +
       '<div class="tk-photos">' + photos.map(s =>
-        '<span class="tk-thumb"><img src="' + (r.photos[s].thumbnail || '') + '">' +
+        '<span class="tk-thumb"><img src="' + _attr(r.photos[s].thumbnail || '') + '">' +
         '<button onclick="removeTankPhoto(\'' + r.id + '\',\'' + s + '\')" title="Remove photo">✕</button></span>').join('') +
         '<button class="btn btn-outline btn-sm" onclick="addTankPhoto(\'' + r.id + '\')">&#128247; Photo</button></div>' +
       '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
@@ -5102,7 +5147,7 @@ async function promoteTank(rowId) {
     const el = document.getElementById('photo_' + slotId);
     if (el) {
       el.classList.add('has-photo');
-      el.innerHTML = '<img src="' + (p.thumbnail || '') + '"><span class="retake-badge">View</span><span class="saved-badge">✓</span>';
+      el.innerHTML = '<img src="' + _attr(p.thumbnail || '') + '"><span class="retake-badge">View</span><span class="saved-badge">✓</span>';
     }
     copied++;
   }
@@ -5560,6 +5605,7 @@ function renderPeople() {
   renderTeam();
   const el = document.getElementById('peopleList');
   if (!el) return;
+  peopleList = cleanPeople(peopleList);
   el.innerHTML = peopleList.length
     ? peopleList.map((p, i) =>
         '<div class="pp-row"><div style="flex:1;min-width:0;">' +
