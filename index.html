@@ -1403,7 +1403,9 @@ function onRegionChange() {
 function onForestChange(silent) {
   const sel = document.getElementById('forestSelect');
   selectedForest = sel.value;
-  localStorage.setItem(LS_FOREST, selectedForest);
+  // A full or blocked store must not stop the locations from loading.
+  try { localStorage.setItem(LS_FOREST, selectedForest); }
+  catch (e) { showToast('Storage is full — the park choice will not be remembered. Export and delete some entries.', true); }
 
   const hint = document.getElementById('forestHint');
   if (selectedForest && forestData[selectedForest]) {
@@ -2604,9 +2606,10 @@ function savePhotoSettings() {
     quality:   (parseInt(document.getElementById('photoQuality').value) || 80) / 100,
     preset: p
   };
-  localStorage.setItem(LS_PHOTOS, JSON.stringify(s));
+  let stored = true;
+  try { localStorage.setItem(LS_PHOTOS, JSON.stringify(s)); } catch (e) { stored = false; }
   document.getElementById('settingsOverlay').style.display = 'none';
-  showToast('Photo settings saved');
+  showToast(stored ? 'Photo settings saved' : 'Settings apply to this session — storage is full', !stored);
 }
 
 function resetPhotoSettings() {
@@ -2933,7 +2936,7 @@ async function runExport() {
       isNote(e) ? 'Note' : (e.score || ''),
       e.descCode || '',
       e.repeatOf ? repeatCitation(e.repeatOf) : '',
-      e.details || '',
+      _sheetText(e.details),
       e.timestamp ? new Date(e.timestamp).toLocaleString() : '',
       ...photoVals
     ]);
@@ -3498,14 +3501,23 @@ function _renderItem(idx, terms) {
   </div>`;
 }
 
+let _citationTries = 0;
 function _filterCitations() {
   const query = document.getElementById('tgSearch').value.trim().toLowerCase();
   const resultsDiv = document.getElementById('tgResults');
 
   if (!tgLoaded) {
+    // Offline on a fresh install the download cannot succeed; retrying for ever
+    // would pin the processor, so it gives up after three tries and says so.
+    if (_citationTries >= 3) {
+      resultsDiv.innerHTML = _renderChips() + '<div class="tg-no-results">The question list has not downloaded yet.<br>Go online once and reopen the app.</div>';
+      resultsDiv.style.display = 'block';
+      return;
+    }
+    _citationTries++;
     resultsDiv.innerHTML = _renderChips() + '<div class="tg-no-results">Loading citations...</div>';
     resultsDiv.style.display = 'block';
-    loadCitations().then(() => _filterCitations());
+    loadCitations().then(() => { if (tgLoaded) _citationTries = 0; _filterCitations(); });
     return;
   }
 
@@ -4536,6 +4548,14 @@ function pickPriorFinding(idx) {
 }
 
 // ---- Export pieces: the WASO findings sheets and the audit summary ----
+// Excel refuses a row taller than 409 points and a cell longer than 32,767
+// characters. The CSV in the same ZIP keeps the full text either way.
+const EXCEL_MAX_ROW_H = 409, EXCEL_MAX_CELL = 32000;
+const _rowH = h => Math.min(EXCEL_MAX_ROW_H, Math.max(20, h));
+const _sheetText = t => {
+  const v = String(t == null ? '' : t);
+  return v.length > EXCEL_MAX_CELL ? v.slice(0, EXCEL_MAX_CELL) + ' … [text shortened for Excel — the full text is in the CSV]' : v;
+};
 function _styleHeader(row, fill) {
   row.height = 42;
   row.eachCell(c => {
@@ -4555,7 +4575,7 @@ function wasoRow(e, n, photos) {
   return [
     n.park || entryParkCode(e), n.str, date, pri, e.protocolArea || '', entryLocationName(e) || n.park || '',
     isFinding ? reg : '', isPos ? 'BMP-P' : (isBmp ? (reg || 'BMP') : ''),
-    e.descCode || '', e.details || '',
+    e.descCode || '', _sheetText(e.details),
     '', '', '', '',
     e.repeatOf ? 'Yes' : (pri && isFinding ? 'No' : ''), e.repeatOf ? repeatCitation(e.repeatOf) : '',
     '', '', '',
@@ -4583,7 +4603,7 @@ function addWasoSheets(wb, entries, numbers, photosOf) {
         if (col === 3 && c.value) c.numFmt = 'm/d/yyyy';
       });
       const lines = Math.max(1, Math.ceil(String(row.getCell(10).value || '').length / 60), Math.ceil(String(row.getCell(6).value || '').length / 22));
-      row.height = Math.max(20, lines * 14 + 8);
+      row.height = _rowH(lines * 14 + 8);
     }
     [...WASO_WIDTHS, 14].forEach((w, i) => { ws.getColumn(i + 1).width = w; });
   }
@@ -4599,14 +4619,14 @@ function addNotesSheet(wb, entries, photosOf) {
   for (const e of notes) {
     const d = e.timestamp ? new Date(e.timestamp) : null;
     const row = ws.addRow([entryParkCode(e), (d && !isNaN(d)) ? new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())) : '',
-      entryLocationName(e) || entryParkCode(e), e.details || '', e.teamGuideCitation || '',
+      entryLocationName(e) || entryParkCode(e), _sheetText(e.details), e.teamGuideCitation || '',
       e.latitude != null ? Number(e.latitude).toFixed(6) + ', ' + Number(e.longitude).toFixed(6) : '', photosOf(e)]);
     row.eachCell({ includeEmpty: true }, (c, col) => {
       c.font = { name: 'Arial', size: 10 }; c.border = TANK_BORDER;
       c.alignment = { horizontal: (col === 3 || col === 4 || col === 5) ? 'left' : 'center', vertical: 'top', wrapText: true };
       if (col === 2 && c.value) c.numFmt = 'm/d/yyyy';
     });
-    row.height = Math.max(20, Math.ceil(String(e.details || '').length / 64) * 14 + 8);
+    row.height = _rowH(Math.ceil(String(e.details || '').length / 64) * 14 + 8);
   }
   [8, 12, 30, 60, 26, 22, 14].forEach((w, i) => { ws.getColumn(i + 1).width = w; });
 }
@@ -4636,7 +4656,7 @@ function addAuditSummarySheet(wb, entries, numbers, tankExport, siteExport) {
       c.font = { name: 'Arial', size: 10 }; c.border = TANK_BORDER;
       c.alignment = { horizontal: col <= 4 ? 'left' : 'center', vertical: 'top', wrapText: true };
     });
-    r.height = Math.max(20, Math.ceil(locs.join('; ').length / 48) * 14 + 8);
+    r.height = _rowH(Math.ceil(locs.join('; ').length / 48) * 14 + 8);
   }
   ws.addRow([]);
   if (tankExport && tankExport.rows.length) {
@@ -4659,7 +4679,7 @@ loadPriorAudit();
 // every release. The bottom bar shows it, and while a newer service worker
 // is still installing (the page is fresh, the cache is last release's) it
 // says so and settles once the new worker takes control.
-const APP_VERSION = '3.0';
+const APP_VERSION = '3.1';
 let _versionTries = 0;
 // '1.10' sorts after '1.9': compare each dotted part as a number.
 function versionCompare(a, b) {
@@ -5459,12 +5479,20 @@ let _siteGpsPending = {};
 function captureSiteGPS(id, auto) {
   const s = siteById(id); if (!s) return;
   if (!navigator.geolocation) { if (!auto) showToast('Geolocation not available on this device', true); return; }
-  if (_siteGpsPending[id]) return;
-  _siteGpsPending[id] = true;
+  const pending = _siteGpsPending[id];
+  if (pending) {
+    // A tap while the automatic fix is still running takes it over, so that a
+    // failure is reported instead of disappearing.
+    if (!auto) { pending.auto = false; showToast('Getting the site position…'); }
+    return;
+  }
+  const req = _siteGpsPending[id] = { auto: !!auto };
   const btn0 = document.getElementById('stgpsbtn_' + id); if (btn0) btn0.innerHTML = '&#128205; Locating…';
   if (!auto) showToast('Getting the site position…');
   navigator.geolocation.getCurrentPosition(pos => {
     delete _siteGpsPending[id];
+    // The site may have been removed while the fix was in flight.
+    const s = siteById(id); if (!s) return;
     s.latitude = pos.coords.latitude; s.longitude = pos.coords.longitude;
     s.gpsAccuracy = Math.round(pos.coords.accuracy); s.gpsAt = new Date().toISOString();
     saveSites();
@@ -5482,10 +5510,11 @@ function captureSiteGPS(id, auto) {
     showToast('Site GPS recorded (±' + s.gpsAccuracy + ' m)');
   }, err => {
     delete _siteGpsPending[id];
+    const site = siteById(id); if (!site) return;
     const b = document.getElementById('stgpsbtn_' + id);
-    if (b) b.innerHTML = '&#128205; ' + (s.latitude != null ? 'Update GPS' : 'Get GPS here');
+    if (b) b.innerHTML = '&#128205; ' + (site.latitude != null ? 'Update GPS' : 'Get GPS here');
     const msgs = { 1: 'Location permission denied — check Settings > Privacy > Location', 2: 'Location unavailable — try again outdoors', 3: 'Location request timed out — try again' };
-    if (!auto) showToast(msgs[err.code] || 'Location error', true);
+    if (!req.auto) showToast(msgs[err.code] || 'Location error', true);
   }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
 }
 function deleteSite(id) {
@@ -5673,7 +5702,7 @@ function addTankSheet(wb, tankExport) {
       tankField(row, 'containment') || tankField(row, 'reason'),
       row.added ? 'Not listed' : 'Listed',
       TANK_STATUS[row.status] || 'Not checked',
-      row.observed || '', row.note || '',
+      _sheetText(row.observed), _sheetText(row.note),
       nums.map(n => String(n).padStart(3, '0')).join(', '),
     ]);
   });
@@ -5696,7 +5725,7 @@ function addTankSheet(wb, tankExport) {
       String(row.getCell(2).value || '').length / 30,
       String(row.getCell(9).value || '').length / 34,
       String(row.getCell(10).value || '').length / 34);
-    row.height = Math.max(18, Math.ceil(longest) * 15 + 6);
+    row.height = Math.min(EXCEL_MAX_ROW_H, Math.max(18, Math.ceil(longest) * 15 + 6));
   }
   [24, 34, 16, 13, 18, 26, 10, 13, 30, 30, 14].forEach((w, i) => { ws.getColumn(i + 1).width = w; });
 }
@@ -5800,7 +5829,7 @@ function addSiteSheet(wb, siteExport) {
       s.latitude != null ? Number(Number(s.latitude).toFixed(6)) : '', s.longitude != null ? Number(Number(s.longitude).toFixed(6)) : '',
       s.gpsAccuracy != null ? s.gpsAccuracy : '', s.contacts || '',
       [].concat(s.access || []).join('; '), [].concat(s.media || []).join('; '), [].concat(s.resource || []).join('; '),
-      s.footprint || '', s.emergency || '', s.stability || '', s.notes || '',
+      s.footprint || '', s.emergency || '', s.stability || '', _sheetText(s.notes),
       photos.map(p => String(p.seq).padStart(3, '0') + '  ' + p.label).join('\n'),
     ]);
     row.eachCell({ includeEmpty: true }, (c, col) => {
@@ -5808,7 +5837,7 @@ function addSiteSheet(wb, siteExport) {
       c.alignment = { horizontal: [2, 8, 9, 10, 11, 15, 16].includes(col) ? 'left' : 'center', vertical: 'top', wrapText: true };
       if (col === 4 && c.value) c.numFmt = 'm/d/yyyy';
     });
-    row.height = Math.max(20, Math.max(photos.length, Math.ceil(String(s.notes || '').length / 50)) * 14 + 8);
+    row.height = _rowH(Math.max(photos.length, Math.ceil(String(s.notes || '').length / 50)) * 14 + 8);
   }
   [8, 28, 16, 12, 12, 12, 10, 24, 24, 20, 22, 14, 11, 11, 44, 40].forEach((w, i) => { ws.getColumn(i + 1).width = w; });
 }
