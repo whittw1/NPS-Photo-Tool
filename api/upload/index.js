@@ -11,6 +11,8 @@
 //   GRAPH_CLIENT_ID   the app registration's client id
 //   GRAPH_CLIENT_SECRET  its client secret
 //   GRAPH_SITE_ID     the target SharePoint site id (hostname,siteCollectionId,siteId)
+//                     — or GRAPH_DRIVE_ID for one library or a OneDrive directly
+//   GRAPH_DRIVE_ID    optional: a drive id, which wins over GRAPH_SITE_ID
 //   GRAPH_ROOT_FOLDER optional folder inside the library, e.g. "NPS/Field Uploads"
 //
 // GET  → whether the endpoint is configured and which folder it writes to.
@@ -26,6 +28,7 @@ function cfg() {
     client: process.env.GRAPH_CLIENT_ID || '',
     secret: process.env.GRAPH_CLIENT_SECRET || '',
     site: process.env.GRAPH_SITE_ID || '',
+    drive: process.env.GRAPH_DRIVE_ID || '',
     root: (process.env.GRAPH_ROOT_FOLDER || '').replace(/^\/+|\/+$/g, ''),
   };
 }
@@ -60,11 +63,11 @@ function safePath(p) {
 
 module.exports = async function (context, req) {
   const c = cfg();
-  const configured = !!(c.key && c.tenant && c.client && c.secret && c.site);
+  const configured = !!(c.key && c.tenant && c.client && c.secret && (c.site || c.drive));
   const done = (status, body) => { context.res = { status, headers: { 'content-type': 'application/json' }, body }; };
 
   if (req.method === 'GET') {
-    return done(200, { ok: true, configured, folder: c.root || '(library root)' });
+    return done(200, { ok: true, configured, target: c.drive ? 'drive ' + c.drive.slice(0, 12) + '…' : 'site', folder: c.root || '(library root)' });
   }
   if (!configured) return done(503, { ok: false, error: 'This endpoint is not configured yet.' });
 
@@ -89,7 +92,10 @@ module.exports = async function (context, req) {
   try {
     const token = await graphToken(c);
     const full = (c.root ? c.root + '/' : '') + path;
-    const url = `${GRAPH}/sites/${encodeURIComponent(c.site)}/drive/root:/${full.split('/').map(encodeURIComponent).join('/')}:` +
+    // A drive id points straight at one library or one OneDrive; a site id uses
+    // that site's default document library.
+    const base = c.drive ? `${GRAPH}/drives/${encodeURIComponent(c.drive)}` : `${GRAPH}/sites/${encodeURIComponent(c.site)}/drive`;
+    const url = `${base}/root:/${full.split('/').map(encodeURIComponent).join('/')}:` +
       `/content?%40microsoft.graph.conflictBehavior=replace`;
     const r = await fetch(url, { method: 'PUT', headers: { authorization: 'Bearer ' + token, 'content-type': contentType }, body: bytes });
     const j = await r.json().catch(() => ({}));

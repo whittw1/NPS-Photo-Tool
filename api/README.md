@@ -44,11 +44,25 @@ the exports you make yourself.
    | `GRAPH_TENANT_ID` | the tenant id |
    | `GRAPH_CLIENT_ID` | the app registration's client id |
    | `GRAPH_CLIENT_SECRET` | the secret |
-   | `GRAPH_SITE_ID` | the site id from step 5 |
+   | `GRAPH_SITE_ID` | the site id from step 5 (leave empty if using a drive id) |
+   | `GRAPH_DRIVE_ID` | optional: one library or one OneDrive, used instead of the site id |
    | `GRAPH_ROOT_FOLDER` | folder inside the library, e.g. `NPS/Audits/ACAD/2026/Live Backup` |
 
 `local.settings.json.example` shows the same list for running the function
 locally with the Azure Functions Core Tools.
+
+## Writing to a OneDrive or to one specific library
+
+`GRAPH_SITE_ID` writes to a site's default document library. To target one
+particular library, or a person's OneDrive, set `GRAPH_DRIVE_ID` instead and
+leave the site id empty; the drive id wins when both are set.
+
+- A site's libraries: `GET /v1.0/sites/{siteId}/drives`
+- A person's OneDrive: `GET /v1.0/users/{upn}/drive?$select=id,webUrl`
+
+For a personal OneDrive, `Sites.Selected` is granted on that person's own
+site (`{tenant}-my.sharepoint.com:/personal/{upn with dots and @ as _}`), the
+same call as for any other site.
 
 ## What it writes
 
