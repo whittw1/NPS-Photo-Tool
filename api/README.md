@@ -20,10 +20,15 @@ the exports you make yourself.
 3. **Grant it write access to one site only**, for example the NPS audits site:
 
    ```
-   PATCH https://graph.microsoft.com/v1.0/sites/{siteId}/permissions
+   POST https://graph.microsoft.com/v1.0/sites/{siteId}/permissions
    { "roles": ["write"],
      "grantedToIdentities": [ { "application": { "id": "<client id>", "displayName": "NPS Photo Collector backup" } } ] }
    ```
+
+   Run it in Graph Explorer (developer.microsoft.com/graph/graph-explorer) signed
+   in as a SharePoint or Global administrator, after consenting to
+   `Sites.FullControl.All` there. The Azure CLI cannot make this call: its Graph
+   token does not carry that scope.
 
    `Sites.Selected` means the app can reach that one site and nothing else in
    the tenant.
