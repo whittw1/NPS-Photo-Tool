@@ -323,6 +323,10 @@ NPS_Data_MMDDYY.csv
 
 Backups (`saveBackup`) are metadata-only JSON named `NPS_Backup_MMDDYY.json`; `importBackup` merges or replaces through `normaliseEntry()`.
 
+### 11.0 After an export (v2.9)
+
+An export stamps `exportedAt` on the entries it shipped and stops there. There is no delete prompt: entries stay on the device until deleted by hand, so the localStorage fallback copies of their photos are kept too. Every delete goes through `confirmDelete()`, which asks a second time before anything is removed, and a backup import that would REPLACE the entries asks again and falls back to merging if declined.
+
 ### 11.1 Word photo log (`generateWordReport`)
 
 A second, independent export behind the **Word Report** button in the same dialog. It is the only feature in this app with no USFS counterpart, and it lives in its own section at the bottom of the script so the shared export code above it stays diffable.

@@ -979,7 +979,7 @@ if ('serviceWorker' in navigator) {
     <div class="photo-grid">
       <div class="photo-slot">
         <label>Photo 1</label>
-        <div class="photo-capture" onclick="takePhoto('p_main')" id="photo_p_main">
+        <div class="photo-capture" onclick="onPhotoTap('p_main')" id="photo_p_main">
           <span class="placeholder">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M9 2h6l1 3H8l1-3z"/></svg>
             Tap to capture
@@ -990,7 +990,7 @@ if ('serviceWorker' in navigator) {
       </div>
       <div class="photo-slot">
         <label>Photo 2</label>
-        <div class="photo-capture" onclick="takePhoto('p_wide')" id="photo_p_wide">
+        <div class="photo-capture" onclick="onPhotoTap('p_wide')" id="photo_p_wide">
           <span class="placeholder">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M9 2h6l1 3H8l1-3z"/></svg>
             Tap to capture
@@ -1070,18 +1070,6 @@ if ('serviceWorker' in navigator) {
   </div>
 </div>
 
-<!-- -- POST-EXPORT BATCH DELETE PROMPT -- -->
-<div class="dialog-overlay" id="postExportOverlay" style="display:none;" onclick="if(event.target===this)closePostExportPrompt()">
-  <div class="dialog">
-    <h3>&#9989; Export complete</h3>
-    <p id="postExportMsg" style="font-size:13px;line-height:1.5;"></p>
-    <div class="dialog-actions">
-      <button class="btn btn-outline btn-sm" onclick="closePostExportPrompt()">Keep on device</button>
-      <button id="postExportDeleteBtn" class="btn btn-danger btn-sm" onclick="deleteExportedEntries()">Delete</button>
-    </div>
-  </div>
-</div>
-
 <!-- -- PHOTO SETTINGS DIALOG -- -->
 <div class="dialog-overlay" id="settingsOverlay" style="display:none;">
   <div class="dialog" style="max-width:420px;">
@@ -1126,6 +1114,19 @@ if ('serviceWorker' in navigator) {
     <div class="dialog-actions">
       <button class="btn btn-outline btn-sm" onclick="resetPhotoSettings()">Reset</button>
       <button class="btn btn-accent btn-sm" onclick="savePhotoSettings()">Save Settings</button>
+    </div>
+  </div>
+</div>
+
+<!-- -- PHOTO VIEWER -- -->
+<div class="dialog-overlay" id="photoViewerOverlay" style="display:none;" onclick="if(event.target===this)closePhotoViewer()">
+  <div class="dialog" style="max-width:min(94vw,900px);">
+    <h3 id="photoViewerTitle">Photo</h3>
+    <div id="photoViewerMeta" style="font-size:12px;color:var(--text-dim);margin-bottom:8px;"></div>
+    <img id="photoViewerImg" alt="" style="width:100%;max-height:64vh;object-fit:contain;border-radius:8px;background:#000;display:block;">
+    <div class="dialog-actions" style="margin-top:10px;">
+      <button class="btn btn-outline btn-sm" id="photoViewerRetake" onclick="retakeFromViewer()">&#128247; Retake</button>
+      <button class="btn btn-accent btn-sm" onclick="closePhotoViewer()">Done</button>
     </div>
   </div>
 </div>
@@ -1667,7 +1668,11 @@ function genId() {
 // DYNAMIC PHOTO SLOTS
 // ============================================================================
 function addPhotoSlot() {
-  const slotId = 'p_extra_' + extraPhotoSlots.length;
+  // Never reuse an id: a removed slot used to free its number, and the next
+  // photo then overwrote the one still held under that key.
+  let n = 0;
+  while (extraPhotoSlots.includes('p_extra_' + n) || currentPhotos['p_extra_' + n]) n++;
+  const slotId = 'p_extra_' + n;
   extraPhotoSlots.push(slotId);
   const num = 2 + extraPhotoSlots.length;
 
@@ -1680,7 +1685,7 @@ function addPhotoSlot() {
   wrapper.innerHTML = `
     <div class="photo-slot" style="grid-column:1/span 1;">
       <label>Photo ${num}</label>
-      <div class="photo-capture" onclick="takePhoto('${slotId}')" id="photo_${slotId}">
+      <div class="photo-capture" onclick="onPhotoTap('${slotId}')" id="photo_${slotId}">
         <span class="placeholder">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <rect x="3" y="5" width="18" height="14" rx="2"/>
@@ -1706,6 +1711,7 @@ function addPhotoSlot() {
 }
 
 function removePhotoSlot(slotId) {
+  if (currentPhotos[slotId] && !confirmDelete('this photo')) return;
   const wrapper = document.getElementById('wrapper_' + slotId);
   if (wrapper) wrapper.remove();
   extraPhotoSlots = extraPhotoSlots.filter(s => s !== slotId);
@@ -1943,10 +1949,14 @@ function deleteEntry(index) {
   const expNote = entry.exportedAt
     ? `\n\nExported ${new Date(entry.exportedAt).toLocaleString([], { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' })}.`
     : '\n\n\u26a0\ufe0f NO export record \u2014 this entry may never have left the device!';
-  if (confirm(`Delete "${loc}"?${expNote}`)) {
+  if (confirmDelete(`"${loc}"`, expNote.replace(/^\n+/, ''))) {
     // Also remove the photo bytes (previously orphaned on single delete)
     Object.values(entry.photos || {}).forEach(ph => { if (ph && ph.dbKey) deletePhotoFromDB(ph.dbKey); });
+    const wasEditing = editingIndex !== null && editingIndex === index;
     savedEntries.splice(index, 1);
+    // Keep the edit pointer on the same entry, or leave edit mode if it went.
+    if (wasEditing) { editingIndex = null; if (typeof setEditModeUI === 'function') setEditModeUI(false); }
+    else if (editingIndex !== null && index < editingIndex) editingIndex--;
     saveAll();
     renderSavedPanel();
     updateHeaderBadge();
@@ -2009,7 +2019,7 @@ function editEntry(index) {
     if (photo && photo.thumbnail) {
       currentPhotos[slot] = { ...photo };
       el.classList.add('has-photo');
-      el.innerHTML = `<img src="${photo.thumbnail}"><span class="retake-badge">Retake</span><span class="saved-badge">\u2713</span>`;
+      el.innerHTML = `<img src="${photo.thumbnail}"><span class="retake-badge">View</span><span class="saved-badge">\u2713</span>`;
     } else {
       el.classList.remove('has-photo');
       el.innerHTML = PH;
@@ -2035,9 +2045,9 @@ function editEntry(index) {
       wrapper.innerHTML = `
         <div class="photo-slot" style="grid-column:1/span 1;">
           <label>Photo ${num}</label>
-          <div class="photo-capture ${photo && photo.thumbnail ? 'has-photo' : ''}" onclick="takePhoto('${slotId}')" id="photo_${slotId}">
+          <div class="photo-capture ${photo && photo.thumbnail ? 'has-photo' : ''}" onclick="onPhotoTap('${slotId}')" id="photo_${slotId}">
             ${photo && photo.thumbnail
-              ? `<img src="${photo.thumbnail}"><span class="retake-badge">Retake</span><span class="saved-badge">\u2713</span>`
+              ? `<img src="${photo.thumbnail}"><span class="retake-badge">View</span><span class="saved-badge">\u2713</span>`
               : PH}
           </div>
           <button class="browse-photo-btn" onclick="browsePhoto('${slotId}')" type="button">Browse Photo</button>
@@ -2072,11 +2082,16 @@ function saveEdit() {
     return;
   }
 
-  savedEntries[editingIndex] = {
+  // The list can change while an entry is open for editing (a delete, a backup
+  // import), so the target is found by id, never by its old position.
+  let target = savedEntries.findIndex(e => e.id === currentEntryId);
+  const replaced = target >= 0 ? savedEntries[target] : null;
+  if (target < 0) { target = savedEntries.length; savedEntries.push({}); }
+  savedEntries[target] = {
     id:          currentEntryId,
     siteName:    location,
     location:    location,
-    park:        currentParkCode(location, savedEntries[editingIndex].park),
+    park:        currentParkCode(location, replaced ? replaced.park : ''),
     protocolArea: score === NOTE ? '' : document.getElementById('protocolArea').value.trim(),
     teamGuideCitation: document.getElementById('teamGuideCitation').value.trim(),
     score: score,
@@ -2086,11 +2101,12 @@ function saveEdit() {
     latitude:    currentGPS ? currentGPS.latitude  : null,
     longitude:   currentGPS ? currentGPS.longitude : null,
     gpsAccuracy: currentGPS ? currentGPS.accuracy  : null,
-    timestamp:   savedEntries[editingIndex].timestamp,
+    timestamp:   (replaced && replaced.timestamp) || new Date().toISOString(),
     photos:      Object.assign({}, currentPhotos)
   };
+  if (!replaced) showToast('The entry you were editing was no longer in the list \u2014 saved as a new entry', true);
 
-  const updatedPark = savedEntries[editingIndex].park;
+  const updatedPark = savedEntries[target].park;
   saveAll();
   editingIndex = null;
   setEditModeUI(false);
@@ -2140,6 +2156,49 @@ function updateHeaderBadge() {
 // ============================================================================
 // PHOTO HANDLING
 // ============================================================================
+// Tapping a photo shows it full size; an empty slot opens the camera.
+let _viewerUrl = null, _viewerRetake = null;
+async function showPhotoViewer(opts) {
+  const img = document.getElementById('photoViewerImg');
+  document.getElementById('photoViewerTitle').textContent = opts.title || 'Photo';
+  document.getElementById('photoViewerMeta').textContent = opts.meta || '';
+  const retakeBtn = document.getElementById('photoViewerRetake');
+  _viewerRetake = opts.retake || null;
+  retakeBtn.style.display = _viewerRetake ? '' : 'none';
+  if (_viewerUrl) { try { URL.revokeObjectURL(_viewerUrl); } catch (e) {} _viewerUrl = null; }
+  img.src = opts.thumbnail || '';
+  document.getElementById('photoViewerOverlay').style.display = 'flex';
+  // Full size comes from device storage; the thumbnail stands in until it arrives.
+  if (opts.dbKey) {
+    const pd = await loadPhotoBytes(opts.dbKey, opts.fileType || 'image/jpeg');
+    if (pd) {
+      _viewerUrl = URL.createObjectURL(new Blob([pd.bytes], { type: pd.type || 'image/jpeg' }));
+      img.src = _viewerUrl;
+    } else {
+      document.getElementById('photoViewerMeta').textContent =
+        (opts.meta ? opts.meta + '  \u2022  ' : '') + '\u26a0 Full-size photo not in device storage \u2014 this is the small preview';
+    }
+  }
+}
+function closePhotoViewer() {
+  if (_viewerUrl) { try { URL.revokeObjectURL(_viewerUrl); } catch (e) {} _viewerUrl = null; }
+  document.getElementById('photoViewerImg').src = '';
+  document.getElementById('photoViewerOverlay').style.display = 'none';
+}
+function retakeFromViewer() {
+  const fn = _viewerRetake;
+  closePhotoViewer();
+  if (fn) fn();
+}
+function onPhotoTap(slotId) {
+  const photo = currentPhotos[slotId];
+  if (!photo) { takePhoto(slotId); return; }
+  const n = slotId === 'p_main' ? 'Photo 1' : slotId === 'p_wide' ? 'Photo 2' : 'Photo ' + (3 + extraPhotoSlots.indexOf(slotId));
+  const when = photo.timestamp && !isNaN(new Date(photo.timestamp)) ? new Date(photo.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+  showPhotoViewer({ title: n, meta: when, thumbnail: photo.thumbnail, dbKey: photo.dbKey, fileType: photo.fileType,
+    retake: () => { if (confirm('Replace ' + n + ' with a new photo?')) takePhoto(slotId); } });
+}
+
 function takePhoto(slotId) {
   const old = document.getElementById('file_' + slotId);
   const parent = old ? old.parentNode : null;
@@ -2459,7 +2518,7 @@ function handlePhoto(input, slotId) {
 
       const container = document.getElementById('photo_' + slotId);
       container.classList.add('has-photo');
-      container.innerHTML = `<img src="${thumbnail}"><span class="retake-badge">Retake</span><span class="saved-badge" style="background:rgba(224,164,74,0.9);">\u2026</span>`;
+      container.innerHTML = `<img src="${thumbnail}"><span class="retake-badge">View</span><span class="saved-badge" style="background:rgba(224,164,74,0.9);">\u2026</span>`;
 
       // Persist durably and CONFIRM it stuck; surface failures loudly instead of
       // silently continuing.
@@ -2467,11 +2526,11 @@ function handlePhoto(input, slotId) {
       const sizeKB = Math.round(dataUrl.length * 0.75 / 1024);
       if (_res.ok) {
         currentPhotos[slotId].unsaved = false;
-        container.innerHTML = `<img src="${thumbnail}"><span class="retake-badge">Retake</span><span class="saved-badge">\u2713</span>`;
+        container.innerHTML = `<img src="${thumbnail}"><span class="retake-badge">View</span><span class="saved-badge">\u2713</span>`;
         showToast(`${PHOTO_SLOT_NAMES[slotId] || 'Photo'} saved (~${sizeKB} KB)`);
       } else {
         currentPhotos[slotId].unsaved = true;
-        container.innerHTML = `<img src="${thumbnail}"><span class="retake-badge">Retake</span><span class="saved-badge" style="background:rgba(200,40,40,0.95);">\u26a0 NOT SAVED</span>`;
+        container.innerHTML = `<img src="${thumbnail}"><span class="retake-badge">View</span><span class="saved-badge" style="background:rgba(200,40,40,0.95);">\u26a0 NOT SAVED</span>`;
         showToast('\u26a0 Photo did NOT save \u2014 storage problem. Export & clear now.', true);
       }
       updateIntegrityBadge();
@@ -2577,59 +2636,6 @@ function showExportDialog() {
 
 function closeExportDialog() {
   document.getElementById('exportOverlay').style.display = 'none';
-}
-
-// ---- Post-export batch delete ----
-let _lastExportedIds = [];
-
-function showPostExportPrompt(ids) {
-  _lastExportedIds = (ids || []).slice();
-  const n = _lastExportedIds.length;
-  if (n === 0) return;
-  document.getElementById('postExportMsg').textContent =
-    `Delete the ${n} exported entr${n === 1 ? 'y' : 'ies'} from this device? ` +
-    `Photos will also be permanently removed. (The exported zip is unaffected.)`;
-  document.getElementById('postExportDeleteBtn').textContent = `Delete ${n}`;
-  document.getElementById('postExportOverlay').style.display = 'flex';
-}
-
-function closePostExportPrompt() {
-  document.getElementById('postExportOverlay').style.display = 'none';
-}
-
-async function deleteExportedEntries() {
-  const ids = new Set(_lastExportedIds);
-  // Collect photo dbKeys before mutating savedEntries
-  const dbKeys = [];
-  for (const e of savedEntries) {
-    if (!ids.has(e.id)) continue;
-    for (const slot of Object.keys(e.photos || {})) {
-      const info = e.photos[slot];
-      if (info && info.dbKey) dbKeys.push(info.dbKey);
-    }
-  }
-  // If the entry being edited is about to be deleted, exit edit mode first
-  if (editingIndex !== null && savedEntries[editingIndex] && ids.has(savedEntries[editingIndex].id)) {
-    editingIndex = null;
-    if (typeof setEditModeUI === 'function') setEditModeUI(false);
-  }
-  // Filter savedEntries
-  savedEntries = savedEntries.filter(e => !ids.has(e.id));
-  // If the in-progress draft was part of this export, clear the form too
-  if (currentEntryId && ids.has(currentEntryId)) {
-    clearEntryForm(false);
-  }
-  saveAll();
-  // Best-effort photo cleanup from IDB
-  if (idbAvailable) {
-    for (const k of dbKeys) {
-      try { await deletePhotoFromDB(k); } catch(e) {}
-    }
-  }
-  renderSavedPanel();
-  updateHeaderBadge();
-  closePostExportPrompt();
-  showToast(`Deleted ${ids.size} entr${ids.size === 1 ? 'y' : 'ies'}`);
 }
 
 // ---- Date filter for export ----
@@ -2785,11 +2791,10 @@ async function runExport() {
   let photoCount    = 0;
   let misses        = 0;
   const missedKeys  = [];
-  const shippedKeys = [];   // photos that made it into this export
 
   async function getBytes(dbKey, mimeType) {
     const r = await loadPhotoBytes(dbKey, mimeType);
-    if (r) { shippedKeys.push(dbKey); return r; }
+    if (r) return r;
     misses++;
     if (dbKey) missedKeys.push(dbKey);
     return null;
@@ -3015,16 +3020,8 @@ async function runExport() {
     saveAll();
     renderSavedPanel();
 
-    if (exportedIds.length > 0) showPostExportPrompt(exportedIds);
-
-    // Clean up the localStorage fallback copies of the entry photos this export shipped.
-    // Photos of entries outside the date filter stay: they have not been exported yet.
-    // NPS-only: tank and LOC site photos stay too, since those lists go out in every export.
-    try {
-      const entryKeys = new Set();
-      allEntries.forEach(en => Object.values(en.photos || {}).forEach(p => { if (p && p.dbKey) entryKeys.add(p.dbKey); }));
-      shippedKeys.filter(k => entryKeys.has(k)).forEach(k => localStorage.removeItem('photo_full_' + k));
-    } catch(e) {}
+    // Nothing is deleted after an export any more: entries stay on the device
+    // until you delete them yourself, and deleting one clears its photo copies.
   } catch(e) {
     console.error('Export error:', e);
     showToast('Export error \u2014 try again', true);
@@ -3069,16 +3066,20 @@ function handleBackupFile(event) {
       if (entries.length === 0 && !extras) { showToast('No valid entries found', true); return; }
 
       // A backup with no entries leaves the entries on this device exactly as they are.
-      const action = entries.length === 0 ? true : confirm(
+      let action = entries.length === 0 ? true : confirm(
         `Found ${entries.length} entries in backup.\n\n` +
         `OK = MERGE with existing ${savedEntries.length} entries\n` +
         `Cancel = REPLACE all current entries`
       );
 
+      // Replacing wipes the entries on this device, so it asks again.
+      if (!action && entries.length && !confirm('Second check.\n\nREPLACE deletes the ' + savedEntries.length + ' entries on this device and keeps only the ' + entries.length + ' from the backup.\n\nOK = replace, Cancel = merge instead')) action = true;
       if (entries.length === 0) {
         // nothing to merge
       } else if (!action) {
         savedEntries = entries.map(normaliseEntry);
+        // The list was rebuilt: whatever was open for editing is no longer in it.
+        if (editingIndex !== null) { editingIndex = null; if (typeof setEditModeUI === 'function') setEditModeUI(false); }
       } else {
         const existing = new Set(savedEntries.map(e => e.location + '|' + e.timestamp));
         let added = 0;
@@ -3707,7 +3708,10 @@ function loadAll() {
     const s = localStorage.getItem(LS_SAVED);
     if (s) savedEntries = JSON.parse(s);
   } catch(e) {}
-  migrateSavedEntries();
+  // Damaged storage must never stop the app from starting.
+  if (!Array.isArray(savedEntries)) savedEntries = [];
+  savedEntries = savedEntries.filter(e => e && typeof e === 'object');
+  try { migrateSavedEntries(); } catch (e) { console.warn('migration skipped:', e); }
 
   try {
     const c = localStorage.getItem(LS_CURRENT);
@@ -3748,9 +3752,9 @@ function loadAll() {
       wrapper.innerHTML = `
         <div class="photo-slot" style="grid-column:1/span 1;">
           <label>Photo ${num}</label>
-          <div class="photo-capture ${ph ? 'has-photo' : ''}" onclick="takePhoto('${slotId}')" id="photo_${slotId}">
+          <div class="photo-capture ${ph ? 'has-photo' : ''}" onclick="onPhotoTap('${slotId}')" id="photo_${slotId}">
             ${ph
-              ? `<img src="${ph}"><span class="retake-badge">Retake</span><span class="saved-badge">\u2713</span>`
+              ? `<img src="${ph}"><span class="retake-badge">View</span><span class="saved-badge">\u2713</span>`
               : `<span class="placeholder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M9 2h6l1 3H8l1-3z"/></svg>Tap to capture</span>`}
           </div>
           <button class="browse-photo-btn" onclick="browsePhoto('${slotId}')" type="button">Browse Photo</button>
@@ -3775,7 +3779,7 @@ function loadAll() {
         const el = document.getElementById('photo_' + slot);
         if (el) {
           el.classList.add('has-photo');
-          el.innerHTML = `<img src="${currentPhotos[slot].thumbnail}"><span class="retake-badge">Retake</span><span class="saved-badge">\u2713</span>`;
+          el.innerHTML = `<img src="${currentPhotos[slot].thumbnail}"><span class="retake-badge">View</span><span class="saved-badge">\u2713</span>`;
         }
       }
     });
@@ -3816,26 +3820,35 @@ async function checkStorage() {
     }
 
     const usedMB = totalUsed / (1024 * 1024);
-    const pct = Math.min(100, Math.round(usedMB / STORAGE_LIMIT_MB * 100));
+    const quotaMB = totalQuota / (1024 * 1024);
+    // Measure against what the browser actually allows, not a fixed number.
+    // Without a real figure, fall back to the old conservative thresholds.
+    const haveQuota = quotaMB > STORAGE_WARN_MB * 1.5;
+    const pct = Math.min(100, Math.round(usedMB / (haveQuota ? quotaMB : STORAGE_LIMIT_MB) * 100));
+    const warnAt = haveQuota ? 70 : Math.round(STORAGE_WARN_MB / STORAGE_LIMIT_MB * 100);
+    const dangerAt = 90;
 
     const bar = document.getElementById('storageBarFill');
     const msg = document.getElementById('storageMsg');
 
     bar.style.width = pct + '%';
-    msg.textContent = usedMB.toFixed(1) + ' MB used';
+    const fmt = mb => mb >= 1024 ? (mb / 1024).toFixed(1) + ' GB' : mb.toFixed(mb < 10 ? 1 : 0) + ' MB';
+    msg.textContent = haveQuota
+      ? fmt(usedMB) + ' of ' + fmt(quotaMB) + ' used (' + pct + '%)'
+      : usedMB.toFixed(1) + ' MB used';
 
-    if (usedMB >= STORAGE_WARN_MB) {
-      bar.style.background = usedMB >= (STORAGE_LIMIT_MB * 0.9) ? 'var(--danger)' : 'var(--warning)';
-      msg.style.color = usedMB >= (STORAGE_LIMIT_MB * 0.9) ? 'var(--danger)' : 'var(--warning)';
+    if (pct >= warnAt) {
+      bar.style.background = pct >= dangerAt ? 'var(--danger)' : 'var(--warning)';
+      msg.style.color = pct >= dangerAt ? 'var(--danger)' : 'var(--warning)';
 
       // Show toast warning, but not more than once every 5 minutes
       const now = Date.now();
       if (now - lastStorageWarnShown > 5 * 60 * 1000) {
         lastStorageWarnShown = now;
-        if (usedMB >= (STORAGE_LIMIT_MB * 0.9)) {
-          showToast('\u26A0 Storage nearly full \u2014 export & clear entries now!', true);
+        if (pct >= dangerAt) {
+          showToast('\u26A0 Storage nearly full \u2014 export and delete entries now!', true);
         } else {
-          showToast('\u26A0 Storage above ' + STORAGE_WARN_MB + ' MB \u2014 consider exporting soon', true);
+          showToast('\u26A0 Storage ' + pct + '% full \u2014 export soon', true);
         }
       }
     } else {
@@ -3925,6 +3938,12 @@ async function shareOrDownload(blob, filename) {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
   return true;
+}
+
+// Deleting saved work asks twice: the second question is the one that means it.
+function confirmDelete(what, detail) {
+  if (!confirm('Delete ' + what + '?' + (detail ? '\n\n' + detail : ''))) return false;
+  return confirm('Second check.\n\n' + what.charAt(0).toUpperCase() + what.slice(1) + ' will be gone for good, and this cannot be undone.\n\nDelete it?');
 }
 
 function showToast(msg, isWarn = false) {
@@ -4435,7 +4454,7 @@ async function handlePriorFile(event) {
 }
 function clearPriorAudit() {
   if (!priorFindings().length) return;
-  if (!confirm('Clear the prior audit list? Repeats already marked on entries are kept.')) return;
+  if (!confirmDelete('the prior audit list', 'Repeats already marked on entries are kept.')) return;
   priorAudit = null;
   savePriorAudit();
   renderPriorList();
@@ -4628,7 +4647,7 @@ loadPriorAudit();
 // every release. The bottom bar shows it, and while a newer service worker
 // is still installing (the page is fresh, the cache is last release's) it
 // says so and settles once the new worker takes control.
-const APP_VERSION = '2.8';
+const APP_VERSION = '2.9';
 let _versionTries = 0;
 // '1.10' sorts after '1.9': compare each dotted part as a number.
 function versionCompare(a, b) {
@@ -4944,7 +4963,7 @@ function addManualTank() {
 
 function deleteTankRow(id) {
   const r = tankRowById(id); if (!r) return;
-  if (!confirm('Remove "' + tankLabel(r) + '" from the list?')) return;
+  if (!confirmDelete('"' + tankLabel(r) + '" from the tank list')) return;
   Object.values(r.photos || {}).forEach(p => { if (p && p.dbKey) deletePhotoFromDB(p.dbKey); });
   tankData.rows = tankRows().filter(x => x.id !== id);
   saveTankData();
@@ -4954,7 +4973,7 @@ function deleteTankRow(id) {
 
 function clearTankList() {
   if (!tankRows().length) return;
-  if (!confirm('Clear the whole tank list, including checks and tank photos?')) return;
+  if (!confirmDelete('the whole tank list', 'Every check, note and tank photo goes with it.')) return;
   tankRows().forEach(r => Object.values(r.photos || {}).forEach(p => { if (p && p.dbKey) deletePhotoFromDB(p.dbKey); }));
   tankData = null;
   openTankId = null;
@@ -5023,7 +5042,7 @@ function handleTankPhoto(input, rowId) {
 function removeTankPhoto(rowId, slot) {
   const r = tankRowById(rowId);
   if (!r || !r.photos || !r.photos[slot]) return;
-  if (!confirm('Remove this photo?')) return;
+  if (!confirmDelete('this tank photo')) return;
   const key = r.photos[slot].dbKey;
   delete r.photos[slot];
   if (key) deletePhotoFromDB(key);
@@ -5083,7 +5102,7 @@ async function promoteTank(rowId) {
     const el = document.getElementById('photo_' + slotId);
     if (el) {
       el.classList.add('has-photo');
-      el.innerHTML = '<img src="' + (p.thumbnail || '') + '"><span class="retake-badge">Retake</span><span class="saved-badge">✓</span>';
+      el.innerHTML = '<img src="' + (p.thumbnail || '') + '"><span class="retake-badge">View</span><span class="saved-badge">✓</span>';
     }
     copied++;
   }
@@ -5427,7 +5446,7 @@ function captureSiteGPS(id, auto) {
 function deleteSite(id) {
   const s = siteById(id); if (!s) return;
   const n = Object.keys(s.photos || {}).length;
-  if (!confirm('Remove "' + siteLabel(s) + '"' + (n ? ' and its ' + n + ' photo' + (n === 1 ? '' : 's') : '') + '?')) return;
+  if (!confirmDelete('"' + siteLabel(s) + '"', n ? 'Its ' + n + ' photo' + (n === 1 ? '' : 's') + ' will go too.' : '')) return;
   Object.values(s.photos || {}).forEach(p => { if (p && p.dbKey) deletePhotoFromDB(p.dbKey); });
   locSites = locSites.filter(x => x.id !== id);
   if (openSiteId === id) openSiteId = null;
@@ -5519,7 +5538,7 @@ function setSitePhotoFacing(id, slot, key) {
 function removeSitePhoto(id, slot) {
   const s = siteById(id);
   if (!s || !s.photos || !s.photos[slot]) return;
-  if (!confirm('Remove this photo?')) return;
+  if (!confirmDelete('this site photo')) return;
   const key = s.photos[slot].dbKey;
   delete s.photos[slot];
   if (key) deletePhotoFromDB(key);
@@ -5563,7 +5582,7 @@ function addPerson() {
 function removePerson(i) { peopleList.splice(i, 1); savePeople(); renderPeople(); }
 function clearPeople() {
   if (!peopleList.length && !auditInfoFilled()) return;
-  if (!confirm('Clear the audit team, coordinator and personnel lists?')) return;
+  if (!confirmDelete('the audit team, coordinator and personnel lists')) return;
   peopleList = []; savePeople();
   auditInfo = normaliseAuditInfo(null); saveAuditInfo();
   renderPeople();
