@@ -1101,7 +1101,7 @@ if ('serviceWorker' in navigator) {
       </div>
     </div>
     <div style="margin:16px 0 14px;padding-top:12px;border-top:1px solid var(--border);">
-      <label style="display:block;font-size:13px;color:var(--text-label);margin-bottom:6px;">&#9729; Live backup to SharePoint <span style="color:var(--warning);font-weight:600;">(prototype)</span></label>
+      <label style="display:block;font-size:13px;color:var(--text-label);margin-bottom:6px;">&#9729; Live backup to SharePoint</label>
       <div class="tk-sub" style="margin-bottom:8px;">Sends each saved entry and each new photo to the audit folder while the app is open and online. The export is unchanged.</div>
       <input type="text" id="backupFolder" class="tk-field" placeholder="Folder — leave empty for park and year, e.g. ACAD/2026">
       <div id="backupWho" class="tk-sub" style="margin-bottom:6px;"></div>
@@ -5781,7 +5781,7 @@ function removeSitePhoto(id, slot) {
 
 
 // ============================================================================
-// LIVE BACKUP TO SHAREPOINT (NPS only, prototype)
+// LIVE BACKUP TO SHAREPOINT (NPS only)
 // Everything the phone saves is queued for a small endpoint next to the app
 // (api/upload), which holds the Microsoft credentials and writes the file into
 // the audit's SharePoint folder. iOS cannot upload while the app is closed, so
