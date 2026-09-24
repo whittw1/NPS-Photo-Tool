@@ -4840,7 +4840,7 @@ loadPriorAudit();
 // every release. The bottom bar shows it, and while a newer service worker
 // is still installing (the page is fresh, the cache is last release's) it
 // says so and settles once the new worker takes control.
-const APP_VERSION = '4.1';
+const APP_VERSION = '4.2';
 let _versionTries = 0;
 // '1.10' sorts after '1.9': compare each dotted part as a number.
 function versionCompare(a, b) {
@@ -5852,7 +5852,7 @@ let backupUser = null;         // the Microsoft account this browser is signed i
 let _backupSignInNeeded = false, _backupAuthReached = false, _backupReconciled = false;
 let backupQueue = [];          // [{ k: 'state' } | { k: 'photo', key: dbKey }]
 let backupDone = [];           // photo keys already up
-let _backupBusy = false, _backupPauseUntil = 0, _backupLastError = '', _backupStateTimer = null;
+let _backupBusy = false, _backupPauseUntil = 0, _backupLastError = '', _backupStateTimer = null, _backupLastIndex = '';
 
 function deviceId() {
   let id = '';
@@ -5936,6 +5936,10 @@ function queueBackup(kind, key) {
       const existing = backupQueue.find(i => i.k === 'state');
       if (existing) existing.folder = backupFolder();
       else backupQueue.push({ k: 'state', folder: backupFolder() });
+      // The photo index rides along with the state file: same cadence, same folder.
+      const idx = backupQueue.find(i => i.k === 'index');
+      if (idx) idx.folder = backupFolder();
+      else backupQueue.push({ k: 'index', folder: backupFolder() });
       saveBackupQueue(); drainBackupQueue();
     }, 2500);
     return;
@@ -5953,6 +5957,52 @@ function backupStateFile() {
     text: JSON.stringify({ version: 1, device: deviceId(), app: APP_VERSION, savedAt: new Date().toISOString(),
       park: exportParkCode(), entries: clean, sites: locSites, tanks: tankData, people: peopleList, audit: auditInfo }, null, 1),
   };
+}
+// A readable index next to the photos: the uploaded file names are storage
+// keys, which are exact but say nothing. This says what each one is, so the
+// folder can be read without opening the state file.
+function backupIndexFile() {
+  const cell = v => {
+    const t = String(v == null ? '' : v).replace(/[\r\n]+/g, ' ').trim();
+    return /[",]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+  };
+  const rows = [['File', 'What', 'Park', 'Location', 'Detail', 'Priority', 'Slot', 'Taken'].join(',')];
+  const add = (dbKey, what, park, location, detail, priority, slot, taken, fileType) => {
+    if (!dbKey) return;
+    // Exactly the name backupPhotoFile() uploads it under, extension included.
+    const name = String(dbKey).replace(/[^\w.-]/g, '_') + (String(fileType || '').indexOf('png') >= 0 ? '.png' : '.jpg');
+    rows.push([cell(name), cell(what), cell(park), cell(location),
+               cell(String(detail || '').slice(0, 300)), cell(priority), cell(slot), cell(taken)].join(','));
+  };
+  savedEntries.forEach(e => {
+    const ph = e.photos || {};
+    Object.keys(ph).sort((a, b) => a.localeCompare(b, 'en', { numeric: true })).forEach(slot => {
+      const p = ph[slot];
+      if (!p || !p.dbKey) return;
+      add(p.dbKey, e.score === NOTE ? 'Note' : 'Finding', e.park || '', e.location || e.siteName || '',
+          e.details || '', e.score === NOTE ? '' : (e.score || ''),
+          PHOTO_SLOT_NAMES[slot] || (slot.indexOf('p_extra_') === 0 ? 'Extra ' + (Number(slot.slice(8)) + 1) : slot),
+          p.timestamp || e.timestamp || '', p.fileType);
+    });
+  });
+  (typeof tankRows === 'function' ? tankRows() : []).forEach(r => {
+    const ph = r.photos || {};
+    Object.keys(ph).sort((a, b) => a.localeCompare(b, 'en', { numeric: true })).forEach((slot, i) => {
+      const p = ph[slot];
+      if (p && p.dbKey) add(p.dbKey, 'SPCC tank', exportParkCode() || '', tankLabel(r),
+        [r.observed, r.note].filter(Boolean).join(' — '), r.status || '', 'Photo ' + (i + 1), p.timestamp || '', p.fileType);
+    });
+  });
+  (locSites || []).forEach(st => {
+    const slots = (typeof sitePhotoSlots === 'function' ? sitePhotoSlots(st) : Object.keys(st.photos || {}));
+    const labels = sitePhotoLabels(slots.map(slot => ({ slot, info: (st.photos || {})[slot] })));
+    labels.forEach(l => {
+      const p = (st.photos || {})[l.item.slot];
+      if (p && p.dbKey) add(p.dbKey, 'LOC site', st.park || '', siteLabel(st), p.caption || '', '', l.label, p.timestamp || '', p.fileType);
+    });
+  });
+  return { path: 'photos_' + deviceId() + '.csv', contentType: 'text/csv',
+           text: '\ufeff' + rows.join('\r\n') + '\r\n' };
 }
 async function backupPhotoFile(key) {
   const pd = await loadPhotoBytes(key, 'image/jpeg');
@@ -5991,6 +6041,7 @@ function reconcileBackupQueue() {
     });
     const anything = savedEntries.length || (locSites || []).length || tankRows().length || peopleList.length;
     if (anything && !backupQueue.some(i => i.k === 'state')) backupQueue.push({ k: 'state', folder: backupFolder() });
+    if (anything && !backupQueue.some(i => i.k === 'index')) backupQueue.push({ k: 'index', folder: backupFolder() });
     saveBackupQueue();
   } catch (e) {}
 }
@@ -6013,13 +6064,19 @@ async function drainBackupQueue() {
       const item = backupQueue[0];
       let file = null;
       try {
-        file = item.k === 'state' ? backupStateFile() : await backupPhotoFile(item.key);
+        file = item.k === 'state' ? backupStateFile()
+             : item.k === 'index' ? backupIndexFile()
+             : await backupPhotoFile(item.key);
       } catch (e) { file = null; }
       if (!file) { backupQueue.shift(); saveBackupQueue(); continue; }   // nothing to send for this item
+      // The index only changes when the photos or their findings do: an
+      // identical one is dropped rather than sent again on every save.
+      if (item.k === 'index' && file.text === _backupLastIndex) { backupQueue.shift(); saveBackupQueue(); continue; }
       try {
         await sendToBackup(file, item.folder);
         backupQueue.shift();
         if (item.k === 'photo') backupDone.push(item.key);
+        if (item.k === 'index') _backupLastIndex = file.text;
         _backupLastError = '';
         saveBackupQueue();
       } catch (e) {
@@ -6098,6 +6155,7 @@ function backupEverythingNow() {
   const keys = Array.from(new Set(allReferencedPhotoKeys()));
   keys.forEach(k => { if (backupDone.indexOf(k) < 0 && !backupQueue.some(i => i.k === 'photo' && i.key === k)) backupQueue.push({ k: 'photo', key: k, folder: backupFolder() }); });
   if (!backupQueue.some(i => i.k === 'state')) backupQueue.push({ k: 'state', folder: backupFolder() });
+  if (!backupQueue.some(i => i.k === 'index')) backupQueue.push({ k: 'index', folder: backupFolder() });
   _backupPauseUntil = 0;
   saveBackupQueue();
   paintBackupSettings();

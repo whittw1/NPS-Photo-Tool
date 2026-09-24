@@ -92,7 +92,17 @@ same call as for any other site.
 ```
 <root folder>/<folder>/state/<device>_state.json     every entry, site, tank and name, no photos
 <root folder>/<folder>/photos/<YYYYMMDD>/<key>.jpg   each photo once, named by its storage key
+<root folder>/<folder>/photos_<device>.csv           what each of those photo files is
 ```
+
+A photo's name is its storage key, `<entry|tank|site id>__<slot>`, which never
+changes and so uploads exactly once. The export's tidy names cannot be used
+here: the sequence number in `092426_Blackwoods_Campground_ACAD_0007.jpg` is
+assigned across every finding at export time, and the location can still be
+edited afterwards. `photos_<device>.csv` closes that gap — a row per photo
+giving the file name, whether it belongs to a finding, a note, an SPCC tank or
+a LOC site, the park, the location, the description, the priority and which
+slot it is. It is rewritten with the state file, and skipped when unchanged.
 
 `<root folder>` is fixed by the administrator (`GRAPH_ROOT_FOLDER`). `<folder>`
 is fixed when each file is queued, from the app's Settings — by default the park code and year, e.g.
