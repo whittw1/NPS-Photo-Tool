@@ -1,16 +1,36 @@
-# Live backup endpoint (prototype)
+# Live backup endpoint
 
-The iPad never holds Microsoft credentials. It posts each saved state file and
-each new photo to `/api/upload` with a shared key; this function signs in as an
-Entra app registration and writes the file into one SharePoint document library
-through Microsoft Graph.
+The iPad never holds Microsoft credentials or a shared key. The auditor signs in
+with their own Microsoft account — the same one they use for Outlook — and the
+app posts each saved state file and each new photo to `/api/upload` with that
+session cookie. The function checks who is signed in, then signs in *as itself*
+(an Entra app registration) and writes the file into one SharePoint document
+library through Microsoft Graph.
 
 Nothing here is switched on by default. The app's Settings dialog has a "Live
-backup to SharePoint (prototype)" section; until a key is entered and the box is
-ticked, the app behaves exactly as before and nothing leaves the device except
-the exports you make yourself.
+backup to SharePoint" section; until someone signs in and ticks the box, the app
+behaves exactly as before and nothing leaves the device except the exports you
+make yourself.
+
+## Who is allowed to upload
+
+Two gates, both server-side:
+
+1. **Static Web Apps** refuses `/api/upload` outright to anyone not signed in —
+   `staticwebapp.config.json` marks the route `allowedRoles: ["authenticated"]`,
+   so an unauthenticated POST never reaches the function (401).
+2. **The function** reads the `x-ms-client-principal` header Static Web Apps
+   attaches, and refuses (403) any account whose address does not end in
+   `@hgsengineeringinc.com`. This matters: the built-in `aad` provider will let
+   *any* Microsoft account reach the door, so the domain check is what keeps
+   strangers out. Change the domain with the `ALLOWED_DOMAIN` setting.
+
+Nobody has to be given a key, and losing an iPad exposes nothing: sign-in lives
+in the browser session, and an administrator can revoke the person's account.
 
 ## What an administrator has to do once
+
+`~/Desktop/nps-backup-setup.sh` does all of this in one run. By hand:
 
 1. **Register an application** in the HGS Entra tenant (`4ec8e5cf-…`), for
    example "NPS Photo Collector backup". No redirect URI is needed: it signs in
@@ -40,13 +60,16 @@ the exports you make yourself.
 
    | Setting | Value |
    | --- | --- |
-   | `UPLOAD_KEY` | a long random string, also typed into the app once per iPad |
    | `GRAPH_TENANT_ID` | the tenant id |
    | `GRAPH_CLIENT_ID` | the app registration's client id |
    | `GRAPH_CLIENT_SECRET` | the secret |
    | `GRAPH_SITE_ID` | the site id from step 5 (leave empty if using a drive id) |
    | `GRAPH_DRIVE_ID` | optional: one library or one OneDrive, used instead of the site id |
-   | `GRAPH_ROOT_FOLDER` | folder inside the library, e.g. `NPS/Audits/ACAD/2026/Live Backup` |
+   | `GRAPH_ROOT_FOLDER` | folder inside the library, e.g. `NPS/Audits` |
+   | `ALLOWED_DOMAIN` | optional, default `hgsengineeringinc.com` |
+
+   No `UPLOAD_KEY` any more; if one is still stored from the prototype it is
+   ignored, and deleting it is tidier.
 
 `local.settings.json.example` shows the same list for running the function
 locally with the Azure Functions Core Tools.
@@ -67,9 +90,15 @@ same call as for any other site.
 ## What it writes
 
 ```
-<root folder>/state/<device>_state.json     every entry, site, tank and name, no photos
-<root folder>/photos/<YYYYMMDD>/<key>.jpg   each photo once, named by its storage key
+<root folder>/<folder>/state/<device>_state.json     every entry, site, tank and name, no photos
+<root folder>/<folder>/photos/<YYYYMMDD>/<key>.jpg   each photo once, named by its storage key
 ```
+
+`<root folder>` is fixed by the administrator (`GRAPH_ROOT_FOLDER`). `<folder>`
+comes from the app's Settings — by default the park code and year, e.g.
+`ACAD/2026/Live Backup` — so changing park in the field needs no Azure change.
+The function strips `..`, leading slashes and anything else that would climb out
+of the root folder.
 
 The state file is replaced each time, so the folder holds one current file per
 iPad rather than a pile of snapshots. Photo names are storage keys, not the
@@ -80,6 +109,7 @@ deliverable.
 
 - **Foreground only.** iOS gives a web app no way to upload while it is closed,
   so the queue drains while the app is open and online. It survives reloads.
-- **The key sits on the device.** Anyone with the iPad and the key could write
-  into that folder. Rotate it by changing the app setting and re-entering it.
+- **Sign-in expires.** When the session lapses the uploads stop and queue up;
+  the cloud badge reads "sign in to back up" and one tap restores it. Nothing is
+  lost in the meantime — the queue is in localStorage and drains afterwards.
 - **One file per request**, up to 8 MB. Photos are about 200 KB.

@@ -1,12 +1,14 @@
 // Upload endpoint for the NPS Audit Photo Collector.
 //
-// The iPad never holds Microsoft credentials. It posts a file here with a
-// shared key; this function signs in as the app registration and writes the
-// file to one SharePoint document library through Microsoft Graph.
+// The device holds no credentials at all. Static Web Apps checks the visitor is
+// signed in with Microsoft before this function runs, this function checks the
+// account belongs to the firm, and then it signs in as the app registration and
+// writes the file to one SharePoint document library through Microsoft Graph.
 //
 // Application settings this function needs (Azure portal → Static Web App →
 // Configuration, or local.settings.json when running locally):
-//   UPLOAD_KEY        a long random string; the same value goes in the app
+//   ALLOWED_DOMAIN    optional, default hgsengineeringinc.com: only accounts in
+//                     this domain may upload
 //   GRAPH_TENANT_ID   the HGS Entra tenant id
 //   GRAPH_CLIENT_ID   the app registration's client id
 //   GRAPH_CLIENT_SECRET  its client secret
@@ -25,7 +27,7 @@ let cachedToken = null;   // { value, expires } — reused across invocations wh
 
 function cfg() {
   return {
-    key: process.env.UPLOAD_KEY || '',
+    domain: (process.env.ALLOWED_DOMAIN || 'hgsengineeringinc.com').toLowerCase(),
     tenant: process.env.GRAPH_TENANT_ID || '',
     client: process.env.GRAPH_CLIENT_ID || '',
     secret: process.env.GRAPH_CLIENT_SECRET || '',
@@ -74,19 +76,30 @@ function safePath(p) {
 
 module.exports = async function (context, req) {
   const c = cfg();
-  const configured = !!(c.key && c.tenant && c.client && c.secret && (c.site || c.drive));
+  const configured = !!(c.tenant && c.client && c.secret && (c.site || c.drive));
+  // Static Web Apps passes the signed-in visitor here; no header means nobody.
+  const who = (() => {
+    try {
+      const h = req.headers['x-ms-client-principal'];
+      if (!h) return null;
+      const p = JSON.parse(Buffer.from(h, 'base64').toString('utf8'));
+      return p && p.userDetails ? String(p.userDetails) : null;
+    } catch (e) { return null; }
+  })();
   const done = (status, body) => { context.res = { status, headers: { 'content-type': 'application/json' }, body }; };
 
   if (req.method === 'GET') {
-    return done(200, { ok: true, configured, target: c.drive ? 'drive ' + c.drive.slice(0, 12) + '…' : 'site', folder: c.root || '(library root)' });
+    return done(200, { ok: true, configured, signedInAs: who, allowedDomain: c.domain,
+      target: c.drive ? 'drive ' + c.drive.slice(0, 12) + '…' : 'site', folder: c.root || '(library root)' });
   }
   if (!configured) return done(503, { ok: false, error: 'This endpoint is not configured yet.' });
 
-  const given = req.headers['x-upload-key'] || '';
-  // Constant-time-ish comparison: same length check first, then a full pass.
-  let same = given.length === c.key.length;
-  for (let i = 0; i < c.key.length; i++) if (given[i] !== c.key[i]) same = false;
-  if (!same) return done(401, { ok: false, error: 'bad key' });
+  if (!who) return done(401, { ok: false, error: 'sign in with your Microsoft account first' });
+  // Ends with the domain, not merely contains it: name@ourdomain.com.example.net is not us.
+  if (c.domain && !who.toLowerCase().endsWith('@' + c.domain)) {
+    context.log.warn('upload refused for ' + who);
+    return done(403, { ok: false, error: 'that account is not allowed to upload here' });
+  }
 
   let path, bytes, contentType, folder;
   try {
@@ -115,7 +128,8 @@ module.exports = async function (context, req) {
       context.log.error('graph upload failed', r.status, JSON.stringify(j).slice(0, 300));
       return done(502, { ok: false, error: 'SharePoint refused the file (' + r.status + ')' });
     }
-    return done(200, { ok: true, path: full, size: bytes.length, webUrl: j.webUrl || null });
+    context.log('uploaded ' + full + ' for ' + who);
+    return done(200, { ok: true, path: full, size: bytes.length, by: who, webUrl: j.webUrl || null });
   } catch (e) {
     context.log.error('upload error', e.message);
     return done(502, { ok: false, error: e.message });

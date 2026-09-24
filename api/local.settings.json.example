@@ -2,11 +2,12 @@
   "IsEncrypted": false,
   "Values": {
     "FUNCTIONS_WORKER_RUNTIME": "node",
-    "UPLOAD_KEY": "a-long-random-string-shared-with-the-app",
     "GRAPH_TENANT_ID": "4ec8e5cf-57d7-4904-a6d7-698524a7b885",
     "GRAPH_CLIENT_ID": "",
     "GRAPH_CLIENT_SECRET": "",
     "GRAPH_SITE_ID": "hgsengineeringinc.sharepoint.com,<site-collection-guid>,<site-guid>",
-    "GRAPH_ROOT_FOLDER": "NPS/Audits/ACAD/2026/Live Backup"
+    "GRAPH_DRIVE_ID": "",
+    "GRAPH_ROOT_FOLDER": "NPS/Audits",
+    "ALLOWED_DOMAIN": "hgsengineeringinc.com"
   }
 }

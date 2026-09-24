@@ -1,6 +1,6 @@
 // Service worker for the NPS Audit Photo Collector.
 // Keep the number in step with APP_VERSION in index.html (shown in the bottom bar).
-const CACHE_NAME = 'nps-collector-v3.8';
+const CACHE_NAME = 'nps-collector-v3.9';
 const URLS_TO_CACHE = [
   './',
   './index.html',
@@ -121,7 +121,10 @@ async function cacheIfGenuine(request, response) {
 
 // Fetch — network-first for the page and the data, cache-first for other assets.
 self.addEventListener('fetch', event => {
+  // Uploads and sign-in calls go straight to the network: only GETs are cached.
+  if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
+  if (url.pathname.startsWith('/.auth/') || url.pathname.startsWith('/api/')) return;
   const isHTML = event.request.mode === 'navigate'
     || url.pathname.endsWith('.html')
     || url.pathname.endsWith('/')
