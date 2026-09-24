@@ -95,7 +95,7 @@ same call as for any other site.
 ```
 
 `<root folder>` is fixed by the administrator (`GRAPH_ROOT_FOLDER`). `<folder>`
-comes from the app's Settings — by default the park code and year, e.g.
+is fixed when each file is queued, from the app's Settings — by default the park code and year, e.g.
 `ACAD/2026/Live Backup` — so changing park in the field needs no Azure change.
 The function strips `..`, leading slashes and anything else that would climb out
 of the root folder.

@@ -19,6 +19,8 @@
 //                     the rest of the path (park and year) with each file, and
 //                     nothing can be written outside this parent.
 //
+// Both verbs answer only an account in ALLOWED_DOMAIN; anyone else gets 403
+// and learns nothing about the target.
 // GET  → whether the endpoint is configured and which parent folder it uses.
 // POST → { path, folder, contentBase64, contentType } writes one file.
 
@@ -54,22 +56,24 @@ async function graphToken(c) {
   return cachedToken.value;
 }
 
-// The folder the app asks for, cleaned the same way as the path. Anything that
-// tries to climb out of the parent folder is dropped, not honoured.
-function safeFolder(f) {
-  return String(f || '').split('/')
-    .map(s => s.trim().replace(/[\\:*?"<>|#%]/g, '_'))
+// One rule for everything that becomes part of a path, so the folder half and
+// the file half can never drift apart: no drive letters, no "..", no leading
+// slash, nothing that climbs out of the parent folder. Anything that tries is
+// dropped, not honoured.
+function safeSegments(v, max) {
+  return String(v || '').split('/')
+    .map(s => s.trim().replace(/[\\:*?"<>|#%\u0000-\u001f]/g, '_'))
     .filter(s => s && s !== '.' && s !== '..')
-    .slice(0, 6).join('/');
+    .slice(0, max).join('/');
 }
 
-// Keep the path inside the target folder: no drive letters, no "..", no leading slash.
+function safeFolder(f) {
+  return safeSegments(f, 6);
+}
+
 function safePath(p) {
-  const parts = String(p || '').split('/')
-    .map(s => s.trim().replace(/[\\:*?"<>|#%]/g, '_'))
-    .filter(s => s && s !== '.' && s !== '..');
-  if (!parts.length) throw new Error('no path');
-  const path = parts.join('/');
+  const path = safeSegments(p, 12);
+  if (!path) throw new Error('no path');
   if (path.length > 300) throw new Error('path too long');
   return path;
 }
@@ -88,18 +92,19 @@ module.exports = async function (context, req) {
   })();
   const done = (status, body) => { context.res = { status, headers: { 'content-type': 'application/json' }, body }; };
 
-  if (req.method === 'GET') {
-    return done(200, { ok: true, configured, signedInAs: who, allowedDomain: c.domain,
-      target: c.drive ? 'drive ' + c.drive.slice(0, 12) + '…' : 'site', folder: c.root || '(library root)' });
-  }
-  if (!configured) return done(503, { ok: false, error: 'This endpoint is not configured yet.' });
-
+  // Who is asking is settled before anything is answered: the built-in sign-in
+  // admits any Microsoft account, so a stranger must learn nothing here at all.
   if (!who) return done(401, { ok: false, error: 'sign in with your Microsoft account first' });
   // Ends with the domain, not merely contains it: name@ourdomain.com.example.net is not us.
   if (c.domain && !who.toLowerCase().endsWith('@' + c.domain)) {
-    context.log.warn('upload refused for ' + who);
+    context.log.warn('refused ' + req.method + ' for ' + who);
     return done(403, { ok: false, error: 'that account is not allowed to upload here' });
   }
+
+  if (req.method === 'GET') {
+    return done(200, { ok: true, configured, signedInAs: who, folder: c.root || '(library root)' });
+  }
+  if (!configured) return done(503, { ok: false, error: 'This endpoint is not configured yet.' });
 
   let path, bytes, contentType, folder;
   try {

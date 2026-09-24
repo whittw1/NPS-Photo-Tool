@@ -1103,7 +1103,6 @@ if ('serviceWorker' in navigator) {
     <div style="margin:16px 0 14px;padding-top:12px;border-top:1px solid var(--border);">
       <label style="display:block;font-size:13px;color:var(--text-label);margin-bottom:6px;">&#9729; Live backup to SharePoint <span style="color:var(--warning);font-weight:600;">(prototype)</span></label>
       <div class="tk-sub" style="margin-bottom:8px;">Sends each saved entry and each new photo to the audit folder while the app is open and online. The export is unchanged.</div>
-      <input type="text" id="backupUrl" class="tk-field" placeholder="Endpoint, e.g. /api/upload">
       <input type="text" id="backupFolder" class="tk-field" placeholder="Folder — leave empty for park and year, e.g. ACAD/2026">
       <div id="backupWho" class="tk-sub" style="margin-bottom:6px;"></div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
@@ -1831,7 +1830,9 @@ function saveEntryAndNew() {
   renderSavedPanel();
   updateHeaderBadge();
 
-  const photoCount = getAllCurrentSlots().filter(s => entry.photos[s]).length;
+  // Count the entry's own photos: the form's slots have already been cleared,
+  // and extra slots would not be among them.
+  const photoCount = Object.keys(entry.photos || {}).length;
   // NPS-only: a finding without a park alpha code exports with a blank Park column.
   showToast(`\u2714 Saved — ${photoCount} photo${photoCount !== 1 ? 's' : ''} \u2022 ${savedEntries.length} total` + (entry.park ? '' : ' \u2022 \u26a0 no park selected'), !entry.park);
 }
@@ -2334,8 +2335,10 @@ function getPhotoFallback(key) {
 
 function deletePhotoFromDB(key) {
   try { localStorage.removeItem('photo_full_' + key); } catch(e) {}
-  fsDeletePhoto(key); // remove the durable filesystem copy too (fire-and-forget)
-  return openPhotoDB().then(db => new Promise(resolve => {
+  // The filesystem copy is waited for too: a caller that awaits this must be
+  // able to rely on every copy being gone.
+  const fs = Promise.resolve().then(() => fsDeletePhoto(key)).catch(() => {});
+  const idb = openPhotoDB().then(db => new Promise(resolve => {
     try {
       const tx = db.transaction('photos','readwrite');
       tx.objectStore('photos').delete(key);
@@ -2343,6 +2346,7 @@ function deletePhotoFromDB(key) {
       tx.onerror    = resolve;
     } catch(e) { resolve(); }
   })).catch(() => {});
+  return Promise.all([fs, idb]).then(() => {});
 }
 
 function photoDBKey(entryId, slotId) {
@@ -3816,11 +3820,15 @@ function autoSaveCurrent() {
 // Returns false when the entries could not be written: the caller must not
 // claim success, because nothing would survive a reload.
 function saveAll() {
-  try { localStorage.setItem(LS_SAVED, JSON.stringify(savedEntries)); checkStorage(); if (typeof queueBackup === 'function') queueBackup('state'); return true; }
+  try { localStorage.setItem(LS_SAVED, JSON.stringify(savedEntries)); checkStorage(); }
   catch(e) {
     showToast('\u26a0 NOT saved \u2014 device storage is full. Export, delete some entries, then save again.', true);
     return false;
   }
+  // The entry is written. Backing up is a separate concern and a fault in it
+  // must never be reported as a failed save.
+  try { if (typeof queueBackup === 'function') queueBackup('state'); } catch (e) {}
+  return true;
 }
 
 function loadAll() {
@@ -4791,7 +4799,7 @@ loadPriorAudit();
 // every release. The bottom bar shows it, and while a newer service worker
 // is still installing (the page is fresh, the cache is last release's) it
 // says so and settles once the new worker takes control.
-const APP_VERSION = '3.9';
+const APP_VERSION = '4.0';
 let _versionTries = 0;
 // '1.10' sorts after '1.9': compare each dotted part as a number.
 function versionCompare(a, b) {
@@ -4884,8 +4892,9 @@ function cleanPeople(list) {
 }
 function loadTankData() { try { tankData = cleanTankData(JSON.parse(localStorage.getItem(LS_TANKS) || 'null')); } catch (e) { tankData = null; } }
 function saveTankData() {
-  try { localStorage.setItem(LS_TANKS, JSON.stringify(tankData)); if (typeof queueBackup === 'function') queueBackup('state'); }
+  try { localStorage.setItem(LS_TANKS, JSON.stringify(tankData)); }
   catch (e) { showToast('Storage issue — export soon', true); }
+  try { if (typeof queueBackup === 'function') queueBackup('state'); } catch (e) {}
   updateExportExtrasNote();
 }
 function loadPeople() { try { peopleList = cleanPeople(JSON.parse(localStorage.getItem(LS_PEOPLE) || '[]')); } catch (e) { peopleList = []; } }
@@ -5267,19 +5276,29 @@ async function promoteTank(rowId) {
   setDescCode('Plans', true);
 
   // The finding carries its own copy of the evidence, so the tank sheet and the
-  // photo log each stand alone.
+  // photo log each stand alone. Copying takes a moment per photo, and the form
+  // or the tank list can move underneath it.
+  const entryAtStart = currentEntryId;
+  const moved = () => currentEntryId !== entryAtStart;
   let copied = 0;
-  for (const slot of Object.keys(r.photos || {})) {
+  for (const slot of Object.keys(r.photos || {}).sort((a, b) => a.localeCompare(b, 'en', { numeric: true }))) {
     const p = r.photos[slot];
     if (!p || !p.dbKey) continue;
     const pd = await loadPhotoBytes(p.dbKey, p.fileType || 'image/jpeg');
+    if (moved()) break;
     if (!pd) continue;
     let slotId;
     if (copied === 0) slotId = 'p_main';
     else if (copied === 1) slotId = 'p_wide';
     else { addPhotoSlot(); slotId = extraPhotoSlots[extraPhotoSlots.length - 1]; }
-    const newKey = photoDBKey(currentEntryId, slotId);
+    const newKey = photoDBKey(entryAtStart, slotId);
     const res = await storePhotoBytes(newKey, 'data:image/jpeg;base64,' + uint8ToBase64(pd.bytes));
+    if (moved()) {
+      // Save & New, Cancel Edit or another entry happened while this copy was
+      // being written: it belongs to nothing now.
+      try { deletePhotoFromDB(newKey); } catch (e) {}
+      break;
+    }
     currentPhotos[slotId] = {
       timestamp: new Date().toISOString(), thumbnail: p.thumbnail || '',
       fileType: 'image/jpeg', dbKey: newKey, unsaved: !res.ok,
@@ -5292,9 +5311,18 @@ async function promoteTank(rowId) {
     copied++;
   }
 
-  r.promotedAt = new Date().toISOString();
-  if (!r.status) { r.status = 'diff'; r.checkedAt = r.promotedAt; }
-  saveTankData();
+  if (moved()) {
+    showToast('\u26a0 Tank photos not copied — the entry moved on. Start the finding again.', true);
+    return;
+  }
+  // The row is found again: the tank list can be imported, replaced or have the
+  // row deleted while the photos are copying.
+  const row = tankRowById(rowId);
+  if (row) {
+    row.promotedAt = new Date().toISOString();
+    if (!row.status) { row.status = 'diff'; row.checkedAt = row.promotedAt; }
+    saveTankData();
+  }
   autoSaveCurrent();
   updateIntegrityBadge();
   closeTankList();
@@ -5371,8 +5399,9 @@ function loadSites() {
 }
 function saveSites() {
   clearTimeout(_siteSaveTimer);
-  try { localStorage.setItem(LS_LOC_SITES, JSON.stringify(locSites)); queueBackup('state'); }
+  try { localStorage.setItem(LS_LOC_SITES, JSON.stringify(locSites)); }
   catch (e) { showToast('Storage issue — export soon', true); }
+  try { queueBackup('state'); } catch (e) {}
   updateExportExtrasNote();
 }
 function siteById(id) { return (locSites || []).find(s => s.id === id) || null; }
@@ -5763,7 +5792,7 @@ function removeSitePhoto(id, slot) {
 const LS_BACKUP_CFG = 'nps_backup_cfg', LS_BACKUP_QUEUE = 'nps_backup_queue', LS_BACKUP_DONE = 'nps_backup_done', LS_DEVICE_ID = 'nps_device_id';
 let backupCfg = { url: '/api/upload', on: false, folder: '' };
 let backupUser = null;         // the Microsoft account this browser is signed in as
-let _backupSignInNeeded = false;
+let _backupSignInNeeded = false, _backupAuthReached = false, _backupReconciled = false;
 let backupQueue = [];          // [{ k: 'state' } | { k: 'photo', key: dbKey }]
 let backupDone = [];           // photo keys already up
 let _backupBusy = false, _backupPauseUntil = 0, _backupLastError = '', _backupStateTimer = null;
@@ -5774,27 +5803,43 @@ function deviceId() {
   if (!id) { id = 'ipad-' + Math.random().toString(36).slice(2, 7); try { localStorage.setItem(LS_DEVICE_ID, id); } catch (e) {} }
   return id;
 }
+function saveBackupCfg() {
+  try { localStorage.setItem(LS_BACKUP_CFG, JSON.stringify(backupCfg)); } catch (e) {}
+}
 function loadBackupCfg() {
   try { backupCfg = Object.assign(backupCfg, JSON.parse(localStorage.getItem(LS_BACKUP_CFG) || '{}') || {}); } catch (e) {}
   try { backupQueue = JSON.parse(localStorage.getItem(LS_BACKUP_QUEUE) || '[]') || []; } catch (e) { backupQueue = []; }
   try { backupDone = JSON.parse(localStorage.getItem(LS_BACKUP_DONE) || '[]') || []; } catch (e) { backupDone = []; }
   if (!Array.isArray(backupQueue)) backupQueue = [];
   if (!Array.isArray(backupDone)) backupDone = [];
+  // The account confirmed last time. Out of range there is no way to ask, and
+  // an auditor with no signal must not be told to sign in.
+  backupUser = backupCfg.user || null;
+  // This app's own endpoint, never somewhere else: audit data does not leave
+  // the origin it was collected on.
+  if (!/^\/[\w\-./]*$/.test(backupCfg.url || '')) backupCfg.url = '/api/upload';
   paintBackupBadge();
 }
 function saveBackupQueue() {
-  try { localStorage.setItem(LS_BACKUP_QUEUE, JSON.stringify(backupQueue.slice(0, 500))); } catch (e) {}
+  // Oldest first, and anything past the cap is put back by reconcileBackupQueue().
+  try { localStorage.setItem(LS_BACKUP_QUEUE, JSON.stringify(backupQueue.slice(0, 2000))); } catch (e) {}
   try { localStorage.setItem(LS_BACKUP_DONE, JSON.stringify(backupDone.slice(-2000))); } catch (e) {}
   paintBackupBadge();
 }
 // Static Web Apps tells the page who is signed in, if anyone.
 async function refreshBackupUser() {
+  let reached = false;
   try {
     const r = await fetch('/.auth/me', { credentials: 'include', cache: 'no-store' });
+    if (!r.ok) throw new Error('auth check ' + r.status);
     const j = await r.json();
+    reached = true;
     const p = (j && j.clientPrincipal) || null;
     backupUser = p && p.userDetails ? p.userDetails : null;
-  } catch (e) { backupUser = null; }
+    backupCfg.user = backupUser || '';
+    saveBackupCfg();
+  } catch (e) { /* unreachable: keep the account we knew rather than call it a sign-out */ }
+  _backupAuthReached = reached;
   if (backupUser) _backupSignInNeeded = false;
   paintBackupBadge();
   const ov = document.getElementById('settingsOverlay');
@@ -5805,6 +5850,7 @@ function signInForBackup() {
   location.href = '/.auth/login/aad?post_login_redirect_uri=' + encodeURIComponent(location.pathname + location.search);
 }
 function signOutBackup() {
+  backupUser = null; backupCfg.user = ''; saveBackupCfg(); paintBackupBadge();
   location.href = '/.auth/logout?post_logout_redirect_uri=' + encodeURIComponent(location.pathname + location.search);
 }
 function paintBackupBadge() {
@@ -5813,7 +5859,8 @@ function paintBackupBadge() {
   if (!backupCfg.on) { b.style.display = 'none'; return; }
   b.style.display = 'inline-block';
   const waiting = backupQueue.length;
-  const needsUser = _backupSignInNeeded || (!backupUser && waiting);
+  // Nothing is backed up until somebody has signed in, queue or no queue.
+  const needsUser = _backupSignInNeeded || !backupUser;
   const bad = _backupLastError && waiting;
   b.style.background = needsUser ? 'rgba(224,164,74,0.95)' : bad ? 'rgba(224,164,74,0.9)' : waiting ? 'rgba(90,100,112,0.9)' : 'rgba(74,184,106,0.9)';
   b.style.color = '#fff';
@@ -5827,13 +5874,17 @@ function queueBackup(kind, key) {
   if (kind === 'state') {
     clearTimeout(_backupStateTimer);
     _backupStateTimer = setTimeout(() => {
-      if (!backupQueue.some(i => i.k === 'state')) backupQueue.push({ k: 'state' });
+      // The state file covers every park, so it follows the current one; photos
+      // keep the folder they were taken under.
+      const existing = backupQueue.find(i => i.k === 'state');
+      if (existing) existing.folder = backupFolder();
+      else backupQueue.push({ k: 'state', folder: backupFolder() });
       saveBackupQueue(); drainBackupQueue();
     }, 2500);
     return;
   }
   if (kind === 'photo' && key && backupDone.indexOf(key) < 0 && !backupQueue.some(i => i.k === 'photo' && i.key === key)) {
-    backupQueue.push({ k: 'photo', key });
+    backupQueue.push({ k: 'photo', key, folder: backupFolder() });
     saveBackupQueue(); drainBackupQueue();
   }
 }
@@ -5854,10 +5905,10 @@ async function backupPhotoFile(key) {
   return { path: 'photos/' + day + '/' + String(key).replace(/[^\w.-]/g, '_') + (pd.type.includes('png') ? '.png' : '.jpg'),
     contentType: pd.type || 'image/jpeg', base64: uint8ToBase64(pd.bytes) };
 }
-async function sendToBackup(file) {
+async function sendToBackup(file, folder) {
   const r = await fetch(backupCfg.url, {
     method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ path: file.path, folder: backupFolder(), contentType: file.contentType,
+    body: JSON.stringify({ path: file.path, folder: folder || backupFolder(), contentType: file.contentType,
       contentBase64: file.base64 !== undefined ? file.base64 : btoa(unescape(encodeURIComponent(file.text))) }),
   });
   let j = {}; try { j = await r.json(); } catch (e) {}
@@ -5869,13 +5920,39 @@ async function sendToBackup(file) {
   if (!r.ok || !j.ok) { const err = new Error(j.error || ('upload failed (' + r.status + ')')); err.status = r.status; throw err; }
   return j;
 }
+// The stored queue is a convenience, not the record: everything still on this
+// device and not yet up is queued again on the first drain after a reload, so a
+// queue that was truncated, damaged or lost in the debounce window costs nothing.
+function reconcileBackupQueue() {
+  try {
+    if (typeof allReferencedPhotoKeys !== 'function') return;
+    const queued = new Set(backupQueue.filter(i => i.k === 'photo').map(i => i.key));
+    const done = new Set(backupDone);
+    Array.from(new Set(allReferencedPhotoKeys())).forEach(k => {
+      if (!k || done.has(k) || queued.has(k)) return;
+      backupQueue.push({ k: 'photo', key: k, folder: backupFolder() });
+    });
+    const anything = savedEntries.length || (locSites || []).length || tankRows().length || peopleList.length;
+    if (anything && !backupQueue.some(i => i.k === 'state')) backupQueue.push({ k: 'state', folder: backupFolder() });
+    saveBackupQueue();
+  } catch (e) {}
+}
 async function drainBackupQueue() {
   if (_backupBusy || !backupCfg.on || !backupCfg.url) return;
-  if (!backupUser) { await refreshBackupUser(); if (!backupUser) { _backupSignInNeeded = backupQueue.length > 0; paintBackupBadge(); return; } }
+  if (!_backupReconciled) { _backupReconciled = true; reconcileBackupQueue(); }
+  // No signal is not a sign-in problem, and out of range nobody could sign in
+  // anyway: the network and the backoff are checked before the account is.
   if (!navigator.onLine || Date.now() < _backupPauseUntil || !backupQueue.length) { paintBackupBadge(); return; }
+  if (!backupUser) {
+    await refreshBackupUser();
+    if (!backupUser) { _backupSignInNeeded = _backupAuthReached; paintBackupBadge(); return; }
+  }
   _backupBusy = true;
   try {
-    while (backupQueue.length && navigator.onLine) {
+    // One pass over the queue. A file the library keeps refusing goes to the
+    // back instead of holding up everything behind it.
+    let pass = backupQueue.length;
+    while (backupQueue.length && navigator.onLine && pass-- > 0) {
       const item = backupQueue[0];
       let file = null;
       try {
@@ -5883,14 +5960,21 @@ async function drainBackupQueue() {
       } catch (e) { file = null; }
       if (!file) { backupQueue.shift(); saveBackupQueue(); continue; }   // nothing to send for this item
       try {
-        await sendToBackup(file);
+        await sendToBackup(file, item.folder);
         backupQueue.shift();
         if (item.k === 'photo') backupDone.push(item.key);
         _backupLastError = '';
         saveBackupQueue();
       } catch (e) {
         _backupLastError = e.message;
-        // A rejected key is a settings problem, not a network hiccup: stop trying.
+        item.n = (item.n || 0) + 1;
+        // 400 and 502 are about this one file; anything else is the endpoint or
+        // the account, where trying the next file would fail the same way.
+        if ((e.status === 400 || e.status === 502) && item.n >= 3) {
+          backupQueue.push(backupQueue.shift());
+          saveBackupQueue();
+          continue;
+        }
         _backupPauseUntil = Date.now() + (e.status === 401 || e.status === 503 ? 10 * 60000 : 60000);
         break;
       }
@@ -5911,10 +5995,10 @@ function backupFolder() {
 }
 // Settings dialog
 function paintBackupSettings(skipRefresh) {
-  const u = document.getElementById('backupUrl'), o = document.getElementById('backupOn');
-  if (!u) return;
+  const o = document.getElementById('backupOn');
+  if (!o) return;
   if (!skipRefresh) refreshBackupUser();
-  u.value = backupCfg.url || '/api/upload'; o.checked = !!backupCfg.on;
+  o.checked = !!backupCfg.on;
   const f = document.getElementById('backupFolder'); if (f) f.value = backupCfg.folder || '';
   const who = document.getElementById('backupWho');
   const inBtn = document.getElementById('backupSignInBtn'), outBtn = document.getElementById('backupSignOutBtn');
@@ -5927,10 +6011,9 @@ function paintBackupSettings(skipRefresh) {
     : 'Up to date.') + '  Writing to …/' + backupFolder() + '/';
 }
 function readBackupSettings() {
-  backupCfg.url = (document.getElementById('backupUrl').value || '').trim() || '/api/upload';
   backupCfg.folder = ((document.getElementById('backupFolder') || {}).value || '').trim();
   backupCfg.on = !!document.getElementById('backupOn').checked;
-  try { localStorage.setItem(LS_BACKUP_CFG, JSON.stringify(backupCfg)); } catch (e) {}
+  saveBackupCfg();
   _backupPauseUntil = 0; _backupLastError = '';
   paintBackupBadge();
 }
@@ -5956,8 +6039,8 @@ function backupEverythingNow() {
   readBackupSettings();
   if (!backupCfg.on) { document.getElementById('backupStatus').textContent = 'Turn it on first.'; return; }
   const keys = Array.from(new Set(allReferencedPhotoKeys()));
-  keys.forEach(k => { if (backupDone.indexOf(k) < 0 && !backupQueue.some(i => i.k === 'photo' && i.key === k)) backupQueue.push({ k: 'photo', key: k }); });
-  if (!backupQueue.some(i => i.k === 'state')) backupQueue.push({ k: 'state' });
+  keys.forEach(k => { if (backupDone.indexOf(k) < 0 && !backupQueue.some(i => i.k === 'photo' && i.key === k)) backupQueue.push({ k: 'photo', key: k, folder: backupFolder() }); });
+  if (!backupQueue.some(i => i.k === 'state')) backupQueue.push({ k: 'state', folder: backupFolder() });
   _backupPauseUntil = 0;
   saveBackupQueue();
   paintBackupSettings();
@@ -6016,7 +6099,8 @@ async function buildTankExport(photosFolder, startSeq, getBytes, parkCode) {
   const out = { rows: [], nextSeq: startSeq, photoCount: 0, missingLabels: [] };
   for (const r of checkedTankRows()) {
     const nums = [];
-    for (const slot of Object.keys(r.photos || {}).sort()) {
+    // Numeric-aware: p_tank_10_… belongs after p_tank_9_…, not after p_tank_1_….
+    for (const slot of Object.keys(r.photos || {}).sort((a, b) => a.localeCompare(b, 'en', { numeric: true }))) {
       const info = r.photos[slot];
       if (!info || !info.dbKey) continue;
       const pd = await getBytes(info.dbKey, info.fileType || 'image/jpeg');
@@ -6479,7 +6563,7 @@ async function generateWordReport() {
     const e = item.entry;
     const facts = [];
     if (e.latitude != null && e.longitude != null) {
-      facts.push(`GPS: ${e.latitude.toFixed(6)}°N, ${Math.abs(e.longitude).toFixed(6)}°${e.longitude < 0 ? 'W' : 'E'}`
+      facts.push(`GPS: ${Math.abs(e.latitude).toFixed(6)}°${e.latitude < 0 ? 'S' : 'N'}, ${Math.abs(e.longitude).toFixed(6)}°${e.longitude < 0 ? 'W' : 'E'}`
         + (e.gpsAccuracy != null ? ` (±${e.gpsAccuracy} m)` : ''));
     }
     const when = item.taken || e.timestamp;
