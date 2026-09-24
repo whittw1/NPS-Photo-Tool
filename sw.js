@@ -1,6 +1,6 @@
 // Service worker for the NPS Audit Photo Collector.
 // Keep the number in step with APP_VERSION in index.html (shown in the bottom bar).
-const CACHE_NAME = 'nps-collector-v3.5';
+const CACHE_NAME = 'nps-collector-v3.6';
 const URLS_TO_CACHE = [
   './',
   './index.html',
