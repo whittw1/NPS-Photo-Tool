@@ -2426,8 +2426,11 @@ async function storePhotoBytes(dbKey, resizedDataUrl) {
     if (await fsWritePhoto(dbKey, base64) && await fsPhotoExists(dbKey)) return { ok: true, where: 'fs' };
   }
   if (idbAvailable) {
+    // A failed write — quota, an aborted transaction — says nothing about whether
+    // the store can be READ, and idbAvailable gates reads too. Only a failure to
+    // open the database latches it.
     try { await savePhotoToDB(dbKey, base64ToUint8Array(base64).buffer, 'image/jpeg'); return { ok: true, where: 'idb' }; }
-    catch (e) { idbAvailable = false; }
+    catch (e) {}
   }
   // Last resort only (IDB unavailable/failed) — localStorage is tiny + evictable.
   savePhotoFallback(dbKey, resizedDataUrl);
@@ -2610,9 +2613,20 @@ function handlePhoto(input, slotId) {
       // silently continuing.
       const _res = await storePhotoBytes(dbKey, dataUrl);
       if (currentEntryId !== entryAtCapture) {
-        // The form moved to another entry while this was being written.
-        try { deletePhotoFromDB(dbKey); } catch (e) {}
-        showToast('⚠ Photo discarded — the entry moved on before it finished. Take it again.', true);
+        // The form moved to another entry while this was being written. Save &
+        // New carries the photo into the entry it was taken for, and those bytes
+        // belong to that finding now: deleting them would leave it pointing at
+        // nothing. Only an unclaimed photo is discarded.
+        if (allReferencedPhotoKeys().indexOf(dbKey) < 0) {
+          try { deletePhotoFromDB(dbKey); } catch (e) {}
+          showToast('⚠ Photo discarded — the entry moved on before it finished. Take it again.', true);
+          return;
+        }
+        savedEntries.forEach(en => Object.values(en.photos || {}).forEach(ph => { if (ph && ph.dbKey === dbKey) ph.unsaved = !_res.ok; }));
+        saveAll();
+        if (_res.ok) queueBackup('photo', dbKey);
+        else showToast('⚠ Photo did NOT save — storage problem. Export & clear now.', true);
+        updateIntegrityBadge();
         return;
       }
       const sizeKB = Math.round(dataUrl.length * 0.75 / 1024);
@@ -3133,7 +3147,10 @@ async function saveBackup() {
   // NPS-only: LOC sites, tank checks and personnel are worth a backup on their own.
   if (all.length === 0 && !(locSites || []).length && !tankRows().length && !peopleList.length) { showToast('Nothing to back up', true); return; }
 
-  const clean = all.map(({ photos, ...rest }) => rest);
+  // The photo bytes are far too large for a JSON backup, but the references and
+  // their thumbnails are not: without them a restore silently detaches every
+  // photo on the device from the finding it belongs to.
+  const clean = all;
   const blob  = new Blob([JSON.stringify({ version:1, exported: new Date().toISOString(), entries: clean, tanks: tankData, people: peopleList, audit: auditInfo, prior: priorAudit, sites: locSites }, null, 2)], { type:'application/json' });
   if (!await shareOrDownload(blob, `NPS_Backup_${datestamp()}.json`)) { showToast('Backup cancelled', true); return; }
   const nSites = (locSites || []).length;
@@ -3173,6 +3190,7 @@ function handleBackupFile(event) {
 
       // Replacing wipes the entries on this device, so it asks again.
       if (!action && entries.length && !confirm('Second check.\n\nREPLACE deletes the ' + savedEntries.length + ' entr' + (savedEntries.length === 1 ? 'y' : 'ies') + ' on this device and keeps only the ' + entries.length + ' from the backup.\n\nOK = replace them\nCancel = add instead, keeping everything')) action = true;
+      const snapshot = savedEntries.slice();
       if (entries.length === 0) {
         // nothing to merge
       } else if (!action) {
@@ -3193,7 +3211,14 @@ function handleBackupFile(event) {
         showToast(`Merged: ${added} new, ${entries.length - added} skipped`);
       }
 
-      try { localStorage.setItem(LS_SAVED, JSON.stringify(savedEntries)); } catch(e) {}
+      // saveAll() reports a full device and returns false; an import that could
+      // not be written must not be left claiming success in memory.
+      if (entries.length && !saveAll()) {
+        savedEntries = snapshot;
+        renderSavedPanel();
+        updateHeaderBadge();
+        return;
+      }
       // NPS-only: restore the tank list and personnel only when this device has
       // none, so a backup can never wipe work in progress.
       if (parsed.tanks && parsed.tanks.rows && !tankRows().length) { tankData = cleanTankData(parsed.tanks); saveTankData(); }
@@ -3204,6 +3229,7 @@ function handleBackupFile(event) {
       if (Array.isArray(parsed.sites) && parsed.sites.length && !(locSites || []).length) { locSites = cleanSites(parsed.sites); sitesRestored = locSites.length; saveSites(); }
       renderSavedPanel();
       updateHeaderBadge();
+      updateIntegrityBadge();          // say at once whether the photos are here
       if (!action) showToast(`Loaded ${entries.length} entries`);
       if (entries.length === 0) showToast(sitesRestored ? `Restored ${sitesRestored} LOC site${sitesRestored === 1 ? '' : 's'} from the backup` : 'Backup read: this device already had its own sites, tanks and personnel, so nothing was replaced');
     } catch(err) {
@@ -3229,8 +3255,23 @@ function normaliseEntry(e) {
     longitude: e.longitude != null ? e.longitude : null,
     gpsAccuracy: e.gpsAccuracy != null ? e.gpsAccuracy : null,
     timestamp: e.timestamp || '',
-    photos:    {}
+    photos:    cleanPhotoMap(e.photos)
   };
+}
+
+// A restored entry keeps its photo references: the bytes are still on the device
+// under the same keys. Anything without a key is dropped, and the integrity
+// check reports whatever the bytes cannot back up.
+function cleanPhotoMap(ph) {
+  const out = {};
+  if (!ph || typeof ph !== 'object') return out;
+  Object.keys(ph).forEach(k => {
+    const p = ph[k];
+    if (!p || typeof p !== 'object' || !p.dbKey) return;
+    out[k] = { timestamp: p.timestamp || '', thumbnail: typeof p.thumbnail === 'string' ? p.thumbnail : '',
+               fileType: p.fileType || 'image/jpeg', dbKey: String(p.dbKey), unsaved: !!p.unsaved };
+  });
+  return out;
 }
 
 // ============================================================================
@@ -4378,7 +4419,7 @@ function migrateSavedEntries() {
     if (!e.park) { const p = entryParkCode(e); if (p) { e.park = p; changed++; } }
   });
   if (changed) {
-    try { localStorage.setItem(LS_SAVED, JSON.stringify(savedEntries)); } catch (e) {}
+    saveAll();                          // reports a full device instead of silently not writing
     if (rescored) setTimeout(() => showToast(rescored + ' saved entr' + (rescored === 1 ? 'y' : 'ies') + ' re-scored (Finding → 2b, Observation → Note) — check them', true), 2500);
   }
 }
@@ -4799,7 +4840,7 @@ loadPriorAudit();
 // every release. The bottom bar shows it, and while a newer service worker
 // is still installing (the page is fresh, the cache is last release's) it
 // says so and settles once the new worker takes control.
-const APP_VERSION = '4.0';
+const APP_VERSION = '4.1';
 let _versionTries = 0;
 // '1.10' sorts after '1.9': compare each dotted part as a number.
 function versionCompare(a, b) {
@@ -4892,10 +4933,13 @@ function cleanPeople(list) {
 }
 function loadTankData() { try { tankData = cleanTankData(JSON.parse(localStorage.getItem(LS_TANKS) || 'null')); } catch (e) { tankData = null; } }
 function saveTankData() {
+  clearTimeout(_tankSaveTimer);
+  let ok = true;
   try { localStorage.setItem(LS_TANKS, JSON.stringify(tankData)); }
-  catch (e) { showToast('Storage issue — export soon', true); }
+  catch (e) { ok = false; showToast('Storage issue — export soon', true); }
   try { if (typeof queueBackup === 'function') queueBackup('state'); } catch (e) {}
   updateExportExtrasNote();
+  return ok;
 }
 function loadPeople() { try { peopleList = cleanPeople(JSON.parse(localStorage.getItem(LS_PEOPLE) || '[]')); } catch (e) { peopleList = []; } }
 function savePeople() {
@@ -5042,10 +5086,23 @@ async function handleTankFile(event) {
   const checked = checkedTankRows().length;
   const warn = checked ? '\n\n⚠️ This REPLACES the current list, including ' + checked + ' checked tank' + (checked === 1 ? '' : 's') + ' and their photos.' : '';
   if (!confirm(file.name + '\n\n' + parsed.rows.length + ' tanks in ' + parsed.groups.length + ' tables:\n' + summary + warn + '\n\nImport?')) return;
-  tankRows().forEach(r => Object.values(r.photos || {}).forEach(p => { if (p && p.dbKey) deletePhotoFromDB(p.dbKey); }));
+  const oldKeys = [];
+  tankRows().forEach(r => Object.values(r.photos || {}).forEach(p => { if (p && p.dbKey) oldKeys.push(p.dbKey); }));
+  // Deleting saved work asks twice, like every other destructive action here.
+  if (oldKeys.length && !confirm('Second check.\n\n' + oldKeys.length + ' tank photo' + (oldKeys.length === 1 ? '' : 's') +
+      ' will be deleted and cannot be recovered.\n\nOK = replace the list\nCancel = keep what is here')) { showToast('Import cancelled'); return; }
+  const prevTanks = tankData;
   tankData = parsed;
   openTankId = null;
-  saveTankData();
+  // The old photos go only once the new list is safely written: a failed write
+  // would otherwise leave the old rows pointing at bytes that no longer exist.
+  if (!saveTankData()) {
+    tankData = prevTanks;
+    renderTankList();
+    showToast('\u26a0 Tank list NOT imported \u2014 nothing was changed or deleted.', true);
+    return;
+  }
+  oldKeys.forEach(k => { try { deletePhotoFromDB(k); } catch (e) {} });
   renderTankList();
   updateIntegrityBadge();
   showToast('Imported ' + parsed.rows.length + ' tanks');
@@ -5053,7 +5110,7 @@ async function handleTankFile(event) {
 
 // ---- The tank list ----
 function showTankList() { renderTankList(); document.getElementById('tankOverlay').style.display = 'flex'; }
-function closeTankList() { document.getElementById('tankOverlay').style.display = 'none'; }
+function closeTankList() { saveTankData(); document.getElementById('tankOverlay').style.display = 'none'; }
 
 function tankPlanHtml(r) {
   if (r.added) return '<div class="tk-plan"><b>Not in the plan</b> — found on site.</div>';
@@ -6049,6 +6106,13 @@ function backupEverythingNow() {
 loadBackupCfg();
 refreshBackupUser();
 window.addEventListener('online', () => { _backupPauseUntil = 0; drainBackupQueue(); });
+// iOS discards a backgrounded web app without warning: flush anything still
+// sitting on a debounce timer before the app can be taken away.
+window.addEventListener('pagehide', () => {
+  try { saveTankData(); } catch (e) {}
+  try { saveSites(); } catch (e) {}
+  try { autoSaveCurrent(); } catch (e) {}
+});
 setInterval(() => drainBackupQueue(), 30000);
 
 // ---- Personnel ----
