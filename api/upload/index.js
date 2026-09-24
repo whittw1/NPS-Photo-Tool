@@ -13,10 +13,12 @@
 //   GRAPH_SITE_ID     the target SharePoint site id (hostname,siteCollectionId,siteId)
 //                     — or GRAPH_DRIVE_ID for one library or a OneDrive directly
 //   GRAPH_DRIVE_ID    optional: a drive id, which wins over GRAPH_SITE_ID
-//   GRAPH_ROOT_FOLDER optional folder inside the library, e.g. "NPS/Field Uploads"
+//   GRAPH_ROOT_FOLDER the fixed parent folder, e.g. "NPS/Audits". The app sends
+//                     the rest of the path (park and year) with each file, and
+//                     nothing can be written outside this parent.
 //
-// GET  → whether the endpoint is configured and which folder it writes to.
-// POST → { path, contentBase64, contentType } writes one file.
+// GET  → whether the endpoint is configured and which parent folder it uses.
+// POST → { path, folder, contentBase64, contentType } writes one file.
 
 const GRAPH = 'https://graph.microsoft.com/v1.0';
 let cachedToken = null;   // { value, expires } — reused across invocations while warm
@@ -50,6 +52,15 @@ async function graphToken(c) {
   return cachedToken.value;
 }
 
+// The folder the app asks for, cleaned the same way as the path. Anything that
+// tries to climb out of the parent folder is dropped, not honoured.
+function safeFolder(f) {
+  return String(f || '').split('/')
+    .map(s => s.trim().replace(/[\\:*?"<>|#%]/g, '_'))
+    .filter(s => s && s !== '.' && s !== '..')
+    .slice(0, 6).join('/');
+}
+
 // Keep the path inside the target folder: no drive letters, no "..", no leading slash.
 function safePath(p) {
   const parts = String(p || '').split('/')
@@ -77,10 +88,11 @@ module.exports = async function (context, req) {
   for (let i = 0; i < c.key.length; i++) if (given[i] !== c.key[i]) same = false;
   if (!same) return done(401, { ok: false, error: 'bad key' });
 
-  let path, bytes, contentType;
+  let path, bytes, contentType, folder;
   try {
     const b = req.body || {};
     path = safePath(b.path);
+    folder = safeFolder(b.folder);
     contentType = String(b.contentType || 'application/octet-stream').slice(0, 100);
     bytes = Buffer.from(String(b.contentBase64 || ''), 'base64');
     if (!bytes.length) throw new Error('empty file');
@@ -91,7 +103,7 @@ module.exports = async function (context, req) {
 
   try {
     const token = await graphToken(c);
-    const full = (c.root ? c.root + '/' : '') + path;
+    const full = [c.root, folder, path].filter(Boolean).join('/');
     // A drive id points straight at one library or one OneDrive; a site id uses
     // that site's default document library.
     const base = c.drive ? `${GRAPH}/drives/${encodeURIComponent(c.drive)}` : `${GRAPH}/sites/${encodeURIComponent(c.site)}/drive`;

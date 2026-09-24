@@ -1105,6 +1105,7 @@ if ('serviceWorker' in navigator) {
       <div class="tk-sub" style="margin-bottom:8px;">Sends each saved entry and each new photo to the audit folder while the app is open and online. The export is unchanged.</div>
       <input type="text" id="backupUrl" class="tk-field" placeholder="Endpoint, e.g. /api/upload">
       <input type="password" id="backupKey" class="tk-field" placeholder="Upload key">
+      <input type="text" id="backupFolder" class="tk-field" placeholder="Folder — leave empty for park and year, e.g. ACAD/2026">
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         <label style="font-size:13px;display:flex;align-items:center;gap:6px;"><input type="checkbox" id="backupOn"> Turn it on</label>
         <button class="btn btn-outline btn-sm" onclick="testBackupEndpoint()">Test</button>
@@ -4788,7 +4789,7 @@ loadPriorAudit();
 // every release. The bottom bar shows it, and while a newer service worker
 // is still installing (the page is fresh, the cache is last release's) it
 // says so and settles once the new worker takes control.
-const APP_VERSION = '3.6';
+const APP_VERSION = '3.7';
 let _versionTries = 0;
 // '1.10' sorts after '1.9': compare each dotted part as a number.
 function versionCompare(a, b) {
@@ -5758,7 +5759,7 @@ function removeSitePhoto(id, slot) {
 // queued and the badge says how many are waiting.
 // ============================================================================
 const LS_BACKUP_CFG = 'nps_backup_cfg', LS_BACKUP_QUEUE = 'nps_backup_queue', LS_BACKUP_DONE = 'nps_backup_done', LS_DEVICE_ID = 'nps_device_id';
-let backupCfg = { url: '/api/upload', key: '', on: false };
+let backupCfg = { url: '/api/upload', key: '', on: false, folder: '' };
 let backupQueue = [];          // [{ k: 'state' } | { k: 'photo', key: dbKey }]
 let backupDone = [];           // photo keys already up
 let _backupBusy = false, _backupPauseUntil = 0, _backupLastError = '', _backupStateTimer = null;
@@ -5830,7 +5831,7 @@ async function backupPhotoFile(key) {
 async function sendToBackup(file) {
   const r = await fetch(backupCfg.url, {
     method: 'POST', headers: { 'content-type': 'application/json', 'x-upload-key': backupCfg.key },
-    body: JSON.stringify({ path: file.path, contentType: file.contentType,
+    body: JSON.stringify({ path: file.path, folder: backupFolder(), contentType: file.contentType,
       contentBase64: file.base64 !== undefined ? file.base64 : btoa(unescape(encodeURIComponent(file.text))) }),
   });
   let j = {}; try { j = await r.json(); } catch (e) {}
@@ -5867,19 +5868,30 @@ async function drainBackupQueue() {
     paintBackupBadge();
   }
 }
+// Where this device writes inside the endpoint's parent folder. Empty means
+// the park and the year, so a new audit files itself without anyone changing
+// a setting: ACAD/2026/Live Backup.
+function backupFolder() {
+  const typed = (backupCfg.folder || '').trim();
+  if (typed) return typed;
+  const park = exportParkCode() || 'Unfiled';
+  return park + '/' + new Date().getFullYear() + '/Live Backup';
+}
 // Settings dialog
 function paintBackupSettings() {
   const u = document.getElementById('backupUrl'), k = document.getElementById('backupKey'), o = document.getElementById('backupOn');
   if (!u) return;
   u.value = backupCfg.url || '/api/upload'; k.value = backupCfg.key || ''; o.checked = !!backupCfg.on;
+  const f = document.getElementById('backupFolder'); if (f) f.value = backupCfg.folder || '';
   const s = document.getElementById('backupStatus');
-  if (s) s.textContent = !backupCfg.on ? 'Off. Nothing leaves this device except the exports you make.'
+  if (s) s.textContent = (!backupCfg.on ? 'Off. Nothing leaves this device except the exports you make.'
     : backupQueue.length ? backupQueue.length + ' file' + (backupQueue.length === 1 ? '' : 's') + ' waiting' + (_backupLastError ? ' — ' + _backupLastError : '')
-    : 'Up to date.';
+    : 'Up to date.') + '  Writing to …/' + backupFolder() + '/';
 }
 function readBackupSettings() {
   backupCfg.url = (document.getElementById('backupUrl').value || '').trim() || '/api/upload';
   backupCfg.key = (document.getElementById('backupKey').value || '').trim();
+  backupCfg.folder = ((document.getElementById('backupFolder') || {}).value || '').trim();
   backupCfg.on = !!document.getElementById('backupOn').checked && !!backupCfg.key;
   try { localStorage.setItem(LS_BACKUP_CFG, JSON.stringify(backupCfg)); } catch (e) {}
   _backupPauseUntil = 0; _backupLastError = '';
@@ -5895,7 +5907,7 @@ async function testBackupEndpoint() {
     if (!j.configured) { s.textContent = 'Endpoint is there but not configured yet (no Microsoft credentials).'; return; }
     const probe = { path: 'state/' + deviceId() + '_test.txt', contentType: 'text/plain', text: 'live backup test ' + new Date().toISOString() };
     await sendToBackup(probe);
-    s.textContent = 'Working. Writing to ' + (j.folder || 'the library root') + '.';
+    s.textContent = 'Working. Writing to ' + (j.folder ? j.folder + '/' : '') + backupFolder() + '/';
   } catch (e) {
     s.textContent = 'No: ' + e.message;
   }
