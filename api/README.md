@@ -66,6 +66,7 @@ in the browser session, and an administrator can revoke the person's account.
    | `GRAPH_SITE_ID` | the site id from step 5 (leave empty if using a drive id) |
    | `GRAPH_DRIVE_ID` | optional: one library or one OneDrive, used instead of the site id |
    | `GRAPH_ROOT_FOLDER` | folder inside the library, e.g. `NPS/Audits` |
+   | `GRAPH_TARGETS` | optional: the destinations the app may offer (below) |
    | `ALLOWED_DOMAIN` | optional, default `hgsengineeringinc.com` |
 
    No `UPLOAD_KEY` any more; if one is still stored from the prototype it is
@@ -73,6 +74,29 @@ in the browser session, and an administrator can revoke the person's account.
 
 `local.settings.json.example` shows the same list for running the function
 locally with the Azure Functions Core Tools.
+
+## Offering a choice of destination
+
+With `GRAPH_TARGETS` the app's Settings shows a dropdown instead of one fixed
+folder. It is a JSON array, and the FIRST entry is the default — the one a
+device that has never chosen gets, so put the current destination first or
+existing iPads will move:
+
+```json
+[{"key":"nps","label":"NPS — Audits","drive":"b!…","root":"NPS/Audits"},
+ {"key":"usfs","label":"USFS","drive":"b!…","root":"USFS"}]
+```
+
+Each entry takes `drive` (a library or OneDrive) or `site`, plus `root`, the
+folder everything is written inside. The device never names a library: it sends
+a `key`, and the function resolves it. A key that is not on the list is refused
+rather than quietly redirected, so removing an entry makes stale devices fail
+loudly. An empty `root` means the library root — `Sites.Selected` covers the
+whole document library, so `root` is the boundary that keeps the app inside the
+audit folders.
+
+Without `GRAPH_TARGETS` the single `GRAPH_DRIVE_ID`/`GRAPH_SITE_ID` plus
+`GRAPH_ROOT_FOLDER` are used exactly as before, and the dropdown stays hidden.
 
 ## Writing to a OneDrive or to one specific library
 

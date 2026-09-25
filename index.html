@@ -1106,6 +1106,7 @@ if ('serviceWorker' in navigator) {
     <div style="margin:16px 0 14px;padding-top:12px;border-top:1px solid var(--border);">
       <label style="display:block;font-size:13px;color:var(--text-label);margin-bottom:6px;">&#9729; Live backup to SharePoint</label>
       <div class="tk-sub" style="margin-bottom:8px;">Sends each saved entry and each new photo to the audit folder while the app is open and online. The export is unchanged.</div>
+      <select id="backupTarget" class="tk-field" onchange="readBackupSettings();paintBackupSettings(true);"></select>
       <input type="text" id="backupFolder" class="tk-field" placeholder="Folder — leave empty for park and year, e.g. ACAD/2026">
       <div id="backupWho" class="tk-sub" style="margin-bottom:6px;"></div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
@@ -4149,7 +4150,7 @@ function exportCloudFolder() {
 async function uploadBigFile(blob, path, folder, onProgress) {
   const r = await fetch('/api/upload-session', {
     method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ path, folder, size: blob.size }),
+    body: JSON.stringify({ path, folder, target: backupCfg.target, size: blob.size }),
   });
   let j = {}; try { j = await r.json(); } catch (e) {}
   if (r.status === 401 || r.status === 403) throw new Error(r.status === 403 ? 'that account may not upload here' : 'sign in with Microsoft first');
@@ -4206,7 +4207,7 @@ async function sendExportToSharePoint(blob, name) {
     const item = await uploadBigFile(blob, name, exportCloudFolder(), (done, total) => {
       say('Sending ' + name + ': ' + Math.floor(done / total * 100) + '% (' + mb(done) + ' of ' + mb(total) + ' MB)');
     });
-    say('\u2713 In SharePoint: NPS/Audits/' + exportCloudFolder() + '/' + name);
+    say('\u2713 In SharePoint: ' + (backupTargetLabel() ? backupTargetLabel() + ' → ' : '') + exportCloudFolder() + '/' + name);
     return item;
   } catch (e) {
     say('\u26a0 Not sent: ' + e.message + ' — the export is still on this device.');
@@ -4941,7 +4942,7 @@ loadPriorAudit();
 // every release. The bottom bar shows it, and while a newer service worker
 // is still installing (the page is fresh, the cache is last release's) it
 // says so and settles once the new worker takes control.
-const APP_VERSION = '4.3';
+const APP_VERSION = '4.4';
 let _versionTries = 0;
 // '1.10' sorts after '1.9': compare each dotted part as a number.
 function versionCompare(a, b) {
@@ -5948,7 +5949,8 @@ function removeSitePhoto(id, slot) {
 // queued and the badge says how many are waiting.
 // ============================================================================
 const LS_BACKUP_CFG = 'nps_backup_cfg', LS_BACKUP_QUEUE = 'nps_backup_queue', LS_BACKUP_DONE = 'nps_backup_done', LS_DEVICE_ID = 'nps_device_id';
-let backupCfg = { url: '/api/upload', on: false, folder: '' };
+let backupCfg = { url: '/api/upload', on: false, folder: '', target: '' };
+let backupTargets = null;      // the destinations the endpoint offers, once asked
 let backupUser = null;         // the Microsoft account this browser is signed in as
 let _backupSignInNeeded = false, _backupAuthReached = false, _backupReconciled = false;
 let backupQueue = [];          // [{ k: 'state' } | { k: 'photo', key: dbKey }]
@@ -5983,6 +5985,21 @@ function saveBackupQueue() {
   try { localStorage.setItem(LS_BACKUP_QUEUE, JSON.stringify(backupQueue.slice(0, 2000))); } catch (e) {}
   try { localStorage.setItem(LS_BACKUP_DONE, JSON.stringify(backupDone.slice(-2000))); } catch (e) {}
   paintBackupBadge();
+}
+// Which SharePoint destinations an administrator has set up. The device only
+// ever names one of these keys; the endpoint knows the libraries.
+async function loadBackupTargets(force) {
+  if (backupTargets && !force) return backupTargets;
+  try {
+    const r = await fetch(backupCfg.url, { method: 'GET', credentials: 'include' });
+    const j = await r.json();
+    if (Array.isArray(j.targets)) backupTargets = j.targets;
+  } catch (e) {}
+  return backupTargets;
+}
+function backupTargetLabel() {
+  const t = (backupTargets || []).find(x => x.key === backupCfg.target) || (backupTargets || [])[0];
+  return t ? t.label : '';
 }
 // Static Web Apps tells the page who is signed in, if anyone.
 async function refreshBackupUser() {
@@ -6035,18 +6052,18 @@ function queueBackup(kind, key) {
       // The state file covers every park, so it follows the current one; photos
       // keep the folder they were taken under.
       const existing = backupQueue.find(i => i.k === 'state');
-      if (existing) existing.folder = backupFolder();
-      else backupQueue.push({ k: 'state', folder: backupFolder() });
-      // The photo index rides along with the state file: same cadence, same folder.
+      if (existing) { existing.folder = backupFolder(); existing.target = backupCfg.target; }
+      else backupQueue.push({ k: 'state', folder: backupFolder(), target: backupCfg.target });
+      // The photo index rides along with the state file: same cadence, same place.
       const idx = backupQueue.find(i => i.k === 'index');
-      if (idx) idx.folder = backupFolder();
-      else backupQueue.push({ k: 'index', folder: backupFolder() });
+      if (idx) { idx.folder = backupFolder(); idx.target = backupCfg.target; }
+      else backupQueue.push({ k: 'index', folder: backupFolder(), target: backupCfg.target });
       saveBackupQueue(); drainBackupQueue();
     }, 2500);
     return;
   }
   if (kind === 'photo' && key && backupDone.indexOf(key) < 0 && !backupQueue.some(i => i.k === 'photo' && i.key === key)) {
-    backupQueue.push({ k: 'photo', key, folder: backupFolder() });
+    backupQueue.push({ k: 'photo', key, folder: backupFolder(), target: backupCfg.target });
     saveBackupQueue(); drainBackupQueue();
   }
 }
@@ -6113,10 +6130,10 @@ async function backupPhotoFile(key) {
   return { path: 'photos/' + day + '/' + String(key).replace(/[^\w.-]/g, '_') + (pd.type.includes('png') ? '.png' : '.jpg'),
     contentType: pd.type || 'image/jpeg', base64: uint8ToBase64(pd.bytes) };
 }
-async function sendToBackup(file, folder) {
+async function sendToBackup(file, folder, target) {
   const r = await fetch(backupCfg.url, {
     method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ path: file.path, folder: folder || backupFolder(), contentType: file.contentType,
+    body: JSON.stringify({ path: file.path, folder: folder || backupFolder(), target: target || backupCfg.target, contentType: file.contentType,
       contentBase64: file.base64 !== undefined ? file.base64 : btoa(unescape(encodeURIComponent(file.text))) }),
   });
   let j = {}; try { j = await r.json(); } catch (e) {}
@@ -6138,11 +6155,11 @@ function reconcileBackupQueue() {
     const done = new Set(backupDone);
     Array.from(new Set(allReferencedPhotoKeys())).forEach(k => {
       if (!k || done.has(k) || queued.has(k)) return;
-      backupQueue.push({ k: 'photo', key: k, folder: backupFolder() });
+      backupQueue.push({ k: 'photo', key: k, folder: backupFolder(), target: backupCfg.target });
     });
     const anything = savedEntries.length || (locSites || []).length || tankRows().length || peopleList.length;
-    if (anything && !backupQueue.some(i => i.k === 'state')) backupQueue.push({ k: 'state', folder: backupFolder() });
-    if (anything && !backupQueue.some(i => i.k === 'index')) backupQueue.push({ k: 'index', folder: backupFolder() });
+    if (anything && !backupQueue.some(i => i.k === 'state')) backupQueue.push({ k: 'state', folder: backupFolder(), target: backupCfg.target });
+    if (anything && !backupQueue.some(i => i.k === 'index')) backupQueue.push({ k: 'index', folder: backupFolder(), target: backupCfg.target });
     saveBackupQueue();
   } catch (e) {}
 }
@@ -6174,7 +6191,7 @@ async function drainBackupQueue() {
       // identical one is dropped rather than sent again on every save.
       if (item.k === 'index' && file.text === _backupLastIndex) { backupQueue.shift(); saveBackupQueue(); continue; }
       try {
-        await sendToBackup(file, item.folder);
+        await sendToBackup(file, item.folder, item.target);
         backupQueue.shift();
         if (item.k === 'photo') backupDone.push(item.key);
         if (item.k === 'index') _backupLastIndex = file.text;
@@ -6215,6 +6232,15 @@ function paintBackupSettings(skipRefresh) {
   if (!skipRefresh) refreshBackupUser();
   o.checked = !!backupCfg.on;
   const f = document.getElementById('backupFolder'); if (f) f.value = backupCfg.folder || '';
+  const sel = document.getElementById('backupTarget');
+  if (sel) {
+    if (!backupTargets && backupUser) loadBackupTargets().then(() => paintBackupSettings(true));
+    const list = backupTargets || [];
+    sel.style.display = list.length > 1 ? '' : 'none';
+    const want = backupCfg.target || (list[0] && list[0].key) || '';
+    const html = list.map(t => '<option value="' + _attr(t.key) + '"' + (t.key === want ? ' selected' : '') + '>' + esc(t.label) + '</option>').join('');
+    if (sel.innerHTML !== html) sel.innerHTML = html;
+  }
   const who = document.getElementById('backupWho');
   const inBtn = document.getElementById('backupSignInBtn'), outBtn = document.getElementById('backupSignOutBtn');
   if (who) who.textContent = backupUser ? 'Signed in as ' + backupUser : 'Not signed in. Tap Sign in with Microsoft.';
@@ -6223,10 +6249,11 @@ function paintBackupSettings(skipRefresh) {
   const s = document.getElementById('backupStatus');
   if (s) s.textContent = (!backupCfg.on ? 'Off. Nothing leaves this device except the exports you make.'
     : backupQueue.length ? backupQueue.length + ' file' + (backupQueue.length === 1 ? '' : 's') + ' waiting' + (_backupLastError ? ' — ' + _backupLastError : '')
-    : 'Up to date.') + '  Writing to …/' + backupFolder() + '/';
+    : 'Up to date.') + '  Writing to ' + (backupTargetLabel() ? backupTargetLabel() + ' → ' : '…/') + backupFolder() + '/';
 }
 function readBackupSettings() {
   backupCfg.folder = ((document.getElementById('backupFolder') || {}).value || '').trim();
+  backupCfg.target = ((document.getElementById('backupTarget') || {}).value || '').trim();
   backupCfg.on = !!document.getElementById('backupOn').checked;
   saveBackupCfg();
   _backupPauseUntil = 0; _backupLastError = '';
@@ -6244,7 +6271,9 @@ async function testBackupEndpoint() {
     if (!j.configured) { s.textContent = 'Endpoint is there but not configured yet.'; return; }
     const probe = { path: 'state/' + deviceId() + '_test.txt', contentType: 'text/plain', text: 'live backup test ' + new Date().toISOString() };
     await sendToBackup(probe);
-    s.textContent = 'Working, as ' + backupUser + '. Writing to ' + (j.folder ? j.folder + '/' : '') + backupFolder() + '/';
+    await loadBackupTargets(true);
+    paintBackupSettings(true);
+    s.textContent = 'Working, as ' + backupUser + '. Writing to ' + (backupTargetLabel() ? backupTargetLabel() + ' → ' : '') + backupFolder() + '/';
   } catch (e) {
     s.textContent = 'No: ' + e.message;
   }
@@ -6254,9 +6283,9 @@ function backupEverythingNow() {
   readBackupSettings();
   if (!backupCfg.on) { document.getElementById('backupStatus').textContent = 'Turn it on first.'; return; }
   const keys = Array.from(new Set(allReferencedPhotoKeys()));
-  keys.forEach(k => { if (backupDone.indexOf(k) < 0 && !backupQueue.some(i => i.k === 'photo' && i.key === k)) backupQueue.push({ k: 'photo', key: k, folder: backupFolder() }); });
-  if (!backupQueue.some(i => i.k === 'state')) backupQueue.push({ k: 'state', folder: backupFolder() });
-  if (!backupQueue.some(i => i.k === 'index')) backupQueue.push({ k: 'index', folder: backupFolder() });
+  keys.forEach(k => { if (backupDone.indexOf(k) < 0 && !backupQueue.some(i => i.k === 'photo' && i.key === k)) backupQueue.push({ k: 'photo', key: k, folder: backupFolder(), target: backupCfg.target }); });
+  if (!backupQueue.some(i => i.k === 'state')) backupQueue.push({ k: 'state', folder: backupFolder(), target: backupCfg.target });
+  if (!backupQueue.some(i => i.k === 'index')) backupQueue.push({ k: 'index', folder: backupFolder(), target: backupCfg.target });
   _backupPauseUntil = 0;
   saveBackupQueue();
   paintBackupSettings();

@@ -18,8 +18,40 @@ function cfg() {
   };
 }
 
+// The destinations an administrator has configured, in GRAPH_TARGETS:
+//   [ { "key":"nps", "label":"NPS — Audits", "drive":"b!…", "root":"NPS/Audits" } ]
+// The device never names a library. It names one of these keys and the function
+// resolves it here, so a lost iPad cannot redirect anything. `root` is the real
+// boundary: Sites.Selected covers the whole document library, and nothing may
+// be written outside the root of the chosen destination.
+function targets(c) {
+  let list = [];
+  try { const raw = JSON.parse(process.env.GRAPH_TARGETS || '[]'); if (Array.isArray(raw)) list = raw; } catch (e) {}
+  list = list.map((t, i) => ({
+    key: String((t && t.key) || ('t' + i)).slice(0, 40),
+    label: String((t && t.label) || (t && t.key) || 'Destination').slice(0, 80),
+    drive: String((t && t.drive) || ''),
+    site: String((t && t.site) || ''),
+    root: safeSegments((t && t.root) || '', 6),
+  })).filter(t => t.drive || t.site);
+  // Nothing configured: the single destination from the original settings, so
+  // an app that has never heard of targets keeps working unchanged.
+  if (!list.length && (c.drive || c.site)) {
+    list = [{ key: 'default', label: c.root || 'Audit folder', drive: c.drive, site: c.site, root: c.root }];
+  }
+  return list;
+}
+// No key means the first one. A key that is not on the list is refused rather
+// than quietly redirected somewhere else.
+function resolveTarget(c, key) {
+  const list = targets(c);
+  if (!list.length) return null;
+  if (!key) return list[0];
+  return list.find(t => t.key === String(key)) || null;
+}
+
 function configured(c) {
-  return !!(c.tenant && c.client && c.secret && (c.site || c.drive));
+  return !!(c.tenant && c.client && c.secret && targets(c).length);
 }
 
 async function graphToken(c) {
@@ -78,16 +110,16 @@ function admit(req, c, context) {
 
 // A drive id points straight at one library or one OneDrive; a site id uses
 // that site's default document library.
-function driveBase(c) {
-  return c.drive ? `${GRAPH}/drives/${encodeURIComponent(c.drive)}` : `${GRAPH}/sites/${encodeURIComponent(c.site)}/drive`;
+function driveBase(t) {
+  return t.drive ? `${GRAPH}/drives/${encodeURIComponent(t.drive)}` : `${GRAPH}/sites/${encodeURIComponent(t.site)}/drive`;
 }
-function itemUrl(c, full) {
-  return `${driveBase(c)}/root:/${full.split('/').map(encodeURIComponent).join('/')}:`;
+function itemUrl(t, full) {
+  return `${driveBase(t)}/root:/${full.split('/').map(encodeURIComponent).join('/')}:`;
 }
-// The full path inside the library: the fixed parent, the folder the app asked
-// for, then the file.
-function fullPath(c, folder, path) {
-  return [c.root, folder, path].filter(Boolean).join('/');
+// The full path inside the library: the destination's fixed parent, the folder
+// the app asked for, then the file.
+function fullPath(t, folder, path) {
+  return [t.root, folder, path].filter(Boolean).join('/');
 }
 
-module.exports = { GRAPH, cfg, configured, graphToken, safeSegments, safeFolder, safePath, whoIsAsking, admit, driveBase, itemUrl, fullPath };
+module.exports = { GRAPH, cfg, configured, targets, resolveTarget, graphToken, safeSegments, safeFolder, safePath, whoIsAsking, admit, driveBase, itemUrl, fullPath };

@@ -23,11 +23,13 @@ module.exports = async function (context, req) {
   if (gate.refuse) return done(gate.refuse.status, gate.refuse.body);
   if (!G.configured(c)) return done(503, { ok: false, error: 'This endpoint is not configured yet.' });
 
-  let full, name, size;
+  let full, name, size, target;
   try {
     const b = req.body || {};
+    target = G.resolveTarget(c, b.target);
+    if (!target) throw new Error('that destination is not configured');
     const path = G.safePath(b.path);
-    full = G.fullPath(c, G.safeFolder(b.folder), path);
+    full = G.fullPath(target, G.safeFolder(b.folder), path);
     name = path.split('/').pop();
     size = Number(b.size);
     if (!isFinite(size) || size <= 0) throw new Error('no size');
@@ -38,7 +40,7 @@ module.exports = async function (context, req) {
 
   try {
     const token = await G.graphToken(c);
-    const r = await fetch(G.itemUrl(c, full) + '/createUploadSession', {
+    const r = await fetch(G.itemUrl(target, full) + '/createUploadSession', {
       method: 'POST',
       headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' },
       body: JSON.stringify({ item: { '@microsoft.graph.conflictBehavior': 'replace', name } }),
@@ -49,7 +51,7 @@ module.exports = async function (context, req) {
       return done(502, { ok: false, error: 'SharePoint would not start the upload (' + r.status + ')' });
     }
     context.log('upload session for ' + full + ' (' + size + ' bytes) for ' + gate.who);
-    return done(200, { ok: true, uploadUrl: j.uploadUrl, expirationDateTime: j.expirationDateTime || null, path: full });
+    return done(200, { ok: true, uploadUrl: j.uploadUrl, expirationDateTime: j.expirationDateTime || null, path: full, target: target.key });
   } catch (e) {
     context.log.error('upload session error', e.message);
     return done(502, { ok: false, error: e.message });

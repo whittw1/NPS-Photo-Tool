@@ -40,13 +40,17 @@ module.exports = async function (context, req) {
   if (gate.refuse) return done(gate.refuse.status, gate.refuse.body);
 
   if (req.method === 'GET') {
-    return done(200, { ok: true, configured: G.configured(c), signedInAs: gate.who, folder: c.root || '(library root)' });
+    // The destinations the app may offer, by name only — no drive ids leave here.
+    return done(200, { ok: true, configured: G.configured(c), signedInAs: gate.who,
+      targets: G.targets(c).map(t => ({ key: t.key, label: t.label, root: t.root || '(library root)' })) });
   }
   if (!G.configured(c)) return done(503, { ok: false, error: 'This endpoint is not configured yet.' });
 
-  let path, bytes, contentType, folder;
+  let path, bytes, contentType, folder, target;
   try {
     const b = req.body || {};
+    target = G.resolveTarget(c, b.target);
+    if (!target) throw new Error('that destination is not configured');
     path = G.safePath(b.path);
     folder = G.safeFolder(b.folder);
     contentType = String(b.contentType || 'application/octet-stream').slice(0, 100);
@@ -59,8 +63,8 @@ module.exports = async function (context, req) {
 
   try {
     const token = await G.graphToken(c);
-    const full = G.fullPath(c, folder, path);
-    const r = await fetch(G.itemUrl(c, full) + '/content?%40microsoft.graph.conflictBehavior=replace',
+    const full = G.fullPath(target, folder, path);
+    const r = await fetch(G.itemUrl(target, full) + '/content?%40microsoft.graph.conflictBehavior=replace',
       { method: 'PUT', headers: { authorization: 'Bearer ' + token, 'content-type': contentType }, body: bytes });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) {
@@ -68,7 +72,7 @@ module.exports = async function (context, req) {
       return done(502, { ok: false, error: 'SharePoint refused the file (' + r.status + ')' });
     }
     context.log('uploaded ' + full + ' for ' + gate.who);
-    return done(200, { ok: true, path: full, size: bytes.length, by: gate.who, webUrl: j.webUrl || null });
+    return done(200, { ok: true, path: full, target: target.key, size: bytes.length, by: gate.who, webUrl: j.webUrl || null });
   } catch (e) {
     context.log.error('upload error', e.message);
     return done(502, { ok: false, error: e.message });
