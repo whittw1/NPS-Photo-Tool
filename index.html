@@ -4942,7 +4942,7 @@ loadPriorAudit();
 // every release. The bottom bar shows it, and while a newer service worker
 // is still installing (the page is fresh, the cache is last release's) it
 // says so and settles once the new worker takes control.
-const APP_VERSION = '4.4';
+const APP_VERSION = '4.5';
 let _versionTries = 0;
 // '1.10' sorts after '1.9': compare each dotted part as a number.
 function versionCompare(a, b) {
@@ -5995,6 +5995,15 @@ async function loadBackupTargets(force) {
     const j = await r.json();
     if (Array.isArray(j.targets)) backupTargets = j.targets;
   } catch (e) {}
+  // A destination that has been taken away would otherwise leave this device
+  // refused for ever, with no way back when the list is down to one and the
+  // picker is hidden. Fall back to the default and say so.
+  if (backupTargets && backupCfg.target && !backupTargets.some(t => t.key === backupCfg.target)) {
+    backupCfg.target = '';
+    saveBackupCfg();
+    _backupPauseUntil = 0;
+    if (backupTargets.length) showToast('Backup destination changed \u2014 now ' + backupTargets[0].label);
+  }
   return backupTargets;
 }
 function backupTargetLabel() {
@@ -6016,6 +6025,9 @@ async function refreshBackupUser() {
   } catch (e) { /* unreachable: keep the account we knew rather than call it a sign-out */ }
   _backupAuthReached = reached;
   if (backupUser) _backupSignInNeeded = false;
+  // Learn the destinations once signed in, so a removed one is noticed here
+  // rather than by a day of refused uploads.
+  if (backupUser && backupCfg.on && !backupTargets) loadBackupTargets();
   paintBackupBadge();
   const ov = document.getElementById('settingsOverlay');
   if (ov && ov.style.display === 'flex') paintBackupSettings(true);

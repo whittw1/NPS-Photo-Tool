@@ -97,6 +97,12 @@ audit folders.
 
 Without `GRAPH_TARGETS` the single `GRAPH_DRIVE_ID`/`GRAPH_SITE_ID` plus
 `GRAPH_ROOT_FOLDER` are used exactly as before, and the dropdown stays hidden.
+It also stays hidden when only one destination is configured, which is the
+case here: this app writes to `NPS/Audits`. Another programme's folders belong
+to that programme's app, with its own Static Web App and its own list.
+
+Taking an entry away is safe: a device still pointing at it falls back to the
+default the next time it reads the list, and says so.
 
 ## Writing to a OneDrive or to one specific library
 
