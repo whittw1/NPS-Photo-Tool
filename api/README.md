@@ -115,6 +115,29 @@ iPad rather than a pile of snapshots. Photo names are storage keys, not the
 tidy export names: this folder is a safety net, and the ZIP export remains the
 deliverable.
 
+## The export ZIP: /api/upload-session
+
+A day's export runs 40-80 MB, which cannot go through a Static Web Apps
+function — it refuses well before that, and the setting that would raise the
+limit is erased on SWA. So the ZIP does not go through the function at all.
+
+`POST /api/upload-session` with `{ path, folder, size }` asks Microsoft Graph
+for an upload session and returns the short-lived, pre-authorised `uploadUrl`
+for that one file. The iPad then PUTs the ZIP straight to SharePoint in 5 MiB
+chunks (Graph requires a multiple of 320 KiB), and when the wifi drops it asks
+the session where it got to and carries on from there.
+
+The device still holds no credentials: the URL is scoped to a single path
+inside the audit folder and expires on its own. The same two gates apply —
+signed in, and an address in `ALLOWED_DOMAIN`. Verified against this tenant
+from the app's own origin in both Chromium and WebKit, including a killed
+chunk mid-upload.
+
+The ZIP lands in `<root folder>/<park>/<year>/`, beside the exports that were
+being copied there by hand, named `NPS_Export_<park>_<MMDDYY>_<HHMM>.zip` —
+the park and the minute are in the name so a second export on the same day
+cannot replace the first.
+
 ## Limits worth knowing
 
 - **Foreground only.** iOS gives a web app no way to upload while it is closed,
@@ -122,4 +145,5 @@ deliverable.
 - **Sign-in expires.** When the session lapses the uploads stop and queue up;
   the cloud badge reads "sign in to back up" and one tap restores it. Nothing is
   lost in the meantime — the queue is in localStorage and drains afterwards.
-- **One file per request**, up to 8 MB. Photos are about 200 KB.
+- **One file per request**, up to 8 MB, through `/api/upload`. Photos are
+  about 200 KB. The export ZIP uses `/api/upload-session` instead.

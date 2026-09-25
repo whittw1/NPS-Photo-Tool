@@ -1063,10 +1063,13 @@ if ('serviceWorker' in navigator) {
       <div id="exportGaps" style="font-size:12px;color:var(--warning);margin-top:4px;"></div>
     </div>
 
+    <div id="exportCloud" style="font-size:12px;color:var(--text-dim);margin-top:4px;"></div>
+
     <div class="dialog-actions" style="flex-wrap:wrap;">
       <button class="btn btn-outline btn-sm" onclick="closeExportDialog()">Cancel</button>
       <button class="btn btn-accent btn-sm" onclick="generateWordReport()">&#128196; Word Report</button>
       <button class="btn btn-success btn-sm" onclick="runExport()">&#128230; Export ZIP</button>
+      <button class="btn btn-accent btn-sm" id="exportCloudBtn" onclick="runExport('cloud')">&#9729; Send to SharePoint</button>
     </div>
   </div>
 </div>
@@ -2871,7 +2874,7 @@ function buildPhotoName(entry, seqNum) {
   return `${datePart}_${locPart}_${numPart}`;
 }
 
-async function runExport() {
+async function runExport(mode) {
   closeExportDialog();
 
   let allEntries = JSON.parse(JSON.stringify(savedEntries));
@@ -3115,8 +3118,14 @@ async function runExport() {
 
   try {
     const blob = await zip.generateAsync({ type: 'blob' });
-    // A cancelled share sheet means nothing left the device: no record, no offer to delete.
-    if (!await shareOrDownload(blob, 'NPS_Export_' + datestamp() + '.zip')) { showToast('Export cancelled \u2014 nothing was saved or sent', true); return; }
+    const zipName = exportZipName();
+    if (mode === 'cloud') {
+      // Nothing is stamped as exported unless SharePoint confirms the write.
+      if (!await sendExportToSharePoint(blob, zipName)) return;
+    } else {
+      // A cancelled share sheet means nothing left the device: no record, no offer to delete.
+      if (!await shareOrDownload(blob, zipName)) { showToast('Export cancelled \u2014 nothing was saved or sent', true); return; }
+    }
     showToast(`Exported ${allEntries.length} entries, ${photoCount} photos${wordFiles.length ? ' + ' + wordFiles.join(' and ') : ''}${misses ? ' (⚠ ' + misses + ' missing)' : ''}${wordSkipped ? ' — Word files left out, go online once' : ''}`, !!(misses || wordSkipped));
 
     // Offer to batch-delete the just-exported entries from this device.
@@ -4083,6 +4092,14 @@ function quote(val) {
   return val;
 }
 
+// The park and the minute, so a second export on the same day cannot replace
+// the first one in SharePoint.
+function exportZipName() {
+  const park = exportParkCode();
+  const d = new Date();
+  return 'NPS_Export_' + (park ? park + '_' : '') + datestamp() + '_' +
+         String(d.getHours()).padStart(2, '0') + String(d.getMinutes()).padStart(2, '0') + '.zip';
+}
 function datestamp() {
   const d = new Date();
   return `${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}${String(d.getFullYear()).slice(2)}`;
@@ -4114,6 +4131,90 @@ async function shareOrDownload(blob, filename) {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
   return true;
+}
+
+// ============================================================================
+// EXPORT STRAIGHT TO SHAREPOINT
+// The ZIP is far too big to go through the endpoint, so it does not: the
+// endpoint asks Microsoft Graph for an upload session and hands back a
+// short-lived URL for that one file, and the bytes go from here to SharePoint
+// directly, a chunk at a time. When the wifi drops the session is asked where
+// it got to and the upload carries on from there instead of starting again.
+// ============================================================================
+const CLOUD_CHUNK = 16 * 327680;       // 5 MiB; Graph requires a multiple of 320 KiB
+
+function exportCloudFolder() {
+  return (exportParkCode() || 'Unfiled') + '/' + new Date().getFullYear();
+}
+async function uploadBigFile(blob, path, folder, onProgress) {
+  const r = await fetch('/api/upload-session', {
+    method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ path, folder, size: blob.size }),
+  });
+  let j = {}; try { j = await r.json(); } catch (e) {}
+  if (r.status === 401 || r.status === 403) throw new Error(r.status === 403 ? 'that account may not upload here' : 'sign in with Microsoft first');
+  if (!r.ok || !j.uploadUrl) throw new Error(j.error || ('could not start the upload (' + r.status + ')'));
+
+  let sent = 0, fails = 0, item = null;
+  while (sent < blob.size) {
+    const end = Math.min(sent + CLOUD_CHUNK, blob.size);
+    let res = null;
+    try {
+      res = await fetch(j.uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Range': 'bytes ' + sent + '-' + (end - 1) + '/' + blob.size },
+        body: blob.slice(sent, end),
+      });
+    } catch (e) { res = null; }                       // the connection went away
+    if (res && (res.status === 200 || res.status === 201)) {
+      item = await res.json().catch(() => ({}));
+      sent = blob.size;
+      if (onProgress) onProgress(sent, blob.size);
+      break;
+    }
+    if (res && res.status === 202) {
+      const b = await res.json().catch(() => ({}));
+      const next = (b.nextExpectedRanges || [])[0];
+      sent = next ? parseInt(next.split('-')[0], 10) : end;
+      fails = 0;
+      if (onProgress) onProgress(sent, blob.size);
+      continue;
+    }
+    if (res && (res.status === 404 || res.status === 410)) throw new Error('the upload expired — run the export again');
+    if (++fails > 5) throw new Error(res ? 'SharePoint refused a chunk (' + res.status + ')' : 'the connection dropped');
+    await new Promise(w => setTimeout(w, 1000 * fails));
+    // Ask the session where it got to rather than assume.
+    try {
+      const q = await fetch(j.uploadUrl, { method: 'GET' });
+      if (q.ok) {
+        const qj = await q.json();
+        const nx = (qj.nextExpectedRanges || [])[0];
+        if (nx) { sent = parseInt(nx.split('-')[0], 10); if (onProgress) onProgress(sent, blob.size); }
+      }
+    } catch (e) {}
+  }
+  return item || {};
+}
+async function sendExportToSharePoint(blob, name) {
+  const el = document.getElementById('exportCloud');
+  const btn = document.getElementById('exportCloudBtn');
+  const say = t => { if (el) el.textContent = t; };
+  const mb = n => (n / (1024 * 1024)).toFixed(1);
+  if (btn) btn.disabled = true;
+  try {
+    say('Sending ' + name + ' (' + mb(blob.size) + ' MB) — do not close the app…');
+    const item = await uploadBigFile(blob, name, exportCloudFolder(), (done, total) => {
+      say('Sending ' + name + ': ' + Math.floor(done / total * 100) + '% (' + mb(done) + ' of ' + mb(total) + ' MB)');
+    });
+    say('\u2713 In SharePoint: NPS/Audits/' + exportCloudFolder() + '/' + name);
+    return item;
+  } catch (e) {
+    say('\u26a0 Not sent: ' + e.message + ' — the export is still on this device.');
+    showToast('\u26a0 Not sent to SharePoint: ' + e.message, true);
+    return null;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 // Deleting saved work asks twice: the second question is the one that means it.
@@ -4840,7 +4941,7 @@ loadPriorAudit();
 // every release. The bottom bar shows it, and while a newer service worker
 // is still installing (the page is fresh, the cache is last release's) it
 // says so and settles once the new worker takes control.
-const APP_VERSION = '4.2';
+const APP_VERSION = '4.3';
 let _versionTries = 0;
 // '1.10' sorts after '1.9': compare each dotted part as a number.
 function versionCompare(a, b) {
