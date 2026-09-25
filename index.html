@@ -1066,9 +1066,9 @@ if ('serviceWorker' in navigator) {
     <div id="exportCloud" style="font-size:12px;color:var(--text-dim);margin-top:4px;"></div>
 
     <div class="dialog-actions" style="flex-wrap:wrap;">
-      <button class="btn btn-outline btn-sm" onclick="closeExportDialog()">Cancel</button>
-      <button class="btn btn-accent btn-sm" onclick="generateWordReport()">&#128196; Word Report</button>
-      <button class="btn btn-success btn-sm" onclick="runExport()">&#128230; Export ZIP</button>
+      <button class="btn btn-outline btn-sm" id="exportCancelBtn" onclick="closeExportDialog()">Cancel</button>
+      <button class="btn btn-accent btn-sm" id="exportWordBtn" onclick="generateWordReport()">&#128196; Word Report</button>
+      <button class="btn btn-success btn-sm" id="exportZipBtn" onclick="runExport()">&#128230; Export ZIP</button>
       <button class="btn btn-accent btn-sm" id="exportCloudBtn" onclick="runExport('cloud')">&#9729; Send to SharePoint</button>
     </div>
   </div>
@@ -1937,13 +1937,13 @@ function renderSavedPanel() {
     return `
       <div class="saved-item">
         ${thumb
-          ? `<img class="saved-item-thumb" src="${thumb}">`
+          ? `<img class="saved-item-thumb" src="${_attr(thumb)}">`
           : `<div class="saved-item-thumb-empty">&#128247;</div>`}
         <div class="saved-item-info">
           <div class="saved-item-name">${esc(e.location || '(No location)')}</div>
           ${e.protocolArea ? `<div class="saved-item-detail" style="font-size:11px;color:var(--text-dim);">${esc(e.protocolArea)}</div>` : ''}
           ${e.teamGuideCitation ? `<div class="saved-item-detail" style="font-size:11px;color:var(--text-dim);font-style:italic;">EC: ${esc(e.teamGuideCitation)}</div>` : ''}
-          ${e.score ? `<div class="saved-item-detail" style="font-size:11px;color:var(--text-dim);">${e.score === NOTE ? 'Note' : 'Priority ' + e.score}${e.descCode ? ' • ' + e.descCode : ''}${e.repeatOf ? ' • repeat of ' + repeatCitation(e.repeatOf) : ''}</div>` : ''}
+          ${e.score ? `<div class="saved-item-detail" style="font-size:11px;color:var(--text-dim);">${e.score === NOTE ? 'Note' : 'Priority ' + e.score}${e.descCode ? ' • ' + esc(e.descCode) : ''}${e.repeatOf ? ' • repeat of ' + esc(repeatCitation(e.repeatOf)) : ''}</div>` : ''}
           ${e.latitude != null ? `<div style="font-size:10px;color:var(--text-dim);">${e.latitude.toFixed(6)}\u00B0N, ${Math.abs(e.longitude).toFixed(6)}\u00B0${e.longitude < 0 ? 'W' : 'E'}</div>` : ''}
           <div class="saved-item-detail">
             ${photoCount} photo${photoCount !== 1 ? 's' : ''}
@@ -2058,7 +2058,7 @@ function editEntry(index) {
     if (photo && photo.thumbnail) {
       currentPhotos[slot] = { ...photo };
       el.classList.add('has-photo');
-      el.innerHTML = `<img src="${photo.thumbnail}"><span class="retake-badge">View</span><span class="saved-badge">\u2713</span>`;
+      el.innerHTML = `<img src="${_attr(photo.thumbnail)}"><span class="retake-badge">View</span><span class="saved-badge">\u2713</span>`;
     } else {
       el.classList.remove('has-photo');
       el.innerHTML = PH;
@@ -2086,7 +2086,7 @@ function editEntry(index) {
           <label>Photo ${num}</label>
           <div class="photo-capture ${photo && photo.thumbnail ? 'has-photo' : ''}" onclick="onPhotoTap('${slotId}')" id="photo_${slotId}">
             ${photo && photo.thumbnail
-              ? `<img src="${photo.thumbnail}"><span class="retake-badge">View</span><span class="saved-badge">\u2713</span>`
+              ? `<img src="${_attr(photo.thumbnail)}"><span class="retake-badge">View</span><span class="saved-badge">\u2713</span>`
               : PH}
           </div>
           <button class="browse-photo-btn" onclick="browsePhoto('${slotId}')" type="button">Browse Photo</button>
@@ -2108,6 +2108,7 @@ function editEntry(index) {
 }
 
 function saveEdit() {
+  if (photoCaptureBusy()) { showToast('A photo is still being saved \u2014 tap Save again in a moment', true); return; }
   const location = document.getElementById('siteName').value.trim();
   const details  = document.getElementById('entryDetails').value.trim();
   const score    = document.getElementById('entryScore').value.trim();
@@ -2120,6 +2121,19 @@ function saveEdit() {
     showToast('Tap a priority (1, 2a, 2b, 3, 4, P) or Note to score this entry first', true);
     return;
   }
+
+  // A retake that did not store has no bytes behind it. Keep the photo the entry
+  // already had rather than trade a good original for nothing: the reaper below
+  // deletes whatever the saved entry no longer points at.
+  const photos = Object.assign({}, currentPhotos);
+  const keptOriginal = [];
+  Object.keys(photos).forEach(slot => {
+    const cur = photos[slot], orig = (_editOriginalPhotos || {})[slot];
+    if (cur && cur.unsaved === true && orig && orig.dbKey && orig.dbKey !== cur.dbKey) {
+      photos[slot] = orig;
+      keptOriginal.push(PHOTO_SLOT_NAMES[slot] || 'an extra photo');
+    }
+  });
 
   // The list can change while an entry is open for editing (a delete, a backup
   // import), so the target is found by id, never by its old position.
@@ -2141,7 +2155,7 @@ function saveEdit() {
     longitude:   currentGPS ? currentGPS.longitude : null,
     gpsAccuracy: currentGPS ? currentGPS.accuracy  : null,
     timestamp:   (replaced && replaced.timestamp) || new Date().toISOString(),
-    photos:      Object.assign({}, currentPhotos)
+    photos:      photos
   };
 
   const updatedPark = savedEntries[target].park;
@@ -2161,7 +2175,8 @@ function saveEdit() {
   clearEntryForm(false);
   renderSavedPanel();
   updateHeaderBadge();
-  showToast('\u2714 Entry updated' + (updatedPark ? '' : ' \u2022 \u26a0 no park selected'), !updatedPark);
+  if (keptOriginal.length) showToast('\u2714 Entry updated \u2014 ' + keptOriginal.join(' and ') + ' kept the original; the retake did not save', true);
+  else showToast('\u2714 Entry updated' + (updatedPark ? '' : ' \u2022 \u26a0 no park selected'), !updatedPark);
 }
 
 function cancelEdit() {
@@ -2294,38 +2309,64 @@ function openPhotoDB() {
         const db = e.target.result;
         if (!db.objectStoreNames.contains('photos')) db.createObjectStore('photos');
       };
-      req.onsuccess = e => { photoDB = e.target.result; resolve(photoDB); };
+      req.onsuccess = e => {
+        const db = e.target.result;
+        // The browser can close this connection under us; the next call then
+        // opens a fresh one instead of failing on a dead handle.
+        db.onclose = () => { if (photoDB === db) photoDB = null; };
+        db.onversionchange = () => { try { db.close(); } catch (x) {} if (photoDB === db) photoDB = null; };
+        photoDB = db;
+        resolve(db);
+      };
       req.onerror   = e => { idbAvailable = false; reject(e); };
       req.onblocked = e => { idbAvailable = false; reject(e); };
     } catch(e) { idbAvailable = false; reject(e); }
   });
 }
 
+// WebKit drops IndexedDB connections — after the app has sat in the background,
+// or when its storage process restarts — and every transaction on the old handle
+// then fails. The cached connection is forgotten and the operation is tried once
+// more on a fresh one; without this, every stored photo read as missing until
+// the app was reloaded.
+function forgetPhotoDB() {
+  const db = photoDB; photoDB = null;
+  try { if (db) db.close(); } catch (e) {}
+}
+function lostPhotoDB(e) {
+  const err = (e && e.target && e.target.error) || e || {};
+  return err.name === 'InvalidStateError' || err.name === 'UnknownError' ||
+         /connection|closing|closed/i.test(String(err.message || ''));
+}
+function withPhotoDB(run) {
+  return openPhotoDB().then(run).catch(e => {
+    if (!lostPhotoDB(e)) throw e;
+    forgetPhotoDB();
+    return openPhotoDB().then(run);
+  });
+}
+
 function savePhotoToDB(key, buf, mime) {
-  return openPhotoDB().then(db => new Promise((resolve, reject) => {
-    try {
-      const tx = db.transaction('photos', 'readwrite');
-      tx.objectStore('photos').put({ data: buf, type: mime || 'image/jpeg', size: buf.byteLength }, key);
-      tx.oncomplete = () => resolve(true);
-      tx.onerror = reject;
-      tx.onabort = reject;
-    } catch(e) { reject(e); }
+  return withPhotoDB(db => new Promise((resolve, reject) => {
+    const tx = db.transaction('photos', 'readwrite');          // throws at once on a dead connection
+    tx.objectStore('photos').put({ data: buf, type: mime || 'image/jpeg', size: buf.byteLength }, key);
+    tx.oncomplete = () => resolve(true);
+    tx.onerror = () => reject(tx.error || new Error('photo write failed'));
+    tx.onabort = () => reject(tx.error || new Error('photo write aborted'));
   }));
 }
 
 function getPhotoFromDB(key) {
-  return openPhotoDB().then(db => new Promise((resolve) => {
-    try {
-      const req = db.transaction('photos','readonly').objectStore('photos').get(key);
-      req.onsuccess = () => {
-        const r = req.result;
-        if (!r) { resolve(null); return; }
-        if (r.data && (r.data instanceof ArrayBuffer || r.data.byteLength !== undefined)) resolve(r);
-        else if (r instanceof ArrayBuffer) resolve({ data: r, type: 'image/jpeg', size: r.byteLength });
-        else resolve(null);
-      };
-      req.onerror = () => resolve(null);
-    } catch(e) { resolve(null); }
+  return withPhotoDB(db => new Promise((resolve, reject) => {
+    const req = db.transaction('photos','readonly').objectStore('photos').get(key);
+    req.onsuccess = () => {
+      const r = req.result;
+      if (!r) { resolve(null); return; }
+      if (r.data && (r.data instanceof ArrayBuffer || r.data.byteLength !== undefined)) resolve(r);
+      else if (r instanceof ArrayBuffer) resolve({ data: r, type: 'image/jpeg', size: r.byteLength });
+      else resolve(null);
+    };
+    req.onerror = () => reject(req.error || new Error('photo read failed'));
   })).catch(() => null);
 }
 
@@ -2342,13 +2383,11 @@ function deletePhotoFromDB(key) {
   // The filesystem copy is waited for too: a caller that awaits this must be
   // able to rely on every copy being gone.
   const fs = Promise.resolve().then(() => fsDeletePhoto(key)).catch(() => {});
-  const idb = openPhotoDB().then(db => new Promise(resolve => {
-    try {
-      const tx = db.transaction('photos','readwrite');
-      tx.objectStore('photos').delete(key);
-      tx.oncomplete = resolve;
-      tx.onerror    = resolve;
-    } catch(e) { resolve(); }
+  const idb = withPhotoDB(db => new Promise((resolve, reject) => {
+    const tx = db.transaction('photos','readwrite');
+    tx.objectStore('photos').delete(key);
+    tx.oncomplete = resolve;
+    tx.onerror    = () => reject(tx.error || new Error('photo delete failed'));
   })).catch(() => {});
   return Promise.all([fs, idb]).then(() => {});
 }
@@ -2376,12 +2415,10 @@ function uint8ToBase64(bytes) {
   return btoa(binary);
 }
 function getAllPhotoKeys() {
-  return openPhotoDB().then(db => new Promise(resolve => {
-    try {
-      const req = db.transaction('photos','readonly').objectStore('photos').getAllKeys();
-      req.onsuccess = () => resolve(req.result || []);
-      req.onerror   = () => resolve([]);
-    } catch(e) { resolve([]); }
+  return withPhotoDB(db => new Promise((resolve, reject) => {
+    const req = db.transaction('photos','readonly').objectStore('photos').getAllKeys();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror   = () => reject(req.error || new Error('photo list failed'));
   })).catch(() => []);
 }
 
@@ -2559,6 +2596,19 @@ function abandonEdit(clearForm) {
 // Kept for the old name used elsewhere.
 function discardEditPhotos() { abandonEdit(false); }
 
+// Photos still being read, resized or written, by key, with when they started.
+// Save Edit waits for these: committing an edit mid-write swapped in a reference
+// to bytes that were not there yet, and never would be if the write failed. The
+// 30-second age limit means a capture that died without cleaning up can never
+// block saving for good.
+const _photoCapturesPending = new Map();
+function photoCaptureStarted(key) { _photoCapturesPending.set(key, Date.now()); }
+function photoCaptureDone(key) { _photoCapturesPending.delete(key); }
+function photoCaptureBusy() {
+  const now = Date.now();
+  for (const t of _photoCapturesPending.values()) { if (now - t < 30000) return true; }
+  return false;
+}
 function handlePhoto(input, slotId) {
   const file = input.files[0];
   if (!file) return;
@@ -2571,6 +2621,7 @@ function handlePhoto(input, slotId) {
     ? photoDBKey(currentEntryId, slotId + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 4))
     : photoDBKey(currentEntryId, slotId);
   if (editingIndex !== null) _editPhotoKeys.push(dbKey);
+  photoCaptureStarted(dbKey);
   // If the entry moves on while the camera photo is still being resized and
   // written (Cancel Edit, Save & New), the finished photo belongs to nothing.
   const entryAtCapture = currentEntryId;
@@ -2580,81 +2631,91 @@ function handlePhoto(input, slotId) {
   reader.onload = e => {
     const img = new Image();
     img.onload = async () => {
-      let w = img.width, h = img.height;
-      if (w > settings.maxWidth || h > settings.maxHeight) {
-        const ratio = Math.min(settings.maxWidth / w, settings.maxHeight / h);
-        w = Math.round(w * ratio);
-        h = Math.round(h * ratio);
-      }
-      const canvas = document.createElement('canvas');
-      canvas.width = w; canvas.height = h;
-      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-      const dataUrl = canvas.toDataURL('image/jpeg', settings.quality);
+      try {
+        let w = img.width, h = img.height;
+        if (w > settings.maxWidth || h > settings.maxHeight) {
+          const ratio = Math.min(settings.maxWidth / w, settings.maxHeight / h);
+          w = Math.round(w * ratio);
+          h = Math.round(h * ratio);
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        const dataUrl = canvas.toDataURL('image/jpeg', settings.quality);
 
-      // Thumbnail for UI
-      const tc = document.createElement('canvas');
-      const ts2 = Math.min(80 / w, 1);
-      tc.width  = Math.round(w * ts2);
-      tc.height = Math.round(h * ts2);
-      tc.getContext('2d').drawImage(canvas, 0, 0, tc.width, tc.height);
-      const thumbnail = tc.toDataURL('image/jpeg', 0.4);
+        // Thumbnail for UI
+        const tc = document.createElement('canvas');
+        const ts2 = Math.min(80 / w, 1);
+        tc.width  = Math.round(w * ts2);
+        tc.height = Math.round(h * ts2);
+        tc.getContext('2d').drawImage(canvas, 0, 0, tc.width, tc.height);
+        const thumbnail = tc.toDataURL('image/jpeg', 0.4);
 
-      if (currentEntryId !== entryAtCapture) {
-        // Save & New or Cancel Edit happened while this photo was being decoded:
-        // it must not be stamped onto the entry that is on the form now, and you
-        // need to know it did not make it.
-        try { deletePhotoFromDB(dbKey); } catch (e) {}
-        showToast('⚠ Photo discarded — the entry moved on before it finished. Take it again.', true);
-        return;
-      }
-      currentPhotos[slotId] = { timestamp: ts, thumbnail, fileType: 'image/jpeg', dbKey };
-
-      const container = document.getElementById('photo_' + slotId);
-      container.classList.add('has-photo');
-      container.innerHTML = `<img src="${thumbnail}"><span class="retake-badge">View</span><span class="saved-badge" style="background:rgba(224,164,74,0.9);">\u2026</span>`;
-
-      // Persist durably and CONFIRM it stuck; surface failures loudly instead of
-      // silently continuing.
-      const _res = await storePhotoBytes(dbKey, dataUrl);
-      if (currentEntryId !== entryAtCapture) {
-        // The form moved to another entry while this was being written. Save &
-        // New carries the photo into the entry it was taken for, and those bytes
-        // belong to that finding now: deleting them would leave it pointing at
-        // nothing. Only an unclaimed photo is discarded.
-        if (allReferencedPhotoKeys().indexOf(dbKey) < 0) {
-          try { deletePhotoFromDB(dbKey); } catch (e) {}
-          showToast('⚠ Photo discarded — the entry moved on before it finished. Take it again.', true);
+        if (currentEntryId !== entryAtCapture) {
+          // Save & New or Cancel Edit happened while this photo was being decoded:
+          // it must not be stamped onto the entry that is on the form now, and you
+          // need to know it did not make it. Nothing of THIS photo has been written
+          // yet, so any bytes under its key belong to an earlier photo — and a
+          // retake shares its key with the original, which the saved finding owns.
+          const owned = allReferencedPhotoKeys().indexOf(dbKey) >= 0;
+          if (!owned) { try { deletePhotoFromDB(dbKey); } catch (e) {} }
+          showToast(owned ? '⚠ Retake discarded — the entry moved on before it finished. The finding kept its original photo.'
+                          : '⚠ Photo discarded — the entry moved on before it finished. Take it again.', true);
           return;
         }
-        savedEntries.forEach(en => Object.values(en.photos || {}).forEach(ph => { if (ph && ph.dbKey === dbKey) ph.unsaved = !_res.ok; }));
-        saveAll();
-        if (_res.ok) queueBackup('photo', dbKey);
-        else showToast('⚠ Photo did NOT save — storage problem. Export & clear now.', true);
+        currentPhotos[slotId] = { timestamp: ts, thumbnail, fileType: 'image/jpeg', dbKey };
+
+        const container = document.getElementById('photo_' + slotId);
+        container.classList.add('has-photo');
+        container.innerHTML = `<img src="${thumbnail}"><span class="retake-badge">View</span><span class="saved-badge" style="background:rgba(224,164,74,0.9);">\u2026</span>`;
+
+        // Persist durably and CONFIRM it stuck; surface failures loudly instead of
+        // silently continuing.
+        const _res = await storePhotoBytes(dbKey, dataUrl);
+        if (currentEntryId !== entryAtCapture) {
+          // The form moved to another entry while this was being written. Save &
+          // New carries the photo into the entry it was taken for, and those bytes
+          // belong to that finding now: deleting them would leave it pointing at
+          // nothing. Only an unclaimed photo is discarded.
+          if (allReferencedPhotoKeys().indexOf(dbKey) < 0) {
+            try { deletePhotoFromDB(dbKey); } catch (e) {}
+            showToast('⚠ Photo discarded — the entry moved on before it finished. Take it again.', true);
+            return;
+          }
+          savedEntries.forEach(en => Object.values(en.photos || {}).forEach(ph => { if (ph && ph.dbKey === dbKey) ph.unsaved = !_res.ok; }));
+          saveAll();
+          if (_res.ok) queueBackup('photo', dbKey);
+          else showToast('⚠ Photo did NOT save — storage problem. Export & clear now.', true);
+          updateIntegrityBadge();
+          return;
+        }
+        const sizeKB = Math.round(dataUrl.length * 0.75 / 1024);
+        if (_res.ok) {
+          currentPhotos[slotId].unsaved = false;
+          queueBackup('photo', dbKey);
+          container.innerHTML = `<img src="${thumbnail}"><span class="retake-badge">View</span><span class="saved-badge">\u2713</span>`;
+          showToast(`${PHOTO_SLOT_NAMES[slotId] || 'Photo'} saved (~${sizeKB} KB)`);
+        } else {
+          currentPhotos[slotId].unsaved = true;
+          container.innerHTML = `<img src="${thumbnail}"><span class="retake-badge">View</span><span class="saved-badge" style="background:rgba(200,40,40,0.95);">\u26a0 NOT SAVED</span>`;
+          showToast('\u26a0 Photo did NOT save \u2014 storage problem. Export & clear now.', true);
+        }
         updateIntegrityBadge();
-        return;
-      }
-      const sizeKB = Math.round(dataUrl.length * 0.75 / 1024);
-      if (_res.ok) {
-        currentPhotos[slotId].unsaved = false;
-        queueBackup('photo', dbKey);
-        container.innerHTML = `<img src="${thumbnail}"><span class="retake-badge">View</span><span class="saved-badge">\u2713</span>`;
-        showToast(`${PHOTO_SLOT_NAMES[slotId] || 'Photo'} saved (~${sizeKB} KB)`);
-      } else {
-        currentPhotos[slotId].unsaved = true;
-        container.innerHTML = `<img src="${thumbnail}"><span class="retake-badge">View</span><span class="saved-badge" style="background:rgba(200,40,40,0.95);">\u26a0 NOT SAVED</span>`;
-        showToast('\u26a0 Photo did NOT save \u2014 storage problem. Export & clear now.', true);
-      }
-      updateIntegrityBadge();
 
-      // Auto-capture GPS with each photo
-      if (!currentGPS) {
-        captureGPS(true).catch(() => {});
-      }
+        // Auto-capture GPS with each photo
+        if (!currentGPS) {
+          captureGPS(true).catch(() => {});
+        }
 
-      autoSaveCurrent();
+        autoSaveCurrent();
+      } finally {
+        photoCaptureDone(dbKey);          // however it ended, it is no longer in progress
+      }
     };
+    img.onerror = () => { photoCaptureDone(dbKey); showToast('\u26a0 That photo could not be read \u2014 take it again.', true); };
     img.src = e.target.result;
   };
+  reader.onerror = () => { photoCaptureDone(dbKey); showToast('\u26a0 That photo could not be read \u2014 take it again.', true); };
   reader.readAsDataURL(file);
 }
 
@@ -2745,11 +2806,16 @@ function showExportDialog() {
   updateRefPreview();
   updateExportCount();
   updateExportGapsNote();
+  // A finished run's result is cleared on the next open; a run still going keeps its progress.
+  if (!_exportBusy) { const c = document.getElementById('exportCloud'); if (c) c.textContent = ''; }
+  paintExportButtons();
   document.getElementById('exportOverlay').style.display = 'flex';
 }
 
 function closeExportDialog() {
   document.getElementById('exportOverlay').style.display = 'none';
+  // The upload carries on with the dialog closed: say so, and that a message will follow.
+  if (_exportBusy && _exportMode === 'cloud') showToast('Still sending to SharePoint \u2014 keep the app open. A message will say when it is done.');
 }
 
 // ---- Date filter for export ----
@@ -2875,9 +2941,32 @@ function buildPhotoName(entry, seqNum) {
   return `${datePart}_${locPart}_${numPart}`;
 }
 
+// One export at a time, whichever button started it. Sending to SharePoint keeps
+// the dialog open so its progress and the "keep the app open" warning can be
+// seen, and the Word, ZIP and SharePoint buttons are locked until it is done. The
+// dialog itself can always be closed: a stalled upload must never trap anyone in it.
+let _exportBusy = false, _exportMode = '';
+function paintExportButtons() {
+  ['exportWordBtn', 'exportZipBtn', 'exportCloudBtn'].forEach(id => { const b = document.getElementById(id); if (b) b.disabled = _exportBusy; });
+  const c = document.getElementById('exportCancelBtn');
+  if (c) c.textContent = (_exportBusy || (document.getElementById('exportCloud') || {}).textContent) ? 'Close' : 'Cancel';
+}
 async function runExport(mode) {
-  closeExportDialog();
-
+  if (_exportBusy) { showToast('An export is already running', true); return; }
+  _exportBusy = true; _exportMode = mode === 'cloud' ? 'cloud' : 'share';
+  const status = document.getElementById('exportCloud');
+  if (_exportMode === 'cloud') { if (status) status.textContent = 'Building the export\u2026'; }
+  else closeExportDialog();
+  paintExportButtons();
+  try {
+    await buildAndSendExport(mode);
+  } finally {
+    _exportBusy = false; _exportMode = '';
+    if (status && status.textContent === 'Building the export\u2026') status.textContent = '';
+    paintExportButtons();
+  }
+}
+async function buildAndSendExport(mode) {
   let allEntries = JSON.parse(JSON.stringify(savedEntries));
   // NPS-only: the location carries over between entries, so a draft counts
   // only once it has a description or a photo.
@@ -3127,7 +3216,7 @@ async function runExport(mode) {
       // A cancelled share sheet means nothing left the device: no record, no offer to delete.
       if (!await shareOrDownload(blob, zipName)) { showToast('Export cancelled \u2014 nothing was saved or sent', true); return; }
     }
-    showToast(`Exported ${allEntries.length} entries, ${photoCount} photos${wordFiles.length ? ' + ' + wordFiles.join(' and ') : ''}${misses ? ' (⚠ ' + misses + ' missing)' : ''}${wordSkipped ? ' — Word files left out, go online once' : ''}`, !!(misses || wordSkipped));
+    showToast(`${mode === 'cloud' ? '\u2713 Sent to SharePoint \u2014 ' : 'Exported '}${allEntries.length} entries, ${photoCount} photos${wordFiles.length ? ' + ' + wordFiles.join(' and ') : ''}${misses ? ' (⚠ ' + misses + ' missing)' : ''}${wordSkipped ? ' — Word files left out, go online once' : ''}`, !!(misses || wordSkipped));
 
     // Offer to batch-delete the just-exported entries from this device.
     const exportedIds = allEntries.map(e => e.id).filter(Boolean);
@@ -3234,7 +3323,12 @@ function handleBackupFile(event) {
       if (parsed.tanks && parsed.tanks.rows && !tankRows().length) { tankData = cleanTankData(parsed.tanks); saveTankData(); }
       if (Array.isArray(parsed.people) && !peopleList.length) { peopleList = cleanPeople(parsed.people); savePeople(); }
       if (parsed.audit && !auditInfoFilled()) { auditInfo = normaliseAuditInfo(parsed.audit); saveAuditInfo(); }
-      if (parsed.prior && parsed.prior.findings && !priorFindings().length) { priorAudit = parsed.prior; savePriorAudit(); }
+      // The prior audit comes back whole from a file anyone could have edited: its
+      // findings must be a list and its year a year, or it is left out.
+      if (parsed.prior && typeof parsed.prior === 'object' && Array.isArray(parsed.prior.findings) && !priorFindings().length) {
+        priorAudit = Object.assign({}, parsed.prior, { year: parseInt(parsed.prior.year, 10) || '' });
+        savePriorAudit();
+      }
       let sitesRestored = 0;
       if (Array.isArray(parsed.sites) && parsed.sites.length && !(locSites || []).length) { locSites = cleanSites(parsed.sites); sitesRestored = locSites.length; saveSites(); }
       renderSavedPanel();
@@ -3269,17 +3363,28 @@ function normaliseEntry(e) {
   };
 }
 
+// A thumbnail is a small JPEG/PNG/WebP data URL and nothing else. Restored ones
+// come from a file anyone could have edited, and they go into <img src>.
+function safeThumb(v) {
+  const t = typeof v === 'string' ? v : '';
+  return t.length <= 400000 && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+\/]+={0,2}$/.test(t) ? t : '';
+}
 // A restored entry keeps its photo references: the bytes are still on the device
-// under the same keys. Anything without a key is dropped, and the integrity
+// under the same keys. Only the shapes the app itself makes are accepted — slot
+// names and keys end up in element ids and inline handlers — and the integrity
 // check reports whatever the bytes cannot back up.
 function cleanPhotoMap(ph) {
   const out = {};
-  if (!ph || typeof ph !== 'object') return out;
+  if (!ph || typeof ph !== 'object' || Array.isArray(ph)) return out;
   Object.keys(ph).forEach(k => {
     const p = ph[k];
-    if (!p || typeof p !== 'object' || !p.dbKey) return;
-    out[k] = { timestamp: p.timestamp || '', thumbnail: typeof p.thumbnail === 'string' ? p.thumbnail : '',
-               fileType: p.fileType || 'image/jpeg', dbKey: String(p.dbKey), unsaved: !!p.unsaved };
+    if (!/^[\w-]{1,60}$/.test(k) || !p || typeof p !== 'object') return;
+    const key = String(p.dbKey || '');
+    if (!/^[\w.-]{1,200}$/.test(key)) return;
+    out[k] = { timestamp: typeof p.timestamp === 'string' && /^[\dT:.+\-Z ]{0,40}$/.test(p.timestamp) ? p.timestamp : '',
+               thumbnail: safeThumb(p.thumbnail),
+               fileType: p.fileType === 'image/png' ? 'image/png' : 'image/jpeg',
+               dbKey: key, unsaved: !!p.unsaved };
   });
   return out;
 }
@@ -3965,7 +4070,7 @@ function loadAll() {
         const el = document.getElementById('photo_' + slot);
         if (el) {
           el.classList.add('has-photo');
-          el.innerHTML = `<img src="${currentPhotos[slot].thumbnail}"><span class="retake-badge">View</span><span class="saved-badge">\u2713</span>`;
+          el.innerHTML = `<img src="${_attr(currentPhotos[slot].thumbnail)}"><span class="retake-badge">View</span><span class="saved-badge">\u2713</span>`;
         }
       }
     });
@@ -4045,26 +4150,22 @@ async function checkStorage() {
 }
 
 function estimateIDBSize() {
-  return new Promise((resolve, reject) => {
-    if (!photoDB) { resolve(0); return; }
-    try {
-      const tx = photoDB.transaction('photos', 'readonly');
-      const store = tx.objectStore('photos');
-      let total = 0;
-      const cursor = store.openCursor();
-      cursor.onsuccess = e => {
-        const c = e.target.result;
-        if (c) {
-          const val = c.value;
-          if (val && val.data) total += val.data.byteLength || 0;
-          c.continue();
-        } else {
-          resolve(total);
-        }
-      };
-      cursor.onerror = () => resolve(0);
-    } catch(e) { resolve(0); }
-  });
+  if (!idbAvailable) return Promise.resolve(0);
+  return withPhotoDB(db => new Promise((resolve, reject) => {
+    const cursor = db.transaction('photos', 'readonly').objectStore('photos').openCursor();
+    let total = 0;
+    cursor.onsuccess = e => {
+      const c = e.target.result;
+      if (c) {
+        const val = c.value;
+        if (val && val.data) total += val.data.byteLength || 0;
+        c.continue();
+      } else {
+        resolve(total);
+      }
+    };
+    cursor.onerror = () => reject(cursor.error || new Error('size estimate failed'));
+  })).catch(() => 0);
 }
 
 function checkPreviousDayEntries() {
@@ -4198,10 +4299,8 @@ async function uploadBigFile(blob, path, folder, onProgress) {
 }
 async function sendExportToSharePoint(blob, name) {
   const el = document.getElementById('exportCloud');
-  const btn = document.getElementById('exportCloudBtn');
   const say = t => { if (el) el.textContent = t; };
   const mb = n => (n / (1024 * 1024)).toFixed(1);
-  if (btn) btn.disabled = true;
   try {
     say('Sending ' + name + ' (' + mb(blob.size) + ' MB) — do not close the app…');
     const item = await uploadBigFile(blob, name, exportCloudFolder(), (done, total) => {
@@ -4210,11 +4309,11 @@ async function sendExportToSharePoint(blob, name) {
     say('\u2713 In SharePoint: ' + (backupTargetLabel() ? backupTargetLabel() + ' → ' : '') + exportCloudFolder() + '/' + name);
     return item;
   } catch (e) {
-    say('\u26a0 Not sent: ' + e.message + ' — the export is still on this device.');
+    // The ZIP only ever existed in memory: say what is true, which is that nothing
+    // was marked as exported and it can simply be sent again.
+    say('\u26a0 Not sent: ' + e.message + '. Nothing was marked as exported \u2014 send it again, or use Export ZIP.');
     showToast('\u26a0 Not sent to SharePoint: ' + e.message, true);
     return null;
-  } finally {
-    if (btn) btn.disabled = false;
   }
 }
 
@@ -4759,10 +4858,12 @@ function renderPriorList() {
       '<br><span style="font-size:12px;">Findings can then be marked as repeats, and the export writes the repeat citation for you.</span></div>';
     return;
   }
-  src.innerHTML = esc(priorAudit.source || 'Imported') + ' · <b>' + priorAudit.year + ' audit</b> · ' + all.length + ' findings';
+  src.innerHTML = esc(priorAudit.source || 'Imported') + ' · <b>' + esc(String(priorAudit.year || '')) + ' audit</b> · ' + all.length + ' findings';
   const parks = [...new Set(all.map(f => f.park).filter(Boolean))].sort();
   const codes = [...new Set(all.map(f => f.code).filter(Boolean))].sort();
-  const chip = (v, label) => '<button type="button" class="tg-chip' + (priorChip === v ? ' active' : '') + '" onclick="setPriorChip(\'' + v + '\')">' + esc(label) + '</button>';
+  // The value comes from an imported workbook or a restored backup, so it travels
+  // as a data attribute and never inside the handler's JavaScript.
+  const chip = (v, label) => '<button type="button" class="tg-chip' + (priorChip === v ? ' active' : '') + '" data-v="' + _attr(v) + '" onclick="setPriorChip(this.dataset.v)">' + esc(label) + '</button>';
   chips.innerHTML = chip('', 'All') + (parks.length > 1 ? parks.map(p => chip(p, p)).join('') : '') + codes.map(c => chip(c, c)).join('');
   const q = document.getElementById('priorSearch').value.trim().toLowerCase();
   const terms = q ? q.split(/\s+/) : [];
@@ -4942,7 +5043,7 @@ loadPriorAudit();
 // every release. The bottom bar shows it, and while a newer service worker
 // is still installing (the page is fresh, the cache is last release's) it
 // says so and settles once the new worker takes control.
-const APP_VERSION = '4.5';
+const APP_VERSION = '4.6';
 let _versionTries = 0;
 // '1.10' sorts after '1.9': compare each dotted part as a number.
 function versionCompare(a, b) {
@@ -5014,7 +5115,7 @@ function cleanTankData(t) {
     Object.keys(ps).forEach(k => {
       const ph = ps[k];
       if (!ph || typeof ph !== 'object' || !/^[\w-]+$/.test(k)) return;
-      photos[k] = { timestamp: String(ph.timestamp || ''), thumbnail: /^data:image\//.test(String(ph.thumbnail || '')) ? String(ph.thumbnail) : '',
+      photos[k] = { timestamp: String(ph.timestamp || ''), thumbnail: safeThumb(ph.thumbnail),
         fileType: String(ph.fileType || 'image/jpeg'), dbKey: String(ph.dbKey || '').replace(/[^\w-]/g, '_') };
     });
     return {
@@ -5035,7 +5136,7 @@ function cleanPeople(list) {
 }
 function loadTankData() { try { tankData = cleanTankData(JSON.parse(localStorage.getItem(LS_TANKS) || 'null')); } catch (e) { tankData = null; } }
 function saveTankData() {
-  clearTimeout(_tankSaveTimer);
+  clearTimeout(_tankSaveTimer); _tankSaveTimer = null;
   let ok = true;
   try { localStorage.setItem(LS_TANKS, JSON.stringify(tankData)); }
   catch (e) { ok = false; showToast('Storage issue — export soon', true); }
@@ -5212,7 +5313,7 @@ async function handleTankFile(event) {
 
 // ---- The tank list ----
 function showTankList() { renderTankList(); document.getElementById('tankOverlay').style.display = 'flex'; }
-function closeTankList() { saveTankData(); document.getElementById('tankOverlay').style.display = 'none'; }
+function closeTankList() { flushPendingSaves(); document.getElementById('tankOverlay').style.display = 'none'; }
 
 function tankPlanHtml(r) {
   if (r.added) return '<div class="tk-plan"><b>Not in the plan</b> — found on site.</div>';
@@ -5547,7 +5648,13 @@ function cleanSites(list) {
     if (!s.id || typeof s.id !== 'string') s.id = 'st_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
     s.id = s.id.replace(/[^\w-]/g, '_');
     if (!s.photos || typeof s.photos !== 'object' || Array.isArray(s.photos)) s.photos = {};
-    Object.keys(s.photos).forEach(k => { if (!s.photos[k] || typeof s.photos[k] !== 'object' || !/^[\w-]+$/.test(k)) delete s.photos[k]; });
+    Object.keys(s.photos).forEach(k => {
+      const ph = s.photos[k];
+      if (!ph || typeof ph !== 'object' || !/^[\w-]+$/.test(k) || !/^[\w.-]{1,200}$/.test(String(ph.dbKey || ''))) { delete s.photos[k]; return; }
+      ph.thumbnail = safeThumb(ph.thumbnail);
+      ph.caption = typeof ph.caption === 'string' ? ph.caption : '';
+      ph.facing = typeof ph.facing === 'string' && /^[A-Z]{0,6}$/.test(ph.facing) ? ph.facing : '';
+    });
     ['name', 'siteId', 'contacts', 'notes', 'park'].forEach(f => { if (s[f] != null && typeof s[f] !== 'string') s[f] = String(s[f]); });
     return s;
   });
@@ -5557,7 +5664,7 @@ function loadSites() {
   locSites = cleanSites(v);
 }
 function saveSites() {
-  clearTimeout(_siteSaveTimer);
+  clearTimeout(_siteSaveTimer); _siteSaveTimer = null;
   try { localStorage.setItem(LS_LOC_SITES, JSON.stringify(locSites)); }
   catch (e) { showToast('Storage issue — export soon', true); }
   try { queueBackup('state'); } catch (e) {}
@@ -5672,14 +5779,14 @@ function toggleCompass() {
 }
 
 // ---- The site list ----
-const _attr = v => esc(String(v == null ? '' : v)).replace(/"/g, '&quot;');
+function _attr(v) { return esc(String(v == null ? '' : v)).replace(/"/g, '&quot;'); }
 function showSiteList() {
   renderSiteList(); document.getElementById('locSiteOverlay').style.display = 'flex';
   // Opening the list is a tap, so iOS lets the compass start here without a prompt once allowed.
   if (compassOn) startCompass().then(paintCompassChip);
   paintCompassChip();
 }
-function closeSiteList() { saveSites(); stopCompass(); document.getElementById('locSiteOverlay').style.display = 'none'; }
+function closeSiteList() { flushPendingSaves(); stopCompass(); document.getElementById('locSiteOverlay').style.display = 'none'; }
 
 function siteChipsHtml(s, key) {
   const c = SITE_CHOICES[key];
@@ -5988,12 +6095,19 @@ function saveBackupQueue() {
 }
 // Which SharePoint destinations an administrator has set up. The device only
 // ever names one of these keys; the endpoint knows the libraries.
+let _backupTargetsLoading = null, _backupTargetsAskedAt = 0;
 async function loadBackupTargets(force) {
   if (backupTargets && !force) return backupTargets;
+  // One request at a time: every caller shares the one already in flight.
+  if (_backupTargetsLoading) return _backupTargetsLoading;
+  _backupTargetsAskedAt = Date.now();
+  _backupTargetsLoading = fetchBackupTargets();
+  try { return await _backupTargetsLoading; } finally { _backupTargetsLoading = null; }
+}
+async function fetchBackupTargets() {
   try {
     const r = await fetch(backupCfg.url, { method: 'GET', credentials: 'include' });
-    const j = await r.json();
-    if (Array.isArray(j.targets)) backupTargets = j.targets;
+    if (r.ok) { const j = await r.json(); if (Array.isArray(j.targets)) backupTargets = j.targets; }
   } catch (e) {}
   // A destination that has been taken away would otherwise leave this device
   // refused for ever, with no way back when the list is down to one and the
@@ -6238,15 +6352,25 @@ function backupFolder() {
   return park + '/' + new Date().getFullYear() + '/Live Backup';
 }
 // Settings dialog
-function paintBackupSettings(skipRefresh) {
+// `later` is a repaint after the dialog is already open — an answer arriving from
+// the network. It updates what the app knows, never what the auditor may be
+// typing: the tick and the folder are only filled in when the dialog opens.
+function paintBackupSettings(later) {
   const o = document.getElementById('backupOn');
   if (!o) return;
-  if (!skipRefresh) refreshBackupUser();
-  o.checked = !!backupCfg.on;
-  const f = document.getElementById('backupFolder'); if (f) f.value = backupCfg.folder || '';
+  if (!later) {
+    refreshBackupUser();
+    o.checked = !!backupCfg.on;
+    const f = document.getElementById('backupFolder'); if (f) f.value = backupCfg.folder || '';
+  }
   const sel = document.getElementById('backupTarget');
   if (sel) {
-    if (!backupTargets && backupUser) loadBackupTargets().then(() => paintBackupSettings(true));
+    // Ask for the destination list at most once a minute from here, and repaint
+    // only when an answer actually arrives. Offline, or with an expired session,
+    // the answer is a failure, and asking again the moment it failed used to
+    // loop without end.
+    if (!backupTargets && backupUser && !_backupTargetsLoading && Date.now() - _backupTargetsAskedAt > 60000)
+      loadBackupTargets().then(t => { if (t) paintBackupSettings(true); });
     const list = backupTargets || [];
     sel.style.display = list.length > 1 ? '' : 'none';
     const want = backupCfg.target || (list[0] && list[0].key) || '';
@@ -6306,13 +6430,18 @@ function backupEverythingNow() {
 loadBackupCfg();
 refreshBackupUser();
 window.addEventListener('online', () => { _backupPauseUntil = 0; drainBackupQueue(); });
-// iOS discards a backgrounded web app without warning: flush anything still
-// sitting on a debounce timer before the app can be taken away.
-window.addEventListener('pagehide', () => {
-  try { saveTankData(); } catch (e) {}
-  try { saveSites(); } catch (e) {}
-  try { autoSaveCurrent(); } catch (e) {}
-});
+// iOS discards a backgrounded web app without warning, so anything still waiting
+// on a debounce timer is written when the app is hidden or closed. ONLY that:
+// every other edit was saved the moment it was made, and writing everything this
+// copy holds would put a stale copy's lists over newer work saved by another
+// copy — a second tab, or the Home Screen icon beside a browser tab.
+function flushPendingSaves() {
+  if (_tankSaveTimer) { try { saveTankData(); } catch (e) {} }
+  if (_siteSaveTimer) { try { saveSites(); } catch (e) {} }
+}
+window.addEventListener('pagehide', flushPendingSaves);
+// pagehide does not fire when iOS merely backgrounds the app; this does.
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushPendingSaves(); });
 setInterval(() => drainBackupQueue(), 30000);
 
 // ---- Personnel ----
