@@ -438,7 +438,7 @@ Region labels come from the boundary data's `REGION` field (`AKR IMR MWR NCR NER
 - **Untrusted input.** Imported workbooks, tank tables and JSON backups are checked where they enter and escaped where they are shown (§4); location names in picker `onclick` handlers get quote-escaping. The app never renders remote content.
 - **Cookies:** only the Static Web Apps session cookie, after sign-in. No analytics, no telemetry.
 - **Public by design.** The Azure URL, the repository and these documents are public. Nothing secret lives in the repo; settings with secrets exist only in Azure.
-- **`privacy.html`** was written for the offline-only app and says the App itself does not transmit data to any server. That stops being true once live backup is switched on, so the policy needs revising before it is relied on — and before any App Store submission.
+- **`privacy.html`** (effective 2026-09-26) describes all of this in plain language: what is collected, when data leaves the device, Microsoft sign-in, protection, retention and the third parties. Change it whenever a feature changes what is collected or where it goes.
 
 ## 16. Known constraints & sharp edges (institutional memory, inherited from USFS)
 

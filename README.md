@@ -47,7 +47,7 @@ NPS-Photo-Tool/
 │   └── upload-session/          ←   starts a large-file upload for the export ZIP
 ├── staticwebapp.config.json     ← Azure Static Web Apps routes, cache headers, sign-in on the API routes
 ├── .github/workflows/           ← Deploys the app and the functions on every push to main
-├── privacy.html                 ← Privacy policy (App Store review requirement; predates live backup, see ARCHITECTURE §15)
+├── privacy.html                 ← Privacy policy (App Store review requirement), covering live backup and sign-in
 ├── package.json, capacitor.config.json, ios/   ← Capacitor 8 iOS shell (scaffold only so far)
 └── *.md                         ← ARCHITECTURE, Status, Azure + TestFlight playbooks
 ```
