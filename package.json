@@ -6,6 +6,7 @@
   "scripts": {
     "build": "rm -rf www/vendor && mkdir -p www/vendor && cp index.html sw.js manifest.json envirocheck_checklists.json nps_locations.json www/ && cp vendor/*.js vendor/LICENSE-* www/vendor/",
     "sync": "npm run build && npx cap sync ios",
+    "test": "node tests/offline.test.js",
     "open": "npx cap open ios"
   },
   "repository": {
@@ -27,6 +28,7 @@
     "@capacitor/ios": "^8.3.0"
   },
   "devDependencies": {
-    "mammoth": "^1.12.0"
+    "mammoth": "^1.12.0",
+    "playwright": "^1.63.0"
   }
 }

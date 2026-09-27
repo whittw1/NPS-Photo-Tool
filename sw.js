@@ -1,6 +1,6 @@
 // Service worker for the NPS Audit Photo Collector.
 // Keep the number in step with APP_VERSION in index.html (shown in the bottom bar).
-const CACHE_NAME = 'nps-collector-v4.8';
+const CACHE_NAME = 'nps-collector-v4.9';
 // The libraries come before the 4 MB location file: a signal lost late in the
 // install then costs the data file, which the next online open refreshes, and
 // not the export. Their file names carry the version, so a name always means
@@ -82,6 +82,7 @@ self.addEventListener('install', event => {
     const cache = await caches.open(CACHE_NAME);
     for (const u of URLS_TO_CACHE) {
       try {
+        if (LIBRARIES.includes(u) && await reuseLibrary(cache, u)) continue;
         const request = new Request(u, { cache: 'reload' });
         const response = await fetch(request);
         if (await isGenuine(request, response.clone())) await cache.put(request, response);
@@ -91,6 +92,16 @@ self.addEventListener('install', event => {
   self.skipWaiting();
 });
 
+// A library's file name carries its version, so an older cache's copy under the
+// same name is the same file: copy it instead of downloading it again, which
+// also keeps a download dropped during the install from costing the export.
+async function reuseLibrary(cache, u) {
+  const held = await caches.match(u);
+  if (!held) return false;
+  await cache.put(u, held);
+  return true;
+}
+
 // Activate — clean up old caches only once this one holds what the app needs.
 // Installed behind a wifi portal, the previous version stays and keeps working.
 self.addEventListener('activate', event => {
@@ -98,15 +109,11 @@ self.addEventListener('activate', event => {
     const cache = await caches.open(CACHE_NAME);
     const have = await Promise.all(ESSENTIAL.map(u => cache.match(u)));
     if (have.every(Boolean)) {
-      // A library this install could not fetch is taken from an older cache
-      // before that cache goes, so a dropped download never costs the offline
-      // export. Same versioned name, same file.
+      // One last look before the older caches go, for a library that reached
+      // them only while this install was running.
       for (const u of LIBRARIES) {
-        try {
-          if (await cache.match(u)) continue;
-          const old = await caches.match(u);
-          if (old) await cache.put(u, old);
-        } catch (e) { /* the fetch handler fills it in on the next online open */ }
+        try { if (!await cache.match(u)) await reuseLibrary(cache, u); }
+        catch (e) { /* the fetch handler fills it in on the next online open */ }
       }
       const keys = await caches.keys();
       await Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)));
@@ -134,10 +141,12 @@ async function cacheIfGenuine(request, response) {
   } catch (e) { /* leave the stored copy alone */ }
 }
 
-// One of the precached libraries, by path.
-const LIBRARY_PATHS = LIBRARIES.map(u => new URL(u, self.location.href).pathname);
+// Any library under vendor/, not only this release's: a page from a newer
+// release, served by this worker before its own worker installs, asks for
+// file names this worker's list does not have.
+const VENDOR_PATH = new URL('./vendor/', self.location.href).pathname;
 function isLibrary(path) {
-  return LIBRARY_PATHS.includes(path);
+  return path.startsWith(VENDOR_PATH) && path.endsWith('.js');
 }
 
 // Fetch — network-first for the page and the data, cache-first for other assets.
@@ -177,8 +186,8 @@ self.addEventListener('fetch', event => {
       const cached = await caches.match(event.request);
       if (cached) return cached;
       const response = await fetch(event.request);
-      // A library the install missed is stored the first time the page gets it,
-      // so one online open completes the offline copy.
+      // A library missing from the cache is stored the first time the page gets
+      // it, so one online open completes the offline copy.
       if (isLibrary(url.pathname)) event.waitUntil(cacheIfGenuine(event.request, response));
       return response;
     })());

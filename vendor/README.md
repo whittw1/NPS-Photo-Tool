@@ -3,8 +3,9 @@
 Bundled with the app so exports work offline everywhere: the iOS build carries
 them in its bundle (it has no service worker), and on the web the service
 worker keeps them for offline use. Each file name carries its version, so a name
-always means the same bytes; the host serves `/vendor/*` as immutable for a year
-and the service worker copies them from one release to the next on that basis.
+always means the same bytes; the host serves `/vendor/*.js` as immutable for a
+year, and the service worker copies them from one release to the next on that
+basis instead of downloading them again.
 
 **Never edit a file here in place.** To upgrade or add a library:
 
@@ -16,10 +17,12 @@ and the service worker copies them from one release to the next on that basis.
 2. Save it here under a new name with the version in it (`jszip-3.10.2.min.js`),
    `git rm` the old file, and update its licence file if the licence changed.
 3. Point the `<script>` tag in `index.html` and the entry in `sw.js`'s
-   `URLS_TO_CACHE` at the new name.
+   `URLS_TO_CACHE` at the new name, and delete (or repoint) any rewrite in
+   `staticwebapp.config.json` that serves an old name from the file removed.
 4. Update the table and hashes below and the table in `ARCHITECTURE.md` §4.
-5. Bump `CACHE_NAME` in `sw.js` and `APP_VERSION` in `index.html` together, and
-   run `npm run sync` before the next iOS build.
+5. Bump `CACHE_NAME` in `sw.js` and `APP_VERSION` in `index.html` together,
+   run `npm test` (it simulates an upgrade and a renamed library), and run
+   `npm run sync` before the next iOS build — the Xcode build refuses a stale copy.
 
 | File | Library | Version | Source | License |
 |---|---|---|---|---|

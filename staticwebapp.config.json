@@ -45,7 +45,19 @@
       }
     },
     {
-      "route": "/vendor/*",
+      "route": "/vendor/jszip.min.js",
+      "rewrite": "/vendor/jszip-3.10.1.min.js"
+    },
+    {
+      "route": "/vendor/exceljs.min.js",
+      "rewrite": "/vendor/exceljs-4.4.0.min.js"
+    },
+    {
+      "route": "/vendor/docx.umd.js",
+      "rewrite": "/vendor/docx-8.2.2.umd.js"
+    },
+    {
+      "route": "/vendor/*.js",
       "headers": {
         "Cache-Control": "public, max-age=31536000, immutable"
       }

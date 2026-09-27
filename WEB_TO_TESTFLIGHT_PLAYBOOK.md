@@ -249,7 +249,10 @@ npm run open                            # opens Xcode
 grep CURRENT_PROJECT_VERSION ios/App/App.xcodeproj/project.pbxproj   # verify bump
 
 # Never run `npx cap sync ios` on its own: it copies whatever is already in www/,
-# which may be a stale build. Always `npm run sync`, which builds first.
+# which may be a stale build. Always `npm run sync`, which builds first. Better
+# still, make Xcode refuse a stale copy: a Run Script build phase, first in the
+# App target, that compares ios/App/App/public with the repo and exits 1 with
+# the stale file names (the NPS app's ios/check-web-copy.sh does this).
 
 # Add other native platforms later
 npx cap add android                     # if you ever want Android too
