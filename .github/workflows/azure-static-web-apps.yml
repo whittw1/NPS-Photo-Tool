@@ -14,7 +14,11 @@ jobs:
   # deployed when they pass, so a failure leaves the previous release live.
   test:
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.action != 'closed')
-    runs-on: ubuntu-latest
+    # macOS: its WebKit is Apple's, the one an iPad runs. Linux's WebKit build
+    # fails these service-worker scenarios now and then with cache-storage
+    # "Internal error"s that Apple's never shows (the repeat workflow can still
+    # run them there). Free for a public repository.
+    runs-on: macos-latest
     name: Offline tests
     steps:
       - uses: actions/checkout@v4
@@ -26,12 +30,12 @@ jobs:
       - name: Install Playwright and its browsers
         run: |
           npm install --no-audit --no-fund
-          npx playwright install --with-deps chromium webkit
+          npx playwright install chromium webkit
       - name: npm test
         run: node tests/offline.test.js
         env:
           CI: true
-          POOL: 2                 # two scenarios per engine at once on the runner's two cores
+          POOL: 2                 # two scenarios per engine at once
 
   build_and_deploy:
     needs: test

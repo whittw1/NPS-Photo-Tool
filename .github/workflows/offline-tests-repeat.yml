@@ -18,10 +18,14 @@ on:
         description: "How many runs"
         required: false
         default: "5"
+      os:
+        description: "Runner: macos-latest (Apple's WebKit, as on an iPad, and what the deploy gate uses) or ubuntu-latest"
+        required: false
+        default: "macos-latest"
 
 jobs:
   repeat:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.os }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,7 +36,7 @@ jobs:
       - name: Install Playwright and its browsers
         run: |
           npm install --no-audit --no-fund
-          npx playwright install --with-deps chromium webkit
+          if [ "$RUNNER_OS" = "Linux" ]; then npx playwright install --with-deps chromium webkit; else npx playwright install chromium webkit; fi
       - name: Repeat npm test
         env:
           CI: true
