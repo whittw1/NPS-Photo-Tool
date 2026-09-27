@@ -10,7 +10,30 @@ on:
       - main
 
 jobs:
+  # The offline-export tests (tests/offline.test.js) run first; the site is only
+  # deployed when they pass, so a failure leaves the previous release live.
+  test:
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.action != 'closed')
+    runs-on: ubuntu-latest
+    name: Offline tests
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # the tests update from earlier releases in git history
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install Playwright and its browsers
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium webkit
+      - name: npm test
+        run: node tests/offline.test.js
+        env:
+          CI: true
+
   build_and_deploy:
+    needs: test
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.action != 'closed')
     runs-on: ubuntu-latest
     name: Build and Deploy

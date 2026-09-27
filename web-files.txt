@@ -1,0 +1,11 @@
+# The files the web app is made of, relative to the repo root: what
+# `npm run build` copies into www/ for the iOS app (scripts/build-web.sh), what
+# the Xcode build checks in ios/App/App/public (ios/check-web-copy.sh), and
+# what `npm test` serves. One per line; * matches within one folder.
+index.html
+sw.js
+manifest.json
+envirocheck_checklists.json
+nps_locations.json
+vendor/*.js
+vendor/LICENSE-*

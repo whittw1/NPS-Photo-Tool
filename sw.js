@@ -1,25 +1,33 @@
 // Service worker for the NPS Audit Photo Collector.
 // Keep the number in step with APP_VERSION in index.html (shown in the bottom bar).
-const CACHE_NAME = 'nps-collector-v4.9';
+const CACHE_NAME = 'nps-collector-v4.10';
+// The export libraries, each with the SHA-256 of its exact bytes. A file name
+// always means these bytes, and a copy is stored or reused only when it
+// matches, so a damaged or stale copy is replaced rather than kept. `npm test`
+// checks these hashes against vendor/ (upgrade steps: vendor/README.md).
+const LIBRARIES = {
+  './vendor/jszip-3.10.1.min.js': 'sha256-rMfkFFWoB2W1/Zx+4bgHim0WC7vKRVrq6FTeZclH1Z4=',
+  './vendor/exceljs-4.4.0.min.js': 'sha256-fknaaFiOJQ27i7oZDSyqirN4fMAoS9odiy+AXE33Qsk=',
+  './vendor/docx-8.2.2.umd.js': 'sha256-L8p4PXqv5Tf0dxxe9qmlkrMZkbUJ7aMS+D2Z3Bz7S3o='
+};
 // The libraries come before the 4 MB location file: a signal lost late in the
 // install then costs the data file, which the next online open refreshes, and
-// not the export. Their file names carry the version, so a name always means
-// the same bytes (see vendor/README.md).
+// not the export.
 const URLS_TO_CACHE = [
-  './',
   './index.html',
   './manifest.json',
   './envirocheck_checklists.json',
-  './vendor/jszip-3.10.1.min.js',
-  './vendor/exceljs-4.4.0.min.js',
-  './vendor/docx-8.2.2.umd.js',
+  ...Object.keys(LIBRARIES),
   './nps_locations.json'
 ];
-const LIBRARIES = URLS_TO_CACHE.filter(u => u.startsWith('./vendor/'));
 // Without these three the app cannot run offline at all.
 const ESSENTIAL = ['./index.html', './envirocheck_checklists.json', './nps_locations.json'];
 // The location file is 4 MB: judged by its first characters instead of parsed.
 const HEAD_ONLY = /nps_locations\.json$/;
+const pathOf = u => new URL(u, self.location.href).pathname;
+const LIBRARY_HASH = Object.fromEntries(Object.entries(LIBRARIES).map(([u, h]) => [pathOf(u), h]));
+const ESSENTIAL_PATHS = ESSENTIAL.map(pathOf);
+const VENDOR_PATH = pathOf('./vendor/');
 
 // Does this answer really come from our own server? A park or hotel wifi portal
 // answers 200 with its login page, which must never become the app or its data.
@@ -30,6 +38,8 @@ async function isGenuine(request, response) {
     const url = new URL(request.url);
     const path = url.pathname;
     const type = (response.headers && response.headers.get('content-type') || '').toLowerCase();
+    // A library this release knows must be its exact file.
+    if (LIBRARY_HASH[path]) return (await sha256(response)) === LIBRARY_HASH[path];
     if (path.endsWith('.json')) {
       if (type && type.indexOf('json') < 0) return false;            // a portal answers HTML
       if (HEAD_ONLY.test(path)) {
@@ -40,8 +50,8 @@ async function isGenuine(request, response) {
       return true;
     }
     if (path.endsWith('.js') || path.endsWith('.css')) {
-      // A portal's login page must not be stored as a library either: it says
-      // HTML in the type, or reads as HTML.
+      // A library from another release: a portal's login page must not be
+      // stored as one either. It says HTML in the type, or reads as HTML.
       if (type && (type.indexOf('html') >= 0 || type.indexOf('xml') >= 0)) return false;
       const lib = (await response.text()).trim();
       return !!lib && !/^<(!doctype|html|\?xml)/i.test(lib);
@@ -51,6 +61,11 @@ async function isGenuine(request, response) {
   } catch (e) {
     return false;
   }
+}
+
+async function sha256(response) {
+  const digest = await crypto.subtle.digest('SHA-256', await response.arrayBuffer());
+  return 'sha256-' + btoa(String.fromCharCode(...new Uint8Array(digest)));
 }
 
 // The first bytes of a body, so a large file is never pulled into memory. Reads
@@ -75,15 +90,16 @@ async function readHead(res, n) {
 
 // Install — cache the app shell, one file at a time so a single failure cannot
 // abandon the whole install, and never store an answer that is not ours.
-// cache:'reload' bypasses the browser HTTP cache, otherwise a stale max-age
-// copy of the JSON data gets baked into the new cache.
 self.addEventListener('install', event => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE_NAME);
     for (const u of URLS_TO_CACHE) {
       try {
-        if (LIBRARIES.includes(u) && await reuseLibrary(cache, u)) continue;
-        const request = new Request(u, { cache: 'reload' });
+        if (LIBRARIES[u]) { await installLibrary(cache, u); continue; }
+        // cache:'no-cache' revalidates with the server (a cheap 304 when nothing
+        // changed), so a stale max-age copy of the data is never baked into the
+        // new cache.
+        const request = new Request(u, { cache: 'no-cache' });
         const response = await fetch(request);
         if (await isGenuine(request, response.clone())) await cache.put(request, response);
       } catch (e) { /* try the rest; activate decides whether this install is usable */ }
@@ -92,44 +108,67 @@ self.addEventListener('install', event => {
   self.skipWaiting();
 });
 
-// A library's file name carries its version, so an older cache's copy under the
-// same name is the same file: copy it instead of downloading it again, which
-// also keeps a download dropped during the install from costing the export.
-async function reuseLibrary(cache, u) {
-  const held = await caches.match(u);
-  if (!held) return false;
-  await cache.put(u, held);
-  return true;
+// A library comes from an older cache when that copy is intact; otherwise from
+// the browser's own copy (the page has usually just loaded it, and the host
+// serves the versioned files as immutable), and only then from the network.
+// Whatever is stored matches the library's hash.
+async function installLibrary(cache, u) {
+  try {
+    const held = await caches.match(u);
+    if (held && await sha256(held.clone()) === LIBRARIES[u]) { await cache.put(u, held); return; }
+  } catch (e) { /* an unreadable copy: download instead */ }
+  for (const mode of ['default', 'reload']) {
+    const request = new Request(u, { cache: mode });
+    const response = await fetch(request);
+    if (response.ok && await sha256(response.clone()) === LIBRARIES[u]) { await cache.put(request, response); return; }
+  }
 }
 
 // Activate — clean up old caches only once this one holds what the app needs.
 // Installed behind a wifi portal, the previous version stays and keeps working.
 self.addEventListener('activate', event => {
   event.waitUntil((async () => {
-    const cache = await caches.open(CACHE_NAME);
-    const have = await Promise.all(ESSENTIAL.map(u => cache.match(u)));
-    if (have.every(Boolean)) {
-      // One last look before the older caches go, for a library that reached
-      // them only while this install was running.
-      for (const u of LIBRARIES) {
-        try { if (!await cache.match(u)) await reuseLibrary(cache, u); }
-        catch (e) { /* the fetch handler fills it in on the next online open */ }
-      }
-      const keys = await caches.keys();
-      await Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)));
-    }
+    await retireOldCaches();
     await self.clients.claim();
   })());
 });
+
+// Older releases' caches go once this one holds everything in ESSENTIAL. That
+// is checked at activation and again whenever one of those files is stored, so
+// an update cut short by a lost signal finishes on the next online open instead
+// of leaving the older cache in place until the release after. A newer
+// release's cache is never touched.
+async function retireOldCaches() {
+  const cache = await caches.open(CACHE_NAME);
+  const have = await Promise.all(ESSENTIAL.map(u => cache.match(u)));
+  if (!have.every(Boolean)) return;
+  const keys = await caches.keys();
+  await Promise.all(keys.filter(olderRelease).map(k => caches.delete(k)));
+}
+const CACHE_PREFIX = CACHE_NAME.replace(/[\d.]+$/, '');   // 'nps-collector-v'
+function olderRelease(key) {
+  if (key === CACHE_NAME) return false;
+  if (!key.startsWith(CACHE_PREFIX) || !/^[\d.]+$/.test(key.slice(CACHE_PREFIX.length))) return true;   // not this app's (another app on localhost while developing)
+  const a = key.slice(CACHE_PREFIX.length).split('.').map(Number), b = CACHE_NAME.slice(CACHE_PREFIX.length).split('.').map(Number);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) { const d = (a[i] || 0) - (b[i] || 0); if (d) return d < 0; }
+  return false;
+}
+
+// This release's copy first. After an update cut short, an older release's
+// cache is still there, and its page must not shadow this release's.
+async function fromCache(request) {
+  const own = await (await caches.open(CACHE_NAME)).match(request);
+  return own || caches.match(request);
+}
 
 // Refresh the stored copy from a genuine answer. Both clones are taken before
 // any await: once the page starts reading the response it can no longer be
 // cloned. Only the app's own paths are refreshed, so a mistyped deep link that
 // the host answers with the app does not get a cache entry of its own.
 async function cacheIfGenuine(request, response) {
-  let probe, copy;
+  let probe, copy, path;
   try {
-    const path = new URL(request.url).pathname;
+    path = new URL(request.url).pathname;
     if (!(path === '/' || path.endsWith('/index.html') || path.endsWith('.json') || isLibrary(path))) return;
     probe = response.clone();
     copy = response.clone();
@@ -138,13 +177,13 @@ async function cacheIfGenuine(request, response) {
     if (!await isGenuine(request, probe)) return;
     const cache = await caches.open(CACHE_NAME);
     await cache.put(request, copy);
+    if (ESSENTIAL_PATHS.includes(path)) await retireOldCaches();
   } catch (e) { /* leave the stored copy alone */ }
 }
 
 // Any library under vendor/, not only this release's: a page from a newer
-// release, served by this worker before its own worker installs, asks for
-// file names this worker's list does not have.
-const VENDOR_PATH = new URL('./vendor/', self.location.href).pathname;
+// release, served by this worker before its own worker installs, asks for file
+// names this worker's list does not have, and v4.7's page asks for older ones.
 function isLibrary(path) {
   return path.startsWith(VENDOR_PATH) && path.endsWith('.js');
 }
@@ -172,10 +211,10 @@ self.addEventListener('fetch', event => {
         event.waitUntil(cacheIfGenuine(event.request, response));
         return response;
       } catch (e) {
-        const cached = await caches.match(event.request);
+        const cached = await fromCache(event.request);
         if (cached) return cached;
         if (event.request.mode === 'navigate') {
-          const shell = await caches.match('./index.html');
+          const shell = await fromCache('./index.html');
           if (shell) return shell;
         }
         return Response.error();     // never the app in place of a data file
@@ -183,13 +222,24 @@ self.addEventListener('fetch', event => {
     })());
   } else {
     event.respondWith((async () => {
+      const own = await (await caches.open(CACHE_NAME)).match(event.request);
+      if (own) return own;
+      // A library missing from this release's cache is fetched and stored the
+      // first time the page asks for it, so one online open completes the
+      // offline copy; an older release's copy is only the fallback offline.
+      if (isLibrary(url.pathname)) {
+        try {
+          const response = await fetch(event.request);
+          event.waitUntil(cacheIfGenuine(event.request, response));
+          return response;
+        } catch (e) {
+          const older = await caches.match(event.request);
+          if (older) return older;
+          throw e;
+        }
+      }
       const cached = await caches.match(event.request);
-      if (cached) return cached;
-      const response = await fetch(event.request);
-      // A library missing from the cache is stored the first time the page gets
-      // it, so one online open completes the offline copy.
-      if (isLibrary(url.pathname)) event.waitUntil(cacheIfGenuine(event.request, response));
-      return response;
+      return cached || fetch(event.request);
     })());
   }
 });

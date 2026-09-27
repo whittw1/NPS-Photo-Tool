@@ -81,13 +81,13 @@ Then add these scripts to `package.json`:
 
 ```json
 "scripts": {
-  "build": "rm -rf www/vendor && mkdir -p www/vendor && cp index.html sw.js manifest.json *.json www/ && cp vendor/*.js vendor/LICENSE-* www/vendor/",
+  "build": "sh scripts/build-web.sh",
   "sync":  "npm run build && npx cap sync ios",
   "open":  "npx cap open ios"
 }
 ```
 
-Adjust the `cp` source list to match your actual files. The `build` step is literally just copying — no bundler, no transpile.
+`scripts/build-web.sh` empties `www/` and copies the files listed in `web-files.txt` (one per line, `*` within a folder: the page, `sw.js`, the manifest, the data files, `vendor/*.js` and `vendor/LICENSE-*`) — no bundler, no transpile. Keep the list in that one file so the build, a stale-copy check and any tests read the same thing; don't hand-write `cp` lists in package.json, and never `*.json`, which also picks up `package.json`. The NPS app's `scripts/` and `web-files.txt` are a working example.
 
 ---
 
@@ -251,8 +251,10 @@ grep CURRENT_PROJECT_VERSION ios/App/App.xcodeproj/project.pbxproj   # verify bu
 # Never run `npx cap sync ios` on its own: it copies whatever is already in www/,
 # which may be a stale build. Always `npm run sync`, which builds first. Better
 # still, make Xcode refuse a stale copy: a Run Script build phase, first in the
-# App target, that compares ios/App/App/public with the repo and exits 1 with
-# the stale file names (the NPS app's ios/check-web-copy.sh does this).
+# App target, that compares ios/App/App/public with web-files.txt and exits 1
+# with the stale file names (the NPS app's ios/check-web-copy.sh, with
+# ENABLE_USER_SCRIPT_SANDBOXING = NO on the target, since it reads files outside
+# its declared inputs).
 
 # Add other native platforms later
 npx cap add android                     # if you ever want Android too

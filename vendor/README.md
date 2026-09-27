@@ -4,8 +4,9 @@ Bundled with the app so exports work offline everywhere: the iOS build carries
 them in its bundle (it has no service worker), and on the web the service
 worker keeps them for offline use. Each file name carries its version, so a name
 always means the same bytes; the host serves `/vendor/*.js` as immutable for a
-year, and the service worker copies them from one release to the next on that
-basis instead of downloading them again.
+year, and the service worker copies them from one release to the next instead of
+downloading them again. `sw.js` holds each file's SHA-256 and stores or reuses a
+copy only when it matches; `npm test` checks those hashes against the files.
 
 **Never edit a file here in place.** To upgrade or add a library:
 
@@ -16,13 +17,18 @@ basis instead of downloading them again.
    hash jsDelivr publishes.
 2. Save it here under a new name with the version in it (`jszip-3.10.2.min.js`),
    `git rm` the old file, and update its licence file if the licence changed.
-3. Point the `<script>` tag in `index.html` and the entry in `sw.js`'s
-   `URLS_TO_CACHE` at the new name, and delete (or repoint) any rewrite in
-   `staticwebapp.config.json` that serves an old name from the file removed.
+3. Point the `<script>` tag in `index.html` at the new name (keep `data-lib`;
+   drop `data-legacy`, which names v4.7's copy of the old version), and replace
+   the entry in `sw.js`'s `LIBRARIES` with the new name and its SHA-256
+   (`openssl dgst -sha256 -binary <file> | openssl base64 -A`, prefixed
+   `sha256-`). Delete the rewrite in `staticwebapp.config.json` that serves the
+   old library's v4.7 name, since it points at the file removed.
 4. Update the table and hashes below and the table in `ARCHITECTURE.md` §4.
-5. Bump `CACHE_NAME` in `sw.js` and `APP_VERSION` in `index.html` together,
-   run `npm test` (it simulates an upgrade and a renamed library), and run
-   `npm run sync` before the next iOS build — the Xcode build refuses a stale copy.
+5. Bump `CACHE_NAME` in `sw.js` and `APP_VERSION` in `index.html` together and
+   run `npm test` (CI runs it before deploying: it checks the hashes, simulates
+   an upgrade and a renamed library, and fails on a name any release still
+   needs). Run `npm run sync` before the next iOS build; the Xcode build refuses
+   a stale copy.
 
 | File | Library | Version | Source | License |
 |---|---|---|---|---|
