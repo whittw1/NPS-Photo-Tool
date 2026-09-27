@@ -178,7 +178,7 @@ async function session(engine, srv) {
     dialogs: [],
     console: [],
     async launch() {
-      if (ctx) await ctx.close();
+      await s.close();
       ctx = await pw[engine].launchPersistentContext(dir, { serviceWorkers: 'allow' });
       page = ctx.pages()[0] || await ctx.newPage();
       page.on('dialog', d => { s.dialogs.push(d.message()); d.accept(); });
@@ -188,7 +188,9 @@ async function session(engine, srv) {
     },
     async open(p = '/index.html') { await page.goto(srv.base + p, { waitUntil: 'load', timeout: 60000 }); return s; },
     page: () => page,
-    async close() { if (ctx) { const c = ctx; ctx = null; await c.close(); } },
+    // On Linux, WebKit's storage process can still be writing to the profile for
+    // a moment after the browser closes: wait before reopening it.
+    async close() { if (ctx) { const c = ctx; ctx = null; await c.close(); if (process.platform === 'linux') await sleep(1500); } },
     // Empty the browser's HTTP cache, so only the service worker can serve offline.
     async clearHttpCache() {
       if (engine === 'chromium' && ctx) { const cdp = await ctx.newCDPSession(page); await cdp.send('Network.clearBrowserCache'); await cdp.detach(); }
@@ -233,11 +235,14 @@ async function stateOf(s) {
 const cacheName = snap => 'nps-collector-v' + snap.version;
 const vendorPaths = snap => snap.libs.map(u => '/' + u);
 const sha = file => 'sha256-' + crypto.createHash('sha256').update(fs.readFileSync(file)).digest('base64');
+// What an install must have stored before a scenario goes on: the page, the
+// two data files and the libraries.
+const DATA = ['/index.html', '/envirocheck_checklists.json', '/nps_locations.json'];
 async function install(s, srv, snap) {
   srv.st.site = site(snap);
   await (await s.launch()).open();
   await until(s.settled, 60000, 'the service worker to activate');
-  await until(async () => { const c = (await s.cache(cacheName(snap))) || []; return c.includes('/index.html') && vendorPaths(snap).every(v => c.includes(v)); }, 90000, 'the page and libraries in ' + cacheName(snap));
+  await until(async () => { const c = (await s.cache(cacheName(snap))) || []; return DATA.concat(vendorPaths(snap)).every(v => c.includes(v)); }, 90000, 'the page, data and libraries in ' + cacheName(snap));
 }
 async function goOffline(s, srv) {
   await s.clearHttpCache();

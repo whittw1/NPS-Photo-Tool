@@ -1,6 +1,6 @@
 // Service worker for the NPS Audit Photo Collector.
 // Keep the number in step with APP_VERSION in index.html (shown in the bottom bar).
-const CACHE_NAME = 'nps-collector-v4.10';
+const CACHE_NAME = 'nps-collector-v4.11';
 // The export libraries, each with the SHA-256 of its exact bytes. A file name
 // always means these bytes, and a copy is stored or reused only when it
 // matches, so a damaged or stale copy is replaced rather than kept. `npm test`
@@ -68,21 +68,13 @@ async function sha256(response) {
   return 'sha256-' + btoa(String.fromCharCode(...new Uint8Array(digest)));
 }
 
-// The first bytes of a body, so a large file is never pulled into memory. Reads
-// a few chunks in case the first one is empty or only a byte-order mark.
+// The first characters of a body, without parsing the rest. The copy is read
+// to the end rather than cancelled part-way: it is a clone of the response
+// being stored, and a cancelled clone could fail that store (seen in WebKit).
 async function readHead(res, n) {
   try {
-    if (!res.body || !res.body.getReader) return (await res.text()).slice(0, n);
-    const reader = res.body.getReader();
-    const dec = new TextDecoder();
-    let out = '';
-    for (let i = 0; i < 8 && out.trim().length < 4; i++) {
-      const chunk = await reader.read();
-      if (chunk.value) out += dec.decode(chunk.value, { stream: true });
-      if (chunk.done) break;
-    }
-    try { reader.cancel(); } catch (e) {}
-    return out.slice(0, n);
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    return new TextDecoder().decode(bytes.subarray(0, Math.min(bytes.length, n * 4))).slice(0, n);
   } catch (e) {
     return '';
   }
@@ -115,13 +107,22 @@ self.addEventListener('install', event => {
 async function installLibrary(cache, u) {
   try {
     const held = await caches.match(u);
-    if (held && await sha256(held.clone()) === LIBRARIES[u]) { await cache.put(u, held); return; }
+    if (held && await storeIfIntact(cache, u, held)) return;
   } catch (e) { /* an unreadable copy: download instead */ }
   for (const mode of ['default', 'reload']) {
-    const request = new Request(u, { cache: mode });
-    const response = await fetch(request);
-    if (response.ok && await sha256(response.clone()) === LIBRARIES[u]) { await cache.put(request, response); return; }
+    const response = await fetch(new Request(u, { cache: mode }));
+    if (response.ok && await storeIfIntact(cache, u, response)) return;
   }
+}
+// Stores the library only if its bytes match the hash, as a fresh response made
+// from those bytes: nothing stored shares a body with the older cache that is
+// about to be deleted, or with a stream still being read elsewhere.
+async function storeIfIntact(cache, u, response) {
+  const bytes = await response.arrayBuffer();
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  if ('sha256-' + btoa(String.fromCharCode(...new Uint8Array(digest))) !== LIBRARIES[u]) return false;
+  await cache.put(u, new Response(bytes, { headers: { 'content-type': response.headers.get('content-type') || 'text/javascript' } }));
+  return true;
 }
 
 // Activate — clean up old caches only once this one holds what the app needs.
