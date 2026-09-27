@@ -2,7 +2,7 @@
 
 A Progressive Web App (PWA) for National Park Service Environmental Audit Program field work: GPS-tagged photos, searchable EnviroCheck question lookup, 1/2a/2b/3/4/P priorities, repeat-finding links to the previous audit, and exports laid out like the WASO findings spreadsheet and the report's photo log. Works offline, and — once you sign in with your Microsoft work account — backs up to the firm's SharePoint as you go and can send the export there directly. Forked from the [USFS Photo Collector](https://github.com/whittw1/USFS-Photo-Tool) (itself forked from the DLA Audit Photo Tool).
 
-**Live (web):** https://victorious-ocean-0a7852b10.3.azurestaticapps.net · current version **v4.7**, shown in the app's bottom bar
+**Live (web):** https://victorious-ocean-0a7852b10.3.azurestaticapps.net · current version **v4.8**, shown in the app's bottom bar
 
 Deep technical reference: [ARCHITECTURE.md](ARCHITECTURE.md). Deployment status and release history: [Status.md](Status.md). Live backup setup: [api/README.md](api/README.md).
 
@@ -41,7 +41,7 @@ NPS-Photo-Tool/
 ├── nps_locations.json           ← 449 park units → 43,026 named GPS locations
 ├── build_envirocheck.js         ← Rebuilds the question index from the EnviroCheck Sheet .docx files
 ├── build_locations.js           ← Rebuilds nps_locations.json + the REGION_MAP in index.html from NPS GIS services
-├── vendor/                      ← JSZip, ExcelJS and docx, bundled so exports work offline everywhere (hashes and licenses in vendor/README.md)
+├── vendor/                      ← JSZip, ExcelJS and docx under versioned names, bundled with the app (hashes, licenses and upgrade steps in vendor/README.md)
 ├── api/                         ← Server functions for live backup and Send to SharePoint (setup: api/README.md)
 │   ├── shared/graph.js          ←   settings, Microsoft Graph sign-in, who is asking, destinations, path rules
 │   ├── upload/                  ←   writes one file of up to 8 MB
@@ -117,7 +117,7 @@ The USFS and NPS apps are kept in sync by hand-porting fixes between them. Keep 
 | Native filesystem (iOS app) | Durable full-resolution photos | `DATA/nps_photos/<dbKey>.jpg` |
 | IndexedDB | Full-resolution photos (web build; redundancy on iOS) | db `nps_photos_v1`, store `photos` |
 | localStorage fallback | Last-resort photo copy | `photo_full_<dbKey>` |
-| Service worker cache | App shell, data JSON, JSZip, ExcelJS, docx | `nps-collector-v4.7` (always matches the app version) |
+| Service worker cache | App shell, data JSON, JSZip, ExcelJS, docx | `nps-collector-v4.8` (always matches the app version) |
 | SharePoint (live backup on) | Off-device copy: state file, photo index, photos | `NPS/Audits/<park>/<year>/Live Backup/` |
 
 Unique `nps_*` keys let this app coexist with the USFS and DLA apps on the same device.

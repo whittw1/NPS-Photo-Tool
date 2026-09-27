@@ -17,7 +17,7 @@ A single HTML file is wrapped by Capacitor into a tiny native iOS shell that jus
 ## What you start with
 
 - **One `index.html`** with all your UI + JS inline (or a small set of static files)
-- Whatever client-side libraries you need (CDN-loaded is fine)
+- Whatever client-side libraries you need, **bundled with the app** in a `vendor/` folder with the version in each file name — not loaded from a CDN: the iOS app has no service worker, so a CDN script is not there offline
 - Optional: `sw.js` (service worker) + `manifest.json` for PWA offline / install behaviour
 - Any JSON data files you want bundled (we have `team_guide_citations.json`, `forest_locations.json`)
 
@@ -32,10 +32,10 @@ A single HTML file is wrapped by Capacitor into a tiny native iOS shell that jus
 | Native shell | Capacitor 8 (`@capacitor/cli`, `@capacitor/core`, `@capacitor/ios`) | Maintained by Ionic; thinner than Cordova |
 | WebView | iOS WKWebView (provided by Capacitor) | — |
 | Storage | `localStorage` + `IndexedDB` | localStorage for metadata, IDB for blobs |
-| Zip output | JSZip (from cdnjs) | Bundle photos + reports |
-| Styled Excel | ExcelJS (from cdnjs) | SheetJS community can't do per-cell styling — see gotcha below |
+| Zip output | JSZip (bundled in `vendor/`) | Bundle photos + reports |
+| Styled Excel | ExcelJS (bundled in `vendor/`) | SheetJS community can't do per-cell styling — see gotcha below |
 | Camera / GPS | `<input type="file" capture>` + `navigator.geolocation` | Standard web APIs, no plugins needed for the basic case |
-| Offline support | Service worker | Cache index.html + assets |
+| Offline support | Service worker (web app only) | Cache index.html + assets; the iOS app runs from its bundle |
 
 Apple side: a paid Apple Developer account ($99/yr) and Xcode installed.
 
@@ -81,7 +81,7 @@ Then add these scripts to `package.json`:
 
 ```json
 "scripts": {
-  "build": "cp index.html sw.js manifest.json *.json www/",
+  "build": "rm -rf www/vendor && mkdir -p www/vendor && cp index.html sw.js manifest.json *.json www/ && cp vendor/*.js vendor/LICENSE-* www/vendor/",
   "sync":  "npm run build && npx cap sync ios",
   "open":  "npx cap open ios"
 }
@@ -159,7 +159,7 @@ self.addEventListener('activate', e => {
 
 A reasonable cache strategy for an app like this:
 - **HTML / JSON:** network-first, fall back to cache (so updates land fast when online)
-- **Static assets / CDN libs:** cache-first
+- **Static assets / bundled libraries:** cache-first, and stored the first time they are fetched if the install missed them
 
 ---
 
@@ -248,8 +248,8 @@ npm run open                            # opens Xcode
 # After editing pbxproj manually
 grep CURRENT_PROJECT_VERSION ios/App/App.xcodeproj/project.pbxproj   # verify bump
 
-# Manual sync (if you don't want to run build first)
-npx cap sync ios
+# Never run `npx cap sync ios` on its own: it copies whatever is already in www/,
+# which may be a stale build. Always `npm run sync`, which builds first.
 
 # Add other native platforms later
 npx cap add android                     # if you ever want Android too

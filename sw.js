@@ -1,16 +1,21 @@
 // Service worker for the NPS Audit Photo Collector.
 // Keep the number in step with APP_VERSION in index.html (shown in the bottom bar).
-const CACHE_NAME = 'nps-collector-v4.7';
+const CACHE_NAME = 'nps-collector-v4.8';
+// The libraries come before the 4 MB location file: a signal lost late in the
+// install then costs the data file, which the next online open refreshes, and
+// not the export. Their file names carry the version, so a name always means
+// the same bytes (see vendor/README.md).
 const URLS_TO_CACHE = [
   './',
   './index.html',
   './manifest.json',
   './envirocheck_checklists.json',
-  './nps_locations.json',
-  './vendor/jszip.min.js',
-  './vendor/exceljs.min.js',
-  './vendor/docx.umd.js'
+  './vendor/jszip-3.10.1.min.js',
+  './vendor/exceljs-4.4.0.min.js',
+  './vendor/docx-8.2.2.umd.js',
+  './nps_locations.json'
 ];
+const LIBRARIES = URLS_TO_CACHE.filter(u => u.startsWith('./vendor/'));
 // Without these three the app cannot run offline at all.
 const ESSENTIAL = ['./index.html', './envirocheck_checklists.json', './nps_locations.json'];
 // The location file is 4 MB: judged by its first characters instead of parsed.
@@ -93,6 +98,16 @@ self.addEventListener('activate', event => {
     const cache = await caches.open(CACHE_NAME);
     const have = await Promise.all(ESSENTIAL.map(u => cache.match(u)));
     if (have.every(Boolean)) {
+      // A library this install could not fetch is taken from an older cache
+      // before that cache goes, so a dropped download never costs the offline
+      // export. Same versioned name, same file.
+      for (const u of LIBRARIES) {
+        try {
+          if (await cache.match(u)) continue;
+          const old = await caches.match(u);
+          if (old) await cache.put(u, old);
+        } catch (e) { /* the fetch handler fills it in on the next online open */ }
+      }
       const keys = await caches.keys();
       await Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)));
     }
@@ -108,7 +123,7 @@ async function cacheIfGenuine(request, response) {
   let probe, copy;
   try {
     const path = new URL(request.url).pathname;
-    if (!(path === '/' || path.endsWith('/index.html') || path.endsWith('.json'))) return;
+    if (!(path === '/' || path.endsWith('/index.html') || path.endsWith('.json') || isLibrary(path))) return;
     probe = response.clone();
     copy = response.clone();
   } catch (e) { return; }
@@ -119,11 +134,19 @@ async function cacheIfGenuine(request, response) {
   } catch (e) { /* leave the stored copy alone */ }
 }
 
+// One of the precached libraries, by path.
+const LIBRARY_PATHS = LIBRARIES.map(u => new URL(u, self.location.href).pathname);
+function isLibrary(path) {
+  return LIBRARY_PATHS.includes(path);
+}
+
 // Fetch — network-first for the page and the data, cache-first for other assets.
 self.addEventListener('fetch', event => {
   // Uploads and sign-in calls go straight to the network: only GETs are cached.
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
+  // Nothing from another site is cached (the SharePoint upload session is the only one).
+  if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith('/.auth/') || url.pathname.startsWith('/api/')) return;
   const isHTML = event.request.mode === 'navigate'
     || url.pathname.endsWith('.html')
@@ -150,8 +173,14 @@ self.addEventListener('fetch', event => {
       }
     })());
   } else {
-    event.respondWith(
-      caches.match(event.request).then(cached => cached || fetch(event.request))
-    );
+    event.respondWith((async () => {
+      const cached = await caches.match(event.request);
+      if (cached) return cached;
+      const response = await fetch(event.request);
+      // A library the install missed is stored the first time the page gets it,
+      // so one online open completes the offline copy.
+      if (isLibrary(url.pathname)) event.waitUntil(cacheIfGenuine(event.request, response));
+      return response;
+    })());
   }
 });

@@ -43,6 +43,12 @@
       "headers": {
         "Cache-Control": "public, no-cache"
       }
+    },
+    {
+      "route": "/vendor/*",
+      "headers": {
+        "Cache-Control": "public, max-age=31536000, immutable"
+      }
     }
   ],
   "navigationFallback": {
@@ -50,6 +56,7 @@
     "exclude": [
       "/sw.js",
       "/*.json",
+      "/vendor/*",
       "/*.{png,jpg,ico,svg,webp}"
     ]
   },

@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-title" content="NPS Photo Collector">
 <link rel="manifest" href="manifest.json">
-<script src="vendor/jszip.min.js"></script>
-<script src="vendor/exceljs.min.js"></script>
-<script src="vendor/docx.umd.js"></script>
+<script src="vendor/jszip-3.10.1.min.js"></script>
+<script src="vendor/exceljs-4.4.0.min.js"></script>
+<script src="vendor/docx-8.2.2.umd.js"></script>
 <title>NPS Photo Collector</title>
 <script>
 if ('serviceWorker' in navigator) {
@@ -2981,7 +2981,7 @@ async function buildAndSendExport(mode) {
     showToast(beforeFilter === 0 ? 'Nothing to export' : 'No entries in selected date range', true);
     return;
   }
-  if (typeof ExcelJS === 'undefined' || typeof JSZip === 'undefined') { showToast('Export library didn\u2019t load \u2014 restart the app and try again', true); return; }
+  if (typeof ExcelJS === 'undefined' || typeof JSZip === 'undefined') { libraryMissing('Export'); return; }
   // NPS-only: finding numbers are assigned per park after the WASO sort.
   const numbers = findingNumbers(allEntries);
 
@@ -3176,19 +3176,19 @@ async function buildAndSendExport(mode) {
 
   // NPS-only: the field notes and the LOC site forms as Word files in the same ZIP.
   // A Word problem never blocks the export itself; the toast says what was left out.
-  const wordFiles = [];
-  let wordSkipped = false;
+  const wordFiles = [], wordFailed = [];
+  let wordNoLib = false;
   const wantNotes = allEntries.some(isNote), wantSites = siteExport.sites.length > 0;
   if (wantNotes || wantSites) {
-    if (typeof docx === 'undefined') wordSkipped = true;
+    if (typeof docx === 'undefined') wordNoLib = true;
     else {
       // Each note's photos in ZIP order, with the bytes already read for the ZIP.
       const notePhotosOf = e => { const m = entryMaps[allEntries.indexOf(e)] || {};
         return wordPhotoSlots({ photos: m }).map(sl => m[sl]).filter(Boolean).map(fn => Object.assign({ num: photoSeqOf(fn) }, notePhotoBytes.get(fn))).filter(it => it.bytes); };
       try { const b = wantNotes && await buildNotesDocx(allEntries, photosOf, notePhotosOf); if (b) { zip.file('NPS_Notes_' + datestamp() + '.docx', b); wordFiles.push('notes'); } }
-      catch (e) { console.error('Notes document:', e); wordSkipped = true; }
+      catch (e) { console.error('Notes document:', e); wordFailed.push('Notes document'); }
       try { const b = wantSites && await buildSitesDocx(siteExport); if (b) { zip.file('NPS_LOC_Sites_' + datestamp() + '.docx', b); wordFiles.push('LOC site forms'); } }
-      catch (e) { console.error('LOC site forms:', e); wordSkipped = true; }
+      catch (e) { console.error('LOC site forms:', e); wordFailed.push('LOC site forms'); }
     }
   }
 
@@ -3216,7 +3216,11 @@ async function buildAndSendExport(mode) {
       // A cancelled share sheet means nothing left the device: no record, no offer to delete.
       if (!await shareOrDownload(blob, zipName)) { showToast('Export cancelled \u2014 nothing was saved or sent', true); return; }
     }
-    showToast(`${mode === 'cloud' ? '\u2713 Sent to SharePoint \u2014 ' : 'Exported '}${allEntries.length} entries, ${photoCount} photos${wordFiles.length ? ' + ' + wordFiles.join(' and ') : ''}${misses ? ' (⚠ ' + misses + ' missing)' : ''}${wordSkipped ? ' — Word files left out, restart the app and try again' : ''}`, !!(misses || wordSkipped));
+    // A missing library is fixed by opening the app with signal; a document that
+    // failed to build would fail the same way again, so it gets no retry advice.
+    const wordNote = wordNoLib ? ' \u2014 Word files left out: Word library didn\u2019t load (' + libraryAdvice() + ')'
+      : wordFailed.length ? ' \u2014 ' + wordFailed.join(' and ') + ' could not be built' : '';
+    showToast(`${mode === 'cloud' ? '\u2713 Sent to SharePoint \u2014 ' : 'Exported '}${allEntries.length} entries, ${photoCount} photos${wordFiles.length ? ' + ' + wordFiles.join(' and ') : ''}${misses ? ' (⚠ ' + misses + ' missing)' : ''}${wordNote}`, !!(misses || wordNote));
 
     // Offer to batch-delete the just-exported entries from this device.
     const exportedIds = allEntries.map(e => e.id).filter(Boolean);
@@ -4330,6 +4334,17 @@ function showToast(msg, isWarn = false) {
   setTimeout(() => { t.className = 'toast'; }, 2500);
 }
 
+// The export libraries ship with the app (vendor/). On the web a missing one
+// means the offline copy is not complete yet: it fills in the next time the app
+// opens with signal. In the iOS build it means a broken bundle.
+function libraryAdvice() {
+  const native = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  return native ? 'update the app' : 'open the app once with signal, then try again';
+}
+function libraryMissing(name) {
+  showToast(name + ' library didn\u2019t load \u2014 ' + libraryAdvice(), true);
+}
+
 // ============================================================================
 // OVERFLOW MENU
 // ============================================================================
@@ -4817,7 +4832,7 @@ async function parsePriorWorkbook(file) {
 async function handlePriorFile(event) {
   const file = event.target.files && event.target.files[0];
   if (!file) return;
-  if (typeof ExcelJS === 'undefined') { showToast('Export library didn\u2019t load \u2014 restart the app and try again', true); return; }
+  if (typeof ExcelJS === 'undefined') { libraryMissing('Excel'); return; }
   showToast('Reading spreadsheet…');
   let parsed;
   try { parsed = await parsePriorWorkbook(file); }
@@ -5043,7 +5058,7 @@ loadPriorAudit();
 // every release. The bottom bar shows it, and while a newer service worker
 // is still installing (the page is fresh, the cache is last release's) it
 // says so and settles once the new worker takes control.
-const APP_VERSION = '4.7';
+const APP_VERSION = '4.8';
 let _versionTries = 0;
 // '1.10' sorts after '1.9': compare each dotted part as a number.
 function versionCompare(a, b) {
@@ -5053,7 +5068,9 @@ function versionCompare(a, b) {
 }
 function paintVersion() {
   const el = document.getElementById('appVersion'); if (!el) return;
-  const plain = () => { el.textContent = 'v' + APP_VERSION; el.classList.remove('stale'); };
+  // A library missing at startup is shown here, not first discovered at export time.
+  const libsMissing = typeof JSZip === 'undefined' || typeof ExcelJS === 'undefined' || typeof docx === 'undefined';
+  const plain = () => { el.textContent = 'v' + APP_VERSION + (libsMissing ? ' \u00b7 export library missing' : ''); el.classList.toggle('stale', libsMissing); };
   if (!el.textContent) el.textContent = 'v' + APP_VERSION;
   // Reading window.caches can throw synchronously when site data is blocked.
   let keysP; try { if (!('caches' in window)) { plain(); return; } keysP = caches.keys(); } catch (e) { plain(); return; }
@@ -5279,6 +5296,8 @@ async function parseTankDocx(file) {
 async function handleTankFile(event) {
   const file = event.target.files && event.target.files[0];
   if (!file) return;
+  // Checked first: the catch below would call a missing JSZip "not a Word file".
+  if (typeof JSZip === 'undefined') { libraryMissing('Import'); return; }
   showToast('Reading tables…');
   let parsed;
   try { parsed = await parseTankDocx(file); }
@@ -6845,7 +6864,7 @@ function wordImageSize(bytes, type) {
 // finding in finding-number order, its photos beneath it, and "No Photo
 // Available" where a finding has none. Photo numbers are the ZIP's numbers.
 async function generateWordReport() {
-  if (typeof docx === 'undefined') { showToast('Word library didn\u2019t load \u2014 restart the app and try again', true); return; }
+  if (typeof docx === 'undefined') { libraryMissing('Word'); return; }
   closeExportDialog();
 
   // Same entry set, draft handling and date filter as the ZIP export.
