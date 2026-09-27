@@ -1,6 +1,6 @@
 # NPS Photo Collector — Architecture
 
-**Document date:** 2026-09-25 · reflects app version v4.6 and service-worker cache `nps-collector-v4.6`; iOS marketing version 1.0 / build 1 (scaffold only, never uploaded).
+**Document date:** 2026-09-25, updated 2026-09-27 · reflects app version v4.7 and service-worker cache `nps-collector-v4.7`; iOS marketing version 1.0 / build 1 (scaffold only, never uploaded).
 
 This is the deep-dive technical reference. Companion documents:
 - [README.md](README.md) — feature overview and the USFS-vs-NPS difference table
@@ -44,7 +44,7 @@ Two delivery channels share one codebase:
 1. **Web PWA** — live at https://victorious-ocean-0a7852b10.3.azurestaticapps.net (Azure Static Web Apps, resource `nps-data-collector` in `rg-fs-tools`, Central US, Free tier). Auto-deploys on every push to `main` via `.github/workflows/azure-static-web-apps.yml`; the deployment token lives in the repo secret `AZURE_STATIC_WEB_APPS_API_TOKEN` (the resource was created without a GitHub source link, so there is no Azure-generated workflow to delete). Works fully offline after first load via the service worker.
 2. **Native iOS** — the same files wrapped in a Capacitor 8 WKWebView shell as **"NPS Photos"** (`com.hgsengineering.npsphotocollector`). **NPS:** the Xcode project is generated (`npx cap add ios --packagemanager SPM`) but not yet customized (Info.plist usage strings, `ITSAppUsesNonExemptEncryption`, `DEVELOPMENT_TEAM`, icon) or uploaded — see Status.md. The native channel additionally gets durable filesystem photo storage (§7) and the native share sheet.
 
-Capture and export need **no server at all**: every byte of user data lives on the device until the auditor exports it or switches on live backup. The Static Web App carries two small managed functions (`api/`) for the optional SharePoint paths; they hold the firm's Microsoft Graph credentials, so the device never does (§20). There is no telemetry. The network calls the app makes are same-origin fetches of its own files, the three pinned CDN script loads and — only once someone has signed in — `/.auth/me`, `/api/upload`, `/api/upload-session`, and the pre-authorised SharePoint upload URL a session hands back. The Azure URL and the GitHub repository are both public.
+Capture and export need **no server at all**: every byte of user data lives on the device until the auditor exports it or switches on live backup. The Static Web App carries two small managed functions (`api/`) for the optional SharePoint paths; they hold the firm's Microsoft Graph credentials, so the device never does (§20). There is no telemetry. The network calls the app makes are same-origin fetches of its own files, including the vendored libraries (§4), and — only once someone has signed in — `/.auth/me`, `/api/upload`, `/api/upload-session`, and the pre-authorised SharePoint upload URL a session hands back. The Azure URL and the GitHub repository are both public.
 
 ## 3. Repository layout
 
@@ -63,6 +63,7 @@ Capture and export need **no server at all**: every byte of user data lives on t
 | `ios/` | Capacitor-generated Xcode project (SPM). Version/build numbers live in `ios/App/App.xcodeproj/project.pbxproj` (both Debug and Release configs). |
 | `nps_raw/` | Git-ignored cache of the raw GIS service responses used by `build_locations.js`. |
 | `staticwebapp.config.json` | Azure routes and headers: cache-control per file, the `authenticated` role on the two API routes, a real 401 for signed-out calls, the Node 20 functions runtime (§13). |
+| `vendor/` | Bundled JSZip + ExcelJS + docx, with `README.md` (versions, sources, hashes) and license files (§4). |
 | `api/` | The two managed functions behind live backup and Send to SharePoint (§20): `shared/graph.js` (settings, the app's own Graph sign-in, who is asking, the destination list, the path rules), `upload/` (one file up to 8 MB per request), `upload-session/` (starts a large-file upload and returns its URL). `README.md` holds the one-time Azure setup. |
 | `.github/workflows/azure-static-web-apps.yml` | Deploys on every push to `main`: `app_location: "/"`, `api_location: "api"`, `skip_app_build: true`. |
 | `privacy.html` | Privacy policy page required for App Store review. |
@@ -101,15 +102,15 @@ All UI event wiring is inline `onclick`/`oninput`/`onchange` attributes plus two
 
 **Restored data is untrusted (v4.6).** A JSON backup, a prior-audit workbook or a tank table can come from anywhere, so what they carry is checked where it enters and escaped where it is shown. `safeThumb()` accepts only a genuine JPEG/PNG/WebP data URL; `cleanPhotoMap()` accepts only the slot names and keys the app itself makes (they end up in element ids and inline handlers); `cleanTankData()` and `cleanSites()` apply the same rules to tank and site photos; a restored prior audit must carry a list of findings and a numeric year. At the sinks, every finding-photo `<img src>` goes through `_attr()`, the saved-list row escapes the description code and repeat citation, and the prior-audit chips carry their value in a `data-` attribute rather than inside the handler's JavaScript.
 
-### External dependencies (exactly three, all pinned, all CDN)
+### External dependencies (exactly three, all pinned, all vendored)
 
 | Library | Version | Source | Used for |
 |---|---|---|---|
-| JSZip | 3.10.1 | cdnjs | Building the export ZIP |
-| ExcelJS | 4.4.0 | cdnjs | The styled two-sheet XLSX (SheetJS was replaced in mid-2026 because its community edition cannot style cells) |
-| docx | 8.2.2 | jsDelivr | The Word photo log (§11.1). Pinned to 8.2.2 — docx 9.x ships only as `.cjs`, which jsDelivr serves with a content type browsers refuse to execute |
+| JSZip | 3.10.1 | `vendor/jszip.min.js` | Building the export ZIP |
+| ExcelJS | 4.4.0 | `vendor/exceljs.min.js` | The styled two-sheet XLSX (SheetJS was replaced in mid-2026 because its community edition cannot style cells) |
+| docx | 8.2.2 | `vendor/docx.umd.js` | The Word photo log (§11.1), the Notes document and the EDL site forms. Pinned to 8.2.2 — docx 9.x ships only as `.cjs`, which is not a browser script |
 
-All three are precached by the service worker so exports work offline. If JSZip or ExcelJS never loaded (a fresh install that has never been online), the export stops with "Export library not loaded — go online once first"; a missing docx library only leaves the Word files out of the ZIP.
+All three are **bundled with the app** in `vendor/` (since 2026-09-27, v4.7; they previously loaded from cdnjs and jsDelivr). That matters most on iOS: the iOS app has no service worker (§12), so CDN scripts were only available offline while the web view's ordinary HTTP cache happened to hold them — an iPad exporting with no signal could fail. Now the iOS build ships them inside the app bundle (package.json's `build` copies `vendor/*.js` into `www/vendor/`, and `npm run sync` carries them to `ios/App/App/public/vendor/`), and on the web the service worker precaches them from the app's own origin, so the app loads no third-party code at all. `vendor/README.md` records each file's source, version, license and the hash it was verified against (cdnjs's SRI for JSZip and ExcelJS, jsDelivr's published file hash for docx); upgrade by replacing a file, re-checking its hash, updating that table and bumping `CACHE_NAME`. If JSZip or ExcelJS still fails to load, the export stops with "Export library didn’t load — restart the app and try again" (the prior-audit import says the same); a missing docx library leaves the Word files out of the ZIP and the Word Report says "Word library didn’t load — restart the app and try again".
 
 ### Design system
 
@@ -196,7 +197,7 @@ Key details:
 | localStorage | `photo_full_<dbKey>` | **Fallback-only** full-res photo as data URL (§7 tier 3) — note: not `nps_`-prefixed, same as USFS; the two apps only collide here if the same entry id is generated twice, which `genId()` makes practically impossible |
 | IndexedDB | db `nps_photos_v1`, store `photos` | `{data: ArrayBuffer, type, size}` keyed by dbKey |
 | Native FS | `DATA/nps_photos/<sanitized dbKey>.jpg` | Durable full-res JPEG (native app only) |
-| SW Cache | `nps-collector-v<APP_VERSION>` (now `v4.6`) | App shell + data JSON + the three CDN libraries (§12) |
+| SW Cache | `nps-collector-v<APP_VERSION>` (now `v4.7`) | App shell + manifest + data JSON + the three vendored libraries (web only — see §12) |
 
 **NPS:** `loadAll()` also restores **edit mode** when the autosaved draft's id matches a saved entry, so a reload mid-edit (the version stamp is a one-tap reload, behind a confirm) cannot leave a duplicate draft sharing the saved entry's photos. `autoSaveCurrent()` runs on effectively every input event, so a mid-entry app kill (including iOS killing the WebView while the camera is open — a real iOS behavior) restores the full draft, thumbnails included, on next launch. The storage monitor tallies every localStorage key starting with `nps_` or `photo_full_`.
 
@@ -388,12 +389,13 @@ Note: docx 8.2.2 names every embedded image `.png` inside the package whatever i
 
 Small but load-bearing — it has caused more field bugs than any other file in the sibling app.
 
-- `CACHE_NAME = 'nps-collector-v4.6'` — kept equal to `APP_VERSION` in `index.html`, and **bumped whenever any cached file changes** (`index.html`, `sw.js` itself, either data JSON). The bump is what makes installed PWAs and the iOS WebView pick up changes; the bottom bar reads both and says "updating…" while they disagree.
-- Precache list (`URLS_TO_CACHE`): `./`, `index.html`, `envirocheck_checklists.json`, `nps_locations.json`, JSZip, ExcelJS, docx. `ESSENTIAL` is the app and the two data files.
+- `CACHE_NAME = 'nps-collector-v4.7'` — kept equal to `APP_VERSION` in `index.html`, and **bumped whenever any cached file changes** (`index.html`, `sw.js` itself, `manifest.json`, either data JSON, the `vendor/` libraries). The bump is what makes installed PWAs and the iOS WebView pick up changes; the bottom bar reads both and says "updating…" while they disagree.
+- Precache list (`URLS_TO_CACHE`): `./`, `index.html`, `manifest.json`, both data JSONs, `vendor/jszip.min.js`, `vendor/exceljs.min.js`, `vendor/docx.umd.js`. `ESSENTIAL` is the app and the two data files.
+- **The iOS app has no service worker.** It loads from Capacitor's `capacitor://localhost` scheme with no App-Bound Domains, and iOS web views run service workers only for app-bound http(s) domains, so everything this section describes applies to the web app only; the iOS app gets its files, the libraries included, from its bundle (§4, §13).
 - **Genuine answers only (v3.1–v3.3).** Park wifi puts captive portals in front of everything, and a portal answers any request with a 200 and a login page. `isGenuine()` refuses anything not ok, redirected or opaque; a `.json` must carry a JSON content type and parse (the 4 MB `nps_locations.json` only has its first 64 bytes read, via `readHead()`, so it is never pulled into memory twice); a library must not read as HTML; the page must contain "NPS Photo Collector".
 - **Install:** each file is fetched on its own as `new Request(url, {cache:'reload'})` and stored only if `isGenuine()` says so, so a portal at install time caches nothing and the previous working copy survives. The `reload` is critical: without it the SW install reads through the **browser HTTP cache**, and a stale `max-age` copy of the data JSON gets baked into the brand-new SW cache — this exact bug shipped day-old citation data in the USFS app in July 2026 despite a cache bump. `skipWaiting()` activates immediately.
 - **Activate:** old caches are deleted only once the new one holds everything in `ESSENTIAL`, so an incomplete install never leaves a device with no working copy; then `clients.claim()`.
-- **Fetch:** non-GET requests and anything under `/.auth/` or `/api/` go straight to the network, never cached (v3.9) — uploads and sign-in must not be answered from a cache. Navigations and anything ending in `.html`, `/` or `.json` are **network-first**, fetched with `{cache:'no-cache'}` (forces conditional revalidation, cheap ETag 304s); `cacheIfGenuine()` clones the response before any await and stores the copy only if it is genuine, and a data file offline never falls back to the app shell. Everything else (the CDN libraries) is cache-first.
+- **Fetch:** non-GET requests and anything under `/.auth/` or `/api/` go straight to the network, never cached (v3.9) — uploads and sign-in must not be answered from a cache. Navigations and anything ending in `.html`, `/` or `.json` are **network-first**, fetched with `{cache:'no-cache'}` (forces conditional revalidation, cheap ETag 304s); `cacheIfGenuine()` clones the response before any await and stores the copy only if it is genuine, and a data file offline never falls back to the app shell. Everything else (the vendored libraries, the manifest) is cache-first.
 
 The Azure config (§13) is the server half of the same fix: the data JSONs are served `public, no-cache` so the client always revalidates; `sw.js`, `index.html`, and `manifest.json` are `no-cache, no-store, must-revalidate`.
 
@@ -405,7 +407,7 @@ The Azure config (§13) is the server half of the same fix: the data JSONs are s
 
 **What a 200 means here.** The navigation fallback answers any unknown path with the app itself and a 200, so a status code proves nothing about whether a file exists — check the body. Everything in the repository root is published, these documents included; the repository itself is public too.
 
-**iOS (not yet shipped):** `npm run sync` (copies the file list in package.json's `build` script — `index.html sw.js manifest.json envirocheck_checklists.json nps_locations.json` — into `www/`, then `npx cap sync ios` into `ios/App/App/public/`) → bump `CURRENT_PROJECT_VERSION` in **both** Debug and Release blocks of `project.pbxproj` (Apple rejects reused build numbers; `MARKETING_VERSION` is user-facing and bumped rarely) → Xcode Product → Archive → Distribute. Before the first upload the generated project still needs: camera / photo-library / location usage strings and `ITSAppUsesNonExemptEncryption=false` in `Info.plist`, `DEVELOPMENT_TEAM = QV4MJ85JSK` in both pbxproj configs, the NPS app icon in `Assets.xcassets/AppIcon.appiconset`, and an App Store Connect app record for the bundle id. Info.plist references the version fields via `$(MARKETING_VERSION)` / `$(CURRENT_PROJECT_VERSION)` — never hardcode there. Full checklist in the TestFlight playbook.
+**iOS (not yet shipped):** `npm run sync` (copies the file list in package.json's `build` script — `index.html sw.js manifest.json envirocheck_checklists.json nps_locations.json` — into `www/`, and `vendor/*.js` into `www/vendor/`, then `npx cap sync ios` into `ios/App/App/public/`) → bump `CURRENT_PROJECT_VERSION` in **both** Debug and Release blocks of `project.pbxproj` (Apple rejects reused build numbers; `MARKETING_VERSION` is user-facing and bumped rarely) → Xcode Product → Archive → Distribute. Before the first upload the generated project still needs: camera / photo-library / location usage strings and `ITSAppUsesNonExemptEncryption=false` in `Info.plist`, `DEVELOPMENT_TEAM = QV4MJ85JSK` in both pbxproj configs, the NPS app icon in `Assets.xcassets/AppIcon.appiconset`, and an App Store Connect app record for the bundle id. Info.plist references the version fields via `$(MARKETING_VERSION)` / `$(CURRENT_PROJECT_VERSION)` — never hardcode there. Full checklist in the TestFlight playbook.
 
 **The dual-channel skew rule:** the web app updates the moment a user reloads twice (SW update dance); the iOS app only updates when someone archives and uploads a new build. Between iOS builds the two channels intentionally run different versions of the same file — the SW cache-name discipline is what keeps each channel internally consistent.
 
@@ -432,6 +434,7 @@ Region labels come from the boundary data's `REGION` field (`AKR IMR MWR NCR NER
 ## 15. Security & privacy posture
 
 - **Capture and export are entirely client-side.** Data leaves the device through the auditor's own export, or — once they have signed in — through live backup and Send to SharePoint (§20).
+- **No third-party code at runtime.** The libraries are vendored and hash-verified (§4); beyond the app's own origin, the only requests are to Microsoft, for sign-in and for the upload URL of Send to SharePoint.
 - **The device holds no Microsoft credentials and no shared key.** The functions sign in to Graph as their own app registration, which has `Sites.Selected`: write access to one SharePoint site and nothing else in the tenant. Its secret lives only in the Static Web App's application settings.
 - **Two gates, both on the server.** Static Web Apps refuses the API routes to anyone signed out, and `admit()` in `api/shared/graph.js` refuses any account whose address does not end in `@` + `ALLOWED_DOMAIN`, on both verbs of both functions. The built-in provider admits any Microsoft account, so the second gate is the one that keeps outsiders out.
 - **Paths.** The device names a destination *key*, never a library, and the function resolves it; a key not on the list is refused. `safeSegments()` strips `..`, drive letters, leading slashes and control characters from every folder and file name. Each destination's `root` is the boundary that matters, because `Sites.Selected` covers the whole document library. An upload-session URL is scoped to one file and expires on its own.
@@ -447,7 +450,7 @@ Region labels come from the boundary data's `REGION` field (`AKR IMR MWR NCR NER
 3. **The SW cache name is the release mechanism.** Changed a cached file? Bump `CACHE_NAME` or field devices won't see it. And keep the `cache:'reload'` / `no-cache` fetch options — removing them reintroduces the stale-JSON bug.
 4. **`<input type=file>` recreation** on every camera tap is deliberate (iOS stale-file bug). So is the missing `capture` attribute on Browse.
 5. **iOS re-encodes photos and strips EXIF** through file inputs; original-quality/EXIF capture would require the Capacitor Camera plugin.
-6. **SheetJS community edition can't style cells** — that's why ExcelJS, despite ~500 KB.
+6. **SheetJS community edition can't style cells** — that's why ExcelJS, despite ~950 KB minified.
 7. **Every web release bumps `APP_VERSION` and `CACHE_NAME` together** — the version stamp is how anyone tells which build an iPad is running. iOS build numbers move only with an iOS build.
 8. **`www/` is generated** — edit root files, run `npm run sync`.
 9. The 3-digit Photos column vs 4-digit filenames in the XLSX report is a deliberate user preference, not a bug.
@@ -459,12 +462,14 @@ Region labels come from the boundary data's `REGION` field (`AKR IMR MWR NCR NER
 15. **WebKit drops IndexedDB connections** after the app has sat in the background. Every IndexedDB call goes through `withPhotoDB()` (§7); a new one must too.
 16. **Two copies of the app share one storage** — a second tab, or the Home Screen icon beside a browser tab — and every save writes a whole list. So nothing may write on hide or close except edits still waiting on a debounce (`flushPendingSaves()`), or a stale copy puts its old lists over newer work (v4.6).
 17. **Chrome, Safari and every other browser on iPad run WebKit.** Test in WebKit (Playwright's `webkit` with an iPhone or iPad profile), not only Chromium, before deploying.
+18. **The iOS app has no service worker (§12).** Anything it needs offline must ship in its bundle: add it to package.json's `build` copy list and run `npm run sync`. That is why the libraries are vendored (§4).
 
 ## 17. How to extend safely (checklist)
 
 - **Sibling first:** before changing shared code, diff `index.html` against the USFS copy; apply the identical hunk to both apps (or note why not).
 - Editing `index.html`/data JSON → test in a browser (`python3 -m http.server 8080` or the deployed URL), **bump `CACHE_NAME` in `sw.js` and `APP_VERSION` in `index.html` together** (the bottom bar shows the running version; it reads the cache names and says "updating…" while they disagree, so a missed bump is visible), push to `main` (web ships), and note the iOS channel stays behind until the next TestFlight build.
 - New cached asset → add to `URLS_TO_CACHE` *and* bump the cache name *and* (if it must ship in the iOS bundle) add it to package.json's `build` copy list.
+- New or upgraded library → put it in `vendor/`, never a CDN; verify it against the hash its publisher lists and record it in `vendor/README.md` (§4).
 - New entry field → touch all of: the form HTML, `saveEntryAndNew()`, `saveEdit()`, `editEntry()` (via `loadNpsFields()` for NPS fields), `autoSaveCurrent()`/`loadAll()`, `normaliseEntry()`, the draft objects in `runExport()`, `generateWordReport()` and `saveBackup()`, the CSV row, the XLSX sheets, and the saved-panel renderer.
 - New photo behavior → preserve the verify-after-write contract and the three-tier delete.
 - Anything touching citations/locations data → regenerate via the build scripts, never hand-edit the JSON or the generated `REGION_MAP`.

@@ -1,15 +1,15 @@
 // Service worker for the NPS Audit Photo Collector.
 // Keep the number in step with APP_VERSION in index.html (shown in the bottom bar).
-const CACHE_NAME = 'nps-collector-v4.6';
+const CACHE_NAME = 'nps-collector-v4.7';
 const URLS_TO_CACHE = [
   './',
   './index.html',
   './manifest.json',
   './envirocheck_checklists.json',
   './nps_locations.json',
-  'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js',
-  'https://cdn.jsdelivr.net/npm/docx@8.2.2/build/index.umd.js'
+  './vendor/jszip.min.js',
+  './vendor/exceljs.min.js',
+  './vendor/docx.umd.js'
 ];
 // Without these three the app cannot run offline at all.
 const ESSENTIAL = ['./index.html', './envirocheck_checklists.json', './nps_locations.json'];

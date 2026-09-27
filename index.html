@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-title" content="NPS Photo Collector">
 <link rel="manifest" href="manifest.json">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/docx@8.2.2/build/index.umd.js"></script>
+<script src="vendor/jszip.min.js"></script>
+<script src="vendor/exceljs.min.js"></script>
+<script src="vendor/docx.umd.js"></script>
 <title>NPS Photo Collector</title>
 <script>
 if ('serviceWorker' in navigator) {
@@ -2981,7 +2981,7 @@ async function buildAndSendExport(mode) {
     showToast(beforeFilter === 0 ? 'Nothing to export' : 'No entries in selected date range', true);
     return;
   }
-  if (typeof JSZip === 'undefined' || typeof ExcelJS === 'undefined') { showToast('Export library not loaded \u2014 go online once first', true); return; }
+  if (typeof ExcelJS === 'undefined' || typeof JSZip === 'undefined') { showToast('Export library didn\u2019t load \u2014 restart the app and try again', true); return; }
   // NPS-only: finding numbers are assigned per park after the WASO sort.
   const numbers = findingNumbers(allEntries);
 
@@ -3216,7 +3216,7 @@ async function buildAndSendExport(mode) {
       // A cancelled share sheet means nothing left the device: no record, no offer to delete.
       if (!await shareOrDownload(blob, zipName)) { showToast('Export cancelled \u2014 nothing was saved or sent', true); return; }
     }
-    showToast(`${mode === 'cloud' ? '\u2713 Sent to SharePoint \u2014 ' : 'Exported '}${allEntries.length} entries, ${photoCount} photos${wordFiles.length ? ' + ' + wordFiles.join(' and ') : ''}${misses ? ' (⚠ ' + misses + ' missing)' : ''}${wordSkipped ? ' — Word files left out, go online once' : ''}`, !!(misses || wordSkipped));
+    showToast(`${mode === 'cloud' ? '\u2713 Sent to SharePoint \u2014 ' : 'Exported '}${allEntries.length} entries, ${photoCount} photos${wordFiles.length ? ' + ' + wordFiles.join(' and ') : ''}${misses ? ' (⚠ ' + misses + ' missing)' : ''}${wordSkipped ? ' — Word files left out, restart the app and try again' : ''}`, !!(misses || wordSkipped));
 
     // Offer to batch-delete the just-exported entries from this device.
     const exportedIds = allEntries.map(e => e.id).filter(Boolean);
@@ -4817,7 +4817,7 @@ async function parsePriorWorkbook(file) {
 async function handlePriorFile(event) {
   const file = event.target.files && event.target.files[0];
   if (!file) return;
-  if (typeof ExcelJS === 'undefined') { showToast('ExcelJS not loaded — go online once first', true); return; }
+  if (typeof ExcelJS === 'undefined') { showToast('Export library didn\u2019t load \u2014 restart the app and try again', true); return; }
   showToast('Reading spreadsheet…');
   let parsed;
   try { parsed = await parsePriorWorkbook(file); }
@@ -5043,7 +5043,7 @@ loadPriorAudit();
 // every release. The bottom bar shows it, and while a newer service worker
 // is still installing (the page is fresh, the cache is last release's) it
 // says so and settles once the new worker takes control.
-const APP_VERSION = '4.6';
+const APP_VERSION = '4.7';
 let _versionTries = 0;
 // '1.10' sorts after '1.9': compare each dotted part as a number.
 function versionCompare(a, b) {
@@ -6845,7 +6845,7 @@ function wordImageSize(bytes, type) {
 // finding in finding-number order, its photos beneath it, and "No Photo
 // Available" where a finding has none. Photo numbers are the ZIP's numbers.
 async function generateWordReport() {
-  if (typeof docx === 'undefined') { showToast('Word library not loaded — go online once first', true); return; }
+  if (typeof docx === 'undefined') { showToast('Word library didn\u2019t load \u2014 restart the app and try again', true); return; }
   closeExportDialog();
 
   // Same entry set, draft handling and date filter as the ZIP export.
