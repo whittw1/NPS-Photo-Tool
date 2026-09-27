@@ -1,0 +1,50 @@
+# Runs the offline tests several times on the same Linux runner as the deploy
+# gate, to chase a failure that only shows up there now and then. Manual only
+# (Actions → "Offline tests (repeat)" → Run workflow); it never deploys.
+name: Offline tests (repeat)
+
+on:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "Scenario names to run (a pattern, as ONLY=…); empty for all"
+        required: false
+        default: ""
+      engines:
+        description: "Engines (chromium, webkit or both)"
+        required: false
+        default: "webkit"
+      repeat:
+        description: "How many runs"
+        required: false
+        default: "5"
+
+jobs:
+  repeat:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install Playwright and its browsers
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium webkit
+      - name: Repeat npm test
+        env:
+          CI: true
+          POOL: 2
+          ONLY: ${{ inputs.only }}
+          ENGINES: ${{ inputs.engines }}
+          REPEAT: ${{ inputs.repeat }}
+        run: |
+          fails=0
+          for i in $(seq 1 "$REPEAT"); do
+            echo "== run $i of $REPEAT"
+            node tests/offline.test.js || fails=$((fails + 1))
+          done
+          echo "$fails of $REPEAT runs failed"
+          [ "$fails" = 0 ]

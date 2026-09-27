@@ -26,6 +26,7 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'nps-offline-test-'));
 const ENGINES = (process.env.ENGINES || 'chromium,webkit').split(',').map(e => e.trim()).filter(Boolean);
 const STRICT = !!process.env.CI || process.argv.includes('--strict');
 const POOL = Math.max(1, +process.env.POOL || 3);
+const ONLY = process.env.ONLY ? new RegExp(process.env.ONLY) : null;   // e.g. ONLY=future-rename, to repeat one scenario
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const cleanup = () => { try { fs.rmSync(TMP, { recursive: true, force: true }); } catch (e) {} };
 process.on('SIGINT', () => { cleanup(); process.exit(130); });
@@ -593,7 +594,7 @@ async function pool(items, n, fn) {
   };
   try { await staticChecks(S); report('PASS', '-', 'static-checks'); } catch (e) { report('FAIL', '-', 'static-checks', e.message); }
   if (!S.baselines.length) report(STRICT ? 'FAIL' : 'SKIP', '-', 'update-from-earlier-releases', 'no earlier release in git history (a shallow clone needs fetch-depth: 0)');
-  const all = Object.entries(Object.assign({}, SCENARIOS, baselineScenarios(S))).concat([['messages', null]]);
+  const all = Object.entries(Object.assign({}, SCENARIOS, baselineScenarios(S))).concat([['messages', null]]).filter(([n]) => !ONLY || ONLY.test(n));
   await Promise.all(ENGINES.map(engine => pool(all, POOL, async ([name, fn]) => {
     if (!pw[engine]) { report('FAIL', engine, name, 'no such engine'); return; }
     let srv = null, s = null;
