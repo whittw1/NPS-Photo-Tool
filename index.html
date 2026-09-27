@@ -366,6 +366,13 @@ if ('serviceWorker' in navigator) {
     gap: 5px;
   }
   .site-import-btn:hover { border-color: var(--text-dim); color: var(--text); }
+  /* At 320-360 px (iPad Slide Over, small phones, larger text) the label and
+     the two buttons fill the row: the location box moves to a line of its own
+     instead of the Import button running off the screen. */
+  @media (max-width: 360px) {
+    .site-section-row { flex-wrap: wrap; row-gap: 8px; }
+    .site-section-row #siteName { order: 3; flex: 1 1 100% !important; }
+  }
 
   /* -- Entry form -- */
   .entry-section {

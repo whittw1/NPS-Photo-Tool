@@ -122,8 +122,9 @@ function serve(st, req, res) {
   let p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
   if (p.startsWith('/vendor/')) st.vendorHits.push(p);
   const dropped = (p === '/sw.js' && st.blockSw) || (st.drop && st.drop(req, p));
-  // 503 fails a request at once; anything else truthy resets the connection
-  // (WebKit may retry a reset page load, so page requests are failed with 503).
+  // 503 fails a request at once; anything else truthy resets the connection.
+  // WebKit may keep retrying a reset request, so only a navigation that must
+  // fail as a network error is reset; downloads are failed with 503.
   if (dropped === 503) { res.writeHead(503, { 'cache-control': 'no-store' }); res.end(); return; }
   if (dropped) { req.socket.destroy(); return; }
   const cfg = st.site.cfg;
@@ -210,6 +211,16 @@ async function until(fn, ms, what) {
   while (Date.now() - t0 < ms) { try { if (await fn()) return; } catch (e) { /* page busy */ } await sleep(200); }
   throw new Error('timed out waiting for ' + what);
 }
+// The worker's state and every cache's contents, for a failure report.
+async function stateOf(s) {
+  try {
+    return JSON.stringify(await s.page().evaluate(async () => {
+      const r = await navigator.serviceWorker.getRegistration(), out = { sw: r && { active: r.active && r.active.state, installing: !!r.installing, waiting: !!r.waiting } };
+      for (const k of await caches.keys()) out[k] = (await (await caches.open(k)).keys()).map(q => new URL(q.url).pathname);
+      return out;
+    }));
+  } catch (e) { return '(no page)'; }
+}
 const cacheName = snap => 'nps-collector-v' + snap.version;
 const vendorPaths = snap => snap.libs.map(u => '/' + u);
 const sha = file => 'sha256-' + crypto.createHash('sha256').update(fs.readFileSync(file)).digest('base64');
@@ -279,7 +290,7 @@ const SCENARIOS = {
   // Every library download fails during the first open: the bar says so, and
   // once the signal is back the page loads them itself, without a reload.
   async 'dropped-downloads'(s, srv, S) {
-    srv.st.drop = (req, p) => p.startsWith('/vendor/') && (fromWorker(req) || 503);
+    srv.st.drop = (req, p) => p.startsWith('/vendor/') && 503;
     srv.st.site = site(S.current);
     await (await s.launch()).open();
     await until(s.settled, 60000, 'the service worker to activate');
@@ -296,7 +307,7 @@ const SCENARIOS = {
   async 'upgrade-reuses-libraries'(s, srv, S) {
     await install(s, srv, S.current);
     srv.st.site = site(S.next); srv.st.vendorHits = [];
-    srv.st.drop = (req, p) => p.startsWith('/vendor/');
+    srv.st.drop = (req, p) => p.startsWith('/vendor/') && 503;
     await (await s.launch()).open();
     await until(async () => { const k = await s.cacheNames(); return k.length === 1 && k[0] === cacheName(S.next); }, 60000, 'the upgrade to replace the old cache');
     for (const v of vendorPaths(S.next)) if (await s.hashOf(cacheName(S.next), v) !== sha(path.join(S.next.dir, v))) throw new Error(v + ' missing or wrong in the new cache');
@@ -332,7 +343,7 @@ const SCENARIOS = {
     srv.st.drop = (req, p) => {
       if (req.headers['sec-fetch-dest'] === 'script' && p.startsWith('/vendor/')) return 503;   // nothing in the browser's own cache
       if (fromWorker(req) && p === '/nps_locations.json') cut = true;
-      return cut && fromWorker(req);
+      return cut && fromWorker(req) && 503;
     };
     srv.st.site = site(S.current);
     await (await s.launch()).open();
@@ -347,7 +358,7 @@ const SCENARIOS = {
     srv.st.site = site(S.next);
     srv.st.drop = (req, p) => {
       if (!navDropped && req.headers['sec-fetch-mode'] === 'navigate') { navDropped = true; return true; }   // the old worker serves its cached page
-      return fromWorker(req) && p === '/nps_locations.json';
+      return fromWorker(req) && p === '/nps_locations.json' && 503;
     };
     await (await s.launch()).open();
     await until(async () => (await s.cacheNames()).length === 2 && await s.settled() && ((await s.cache(cacheName(S.next))) || []).includes('/index.html'), 60000, 'the cut-short update');
@@ -374,7 +385,7 @@ function baselineScenarios(S) {
     out['from-' + b.name + '-cut-short'] = async (s, srv) => {
       await install(s, srv, b);
       srv.st.site = site(S.current);
-      srv.st.drop = (req, p) => fromWorker(req) && p === '/nps_locations.json';
+      srv.st.drop = (req, p) => fromWorker(req) && p === '/nps_locations.json' && 503;
       await (await s.launch()).open();
       await until(async () => { const c = (await s.cache(cacheName(S.current))) || []; return (await s.settled()) && vendorPaths(S.current).every(v => c.includes(v)); }, 60000, 'the new install to store the libraries');
       srv.st.drop = null;
@@ -584,7 +595,7 @@ async function pool(items, n, fn) {
       else await messages(engine, srv, S);
       report('PASS', engine, name);
     } catch (e) {
-      report('FAIL', engine, name, e.message.split('\n')[0]);
+      report('FAIL', engine, name, e.message.split('\n')[0] + (s && /timed out/.test(e.message) ? ' — state: ' + await stateOf(s) : ''));
     } finally {
       if (s) { await s.close().catch(() => {}); fs.rmSync(s.dir, { recursive: true, force: true }); }
       if (srv) await srv.setOffline(true).catch(() => {});

@@ -31,6 +31,7 @@ jobs:
         run: node tests/offline.test.js
         env:
           CI: true
+          POOL: 2                 # two scenarios per engine at once on the runner's two cores
 
   build_and_deploy:
     needs: test
