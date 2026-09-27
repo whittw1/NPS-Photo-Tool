@@ -175,11 +175,14 @@ async function session(engine, srv) {
   const s = {
     dir,
     dialogs: [],
+    console: [],
     async launch() {
       if (ctx) await ctx.close();
       ctx = await pw[engine].launchPersistentContext(dir, { serviceWorkers: 'allow' });
       page = ctx.pages()[0] || await ctx.newPage();
       page.on('dialog', d => { s.dialogs.push(d.message()); d.accept(); });
+      page.on('console', m => { if (/error|warn/.test(m.type())) s.console.push(m.type() + ': ' + m.text().slice(0, 160)); });
+      page.on('pageerror', e => s.console.push('pageerror: ' + e.message.slice(0, 160)));
       return s;
     },
     async open(p = '/index.html') { await page.goto(srv.base + p, { waitUntil: 'load', timeout: 60000 }); return s; },
@@ -211,15 +214,20 @@ async function until(fn, ms, what) {
   while (Date.now() - t0 < ms) { try { if (await fn()) return; } catch (e) { /* page busy */ } await sleep(200); }
   throw new Error('timed out waiting for ' + what);
 }
-// The worker's state and every cache's contents, for a failure report.
+// The page's and the worker's state, every cache's contents and the console, for a failure report.
 async function stateOf(s) {
+  let out;
   try {
-    return JSON.stringify(await s.page().evaluate(async () => {
-      const r = await navigator.serviceWorker.getRegistration(), out = { sw: r && { active: r.active && r.active.state, installing: !!r.installing, waiting: !!r.waiting } };
-      for (const k of await caches.keys()) out[k] = (await (await caches.open(k)).keys()).map(q => new URL(q.url).pathname);
-      return out;
+    out = JSON.stringify(await s.page().evaluate(async () => {
+      const r = await navigator.serviceWorker.getRegistration();
+      const o = { url: location.pathname, app: typeof APP_VERSION !== 'undefined' ? APP_VERSION : null, onLine: navigator.onLine, controlled: !!navigator.serviceWorker.controller,
+        parks: typeof forestData !== 'undefined' ? Object.keys(forestData).length : null, questions: typeof tgLoaded !== 'undefined' ? tgLoaded : null,
+        sw: r && { active: r.active && r.active.state, installing: !!r.installing, waiting: !!r.waiting } };
+      for (const k of await caches.keys()) o[k] = (await (await caches.open(k)).keys()).map(q => new URL(q.url).pathname);
+      return o;
     }));
-  } catch (e) { return '(no page)'; }
+  } catch (e) { out = '(no page: ' + e.message.split('\n')[0] + ')'; }
+  return out + (s.console.length ? ' console: ' + JSON.stringify(s.console.slice(-8)) : '');
 }
 const cacheName = snap => 'nps-collector-v' + snap.version;
 const vendorPaths = snap => snap.libs.map(u => '/' + u);
@@ -595,7 +603,7 @@ async function pool(items, n, fn) {
       else await messages(engine, srv, S);
       report('PASS', engine, name);
     } catch (e) {
-      report('FAIL', engine, name, e.message.split('\n')[0] + (s && /timed out/.test(e.message) ? ' — state: ' + await stateOf(s) : ''));
+      report('FAIL', engine, name, e.message.split('\n')[0] + (s ? ' — state: ' + await stateOf(s) : ''));
     } finally {
       if (s) { await s.close().catch(() => {}); fs.rmSync(s.dir, { recursive: true, force: true }); }
       if (srv) await srv.setOffline(true).catch(() => {});
