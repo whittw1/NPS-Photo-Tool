@@ -2,7 +2,7 @@
 
 A Progressive Web App (PWA) for National Park Service Environmental Audit Program field work: GPS-tagged photos, searchable EnviroCheck question lookup, 1/2a/2b/3/4/P priorities, repeat-finding links to the previous audit, and exports laid out like the WASO findings spreadsheet and the report's photo log. Works offline, and — once you sign in with your Microsoft work account — backs up to the firm's SharePoint as you go and can send the export there directly. Forked from the [USFS Photo Collector](https://github.com/whittw1/USFS-Photo-Tool) (itself forked from the DLA Audit Photo Tool).
 
-**Live (web):** https://victorious-ocean-0a7852b10.3.azurestaticapps.net · current version **v4.11**, shown in the app's bottom bar
+**Live (web):** https://victorious-ocean-0a7852b10.3.azurestaticapps.net · current version **v4.12**, shown in the app's bottom bar
 
 Deep technical reference: [ARCHITECTURE.md](ARCHITECTURE.md). Deployment status and release history: [Status.md](Status.md). Live backup setup: [api/README.md](api/README.md).
 
@@ -47,7 +47,7 @@ NPS-Photo-Tool/
 │   ├── upload/                  ←   writes one file of up to 8 MB
 │   └── upload-session/          ←   starts a large-file upload for the export ZIP
 ├── staticwebapp.config.json     ← Azure Static Web Apps routes, cache headers, sign-in on the API routes
-├── tests/offline.test.js        ← npm test: offline exports through installs, updates and dropped downloads (Chromium + WebKit); CI runs it before every deploy
+├── tests/offline.test.js        ← npm test: offline exports through installs, updates and dropped downloads, and live backup's folders and queue (Chromium + WebKit); CI runs it before every deploy
 ├── web-files.txt                ← The files the web app is made of: what the build copies, the Xcode check checks and the tests serve
 ├── scripts/                     ← build-web.sh (npm run build), web-stamp.sh (native-side fingerprint), sibling-diff.js (shared code vs the USFS app)
 ├── USFS_PORT.md                 ← What the USFS app needs to copy from changes to shared code
@@ -84,7 +84,7 @@ The USFS and NPS apps are kept in sync by hand-porting fixes between them. Keep 
 
 - **Test locally:** `python3 -m http.server 8080` then open http://localhost:8080. The `api/` functions only run on Azure (or under the Azure Functions Core Tools); to test the client locally, stub `/.auth/me` and `/api/*`.
 - **Test in WebKit** before deploying: Chrome, Safari and every other browser on iPad run on it. Playwright's `webkit` with an iPhone or iPad profile is the closest thing to the field device.
-- **`npm test`** runs the offline-export tests in Chromium and WebKit (under a minute; first `npm install` and `npx playwright install chromium webkit`). GitHub Actions runs it before every deploy and deploys only if it passes; run it locally before pushing any change to `sw.js`, `staticwebapp.config.json`, `vendor/`, `web-files.txt` or the export code.
+- **`npm test`** runs the offline-export tests and a live-backup check in Chromium and WebKit (under a minute; first `npm install` and `npx playwright install chromium webkit`). GitHub Actions runs it before every deploy and deploys only if it passes; run it locally before pushing any change to `sw.js`, `staticwebapp.config.json`, `vendor/`, `web-files.txt`, the export code or live backup.
 - **Rebuild locations:** `node build_locations.js` (add `--refresh` to re-download; raw service responses are cached in `nps_raw/`). Then bump `CACHE_NAME` in `sw.js`.
 - **Rebuild EnviroCheck questions:** `node build_envirocheck.js` (reads the sheet `.docx` files from SharePoint; pass the folder as an argument to override). Then bump `CACHE_NAME`.
 - **Web deploy:** push to `main` → GitHub Actions → Azure Static Web Apps (`nps-data-collector`), app and functions together. Bump `CACHE_NAME` in `sw.js` and `APP_VERSION` in `index.html` together on every release; the bottom bar shows the running version (tap it to reload).
@@ -122,7 +122,7 @@ The USFS and NPS apps are kept in sync by hand-porting fixes between them. Keep 
 | Native filesystem (iOS app) | Durable full-resolution photos | `DATA/nps_photos/<dbKey>.jpg` |
 | IndexedDB | Full-resolution photos (web build; redundancy on iOS) | db `nps_photos_v1`, store `photos` |
 | localStorage fallback | Last-resort photo copy | `photo_full_<dbKey>` |
-| Service worker cache | App shell, data JSON, JSZip, ExcelJS, docx | `nps-collector-v4.11` (always matches the app version) |
+| Service worker cache | App shell, data JSON, JSZip, ExcelJS, docx | `nps-collector-v4.12` (always matches the app version) |
 | SharePoint (live backup on) | Off-device copy: state file, photo index, photos | `NPS/Audits/<park>/<year>/Live Backup/` |
 
 Unique `nps_*` keys let this app coexist with the USFS and DLA apps on the same device.

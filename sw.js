@@ -1,6 +1,6 @@
 // Service worker for the NPS Audit Photo Collector.
 // Keep the number in step with APP_VERSION in index.html (shown in the bottom bar).
-const CACHE_NAME = 'nps-collector-v4.11';
+const CACHE_NAME = 'nps-collector-v4.12';
 // The export libraries, each with the SHA-256 of its exact bytes. A file name
 // always means these bytes, and a copy is stored or reused only when it
 // matches, so a damaged or stale copy is replaced rather than kept. `npm test`

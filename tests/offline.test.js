@@ -1,6 +1,7 @@
 'use strict';
 // Offline-export regression tests for the web app: service worker, host config,
-// the bundled libraries and the messages around them. `npm test` runs them in
+// the bundled libraries and the messages around them — plus live backup's
+// folders and queue, with sign-in and the upload endpoint stubbed. `npm test` runs them in
 // Chromium and WebKit (Chrome and Safari on an iPad are both WebKit);
 // `ENGINES=webkit npm test` runs one engine. Needs the playwright dev dependency
 // and its browsers (`npx playwright install chromium webkit`). In CI (or with
@@ -581,6 +582,115 @@ async function messages(engine, srv, S) {
   if (errs.length) throw new Error(errs.join('; '));
 }
 
+// ---- live backup: which folder, which day, what waits, what is sent again ----
+// Sign-in and the upload endpoint are stubbed; everything else is the app. The
+// audit starts at ACAD on a Monday and moves to SACR on the Friday, with SACR
+// picked in the app — the ACAD_SACR audit of September 2026 — and a new audit
+// starts three weeks later.
+async function liveBackup(engine, srv, S) {
+  srv.st.site = site(S.current);
+  const b = await pw[engine].launch();
+  const errs = [], uploads = [], dialogs = [];
+  try {
+    const ctx = await b.newContext({ serviceWorkers: 'block' });
+    await ctx.route(u => ['/.auth/me', '/api/upload'].includes(new URL(u).pathname), r => {
+      const req = r.request(), json = o => r.fulfill({ contentType: 'application/json', body: JSON.stringify(o) });
+      if (new URL(req.url()).pathname === '/.auth/me') return json({ clientPrincipal: { userDetails: 'tester@example.com' } });
+      if (req.method() !== 'POST') return json({ ok: true, configured: true, targets: [{ key: 'nps', label: 'NPS — Audits' }] });
+      const p = JSON.parse(req.postData() || '{}');
+      uploads.push({ folder: p.folder, path: p.path, text: /\.csv$/.test(p.path) ? Buffer.from(p.contentBase64, 'base64').toString('utf8') : '' });
+      return json({ ok: true });
+    });
+    const page = await ctx.newPage();
+    page.on('dialog', d => { dialogs.push(d.message()); d.accept(); });
+    await page.goto(srv.base + '/index.html', { waitUntil: 'load' });
+    await page.waitForFunction(() => typeof tgLoaded !== 'undefined' && tgLoaded && backupUser, null, { timeout: 30000 });
+    // Helpers in the page: a photo's bytes, an entry with one photo, and a drain
+    // run until only photos that cannot be read are left.
+    await page.evaluate(() => {
+      const noon = daysAgo => { const d = new Date(); d.setDate(d.getDate() - daysAgo); d.setHours(12, 0, 0, 0); return d.getTime(); };
+      const ymd = t => { const d = new Date(t); return '' + d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0'); };
+      window.__t = { monday: noon(40), friday: noon(36), later: noon(12) };
+      window.__exp = { acad: 'ACAD/' + new Date(__t.monday).getFullYear() + '/Live Backup', caco: 'CACO/' + new Date(__t.later).getFullYear() + '/Live Backup',
+        monDay: ymd(__t.monday + 60000), friDay: ymd(__t.friday + 60000), laterDay: ymd(__t.later + 60000), device: deviceId() };
+      window.__store = key => { const c = document.createElement('canvas'); c.width = 8; c.height = 8; c.getContext('2d').fillRect(0, 0, 8, 8);
+        return savePhotoToDB(key, dataUrlToUint8Array(c.toDataURL('image/jpeg')).buffer, 'image/jpeg'); };
+      window.__entry = async (t, park, stored = true) => {
+        const id = 'e_' + t + '_' + Math.random().toString(36).slice(2, 6), key = photoDBKey(id, 'p_main');
+        if (stored) await __store(key);
+        savedEntries.push({ id, park, location: 'Test site', siteName: 'Test site', score: NOTE, details: 'test', timestamp: new Date(t).toISOString(),
+          photos: { p_main: { dbKey: key, timestamp: new Date(t + 60000).toISOString(), fileType: 'image/jpeg', thumbnail: '' } } });
+        saveAll();
+        return key;
+      };
+      window.__settle = async () => {
+        for (let i = 0; i < 400; i++) {
+          if (!_backupBusy) { await drainBackupQueue(); if (!_backupBusy && backupQueue.every(q => q.unreadable)) return; }
+          await new Promise(r => setTimeout(r, 50));
+        }
+        throw new Error('the queue never settled: ' + JSON.stringify(backupQueue));
+      };
+      window.__badge = () => { const e = document.getElementById('backupBadge'); return { text: e.textContent, title: e.title }; };
+      window.exportParkCode = () => 'SACR';            // the park picked in the app is the audit's second one
+      backupCfg.on = true; backupCfg.folder = ''; saveBackupCfg();
+      document.getElementById('backupOn').checked = true;
+    });
+    const exp = await page.evaluate(() => __exp);
+    const up = (folder, p) => uploads.some(u => u.folder === folder && u.path === p);
+    const photo = (key, day) => 'photos/' + day + '/' + key + '.jpg';
+    const state = 'state/' + exp.device + '_state.json';
+
+    // One audit across two parks, one photo not readable yet: everything goes to
+    // the audit's first park, each photo under the day it was taken, and the
+    // unreadable one stays waiting instead of the badge saying backed up.
+    const k = await page.evaluate(async () => {
+      const a1 = await __entry(__t.monday, 'ACAD'), a2 = await __entry(__t.monday + 3600e3, 'ACAD', false), s1 = await __entry(__t.friday, 'SACR');
+      backupQueue = []; backupDone = []; saveBackupQueue(); _backupReconciled = false;   // as after a launch
+      await __settle();
+      return { a1, a2, s1, queue: backupQueue.map(q => q.key), badge: __badge() };
+    });
+    if (!up(exp.acad, photo(k.a1, exp.monDay))) errs.push('the Monday ACAD photo is not in ' + exp.acad + '/photos/' + exp.monDay);
+    if (!up(exp.acad, photo(k.s1, exp.friDay))) errs.push('the Friday SACR photo is not in the audit folder ' + exp.acad + '/photos/' + exp.friDay);
+    if (!up(exp.acad, state)) errs.push('the state file is not in the audit folder ' + exp.acad);
+    if (uploads.some(u => /^SACR\//.test(u.folder))) errs.push('something went to the SACR folder picked in the app: ' + JSON.stringify(uploads.filter(u => /^SACR\//.test(u.folder)).map(u => u.folder + '/' + u.path)));
+    const csv = (uploads.filter(u => u.folder === exp.acad && /photos_.*\.csv$/.test(u.path)).pop() || {}).text || '';
+    if (!/,Folder\r?\n/.test(csv) || !csv.includes(k.a1 + '.jpg') || !csv.includes(exp.acad + '/photos/' + exp.monDay)) errs.push('the photo index does not give each photo its folder: ' + JSON.stringify(csv.slice(0, 300)));
+    if (uploads.some(u => u.path.includes(k.a2))) errs.push('a photo with no bytes was uploaded');
+    if (!k.queue.includes(k.a2) || !/waiting/.test(k.badge.text) || !/could not be read/.test(k.badge.title)) errs.push('an unreadable photo was dropped or hidden: ' + JSON.stringify(k));
+
+    // Once it can be read it goes up, and a photo nothing refers to any more is dropped.
+    const k2 = await page.evaluate(async a2 => {
+      await __store(a2);
+      backupQueue.push({ k: 'photo', key: 'e_1000000000000_gone__p_main' }); saveBackupQueue();
+      await __settle();
+      return { queue: backupQueue.map(q => q.key), badge: __badge() };
+    }, k.a2);
+    if (!up(exp.acad, photo(k.a2, exp.monDay))) errs.push('the photo that became readable never went up');
+    if (k2.queue.length || !/backed up/.test(k2.badge.text)) errs.push('after the photo went up the queue is not empty: ' + JSON.stringify(k2));
+    if (uploads.some(u => u.path.includes('_gone_'))) errs.push('a photo nothing refers to was uploaded');
+
+    // Weeks later a new audit starts at another park: its own folder.
+    const c1 = await page.evaluate(async () => {
+      const c1 = await __entry(__t.later, 'CACO');
+      queueBackup('photo', c1); backupQueue.push({ k: 'state' }); saveBackupQueue();
+      await __settle();
+      return c1;
+    });
+    if (!up(exp.caco, photo(c1, exp.laterDay))) errs.push('the new audit\'s photo is not in ' + exp.caco);
+    if (!up(exp.caco, state)) errs.push('the state file did not move to the new audit\'s folder ' + exp.caco);
+
+    // Send everything now: every photo again, including the ones already sent,
+    // each to its own audit's folder, after saying how many.
+    uploads.length = 0;
+    await page.evaluate(async () => { backupEverythingNow(); await __settle(); });
+    for (const [key, folder, day] of [[k.a1, exp.acad, exp.monDay], [k.a2, exp.acad, exp.monDay], [k.s1, exp.acad, exp.friDay], [c1, exp.caco, exp.laterDay]])
+      if (!up(folder, photo(key, day))) errs.push('Send everything now did not send ' + key + ' again to ' + folder + '/photos/' + day);
+    if (!dialogs.some(d => /^Send all 4 photos/.test(d))) errs.push('Send everything now did not ask first: ' + JSON.stringify(dialogs));
+    await ctx.close();
+  } finally { await b.close(); }
+  if (errs.length) throw new Error(errs.join('; '));
+}
+
 // ---- run ----
 async function pool(items, n, fn) {
   const q = items.slice(); const workers = [];
@@ -599,14 +709,15 @@ async function pool(items, n, fn) {
   };
   try { await staticChecks(S); report('PASS', '-', 'static-checks'); } catch (e) { report('FAIL', '-', 'static-checks', e.message); }
   if (!S.baselines.length) report(STRICT ? 'FAIL' : 'SKIP', '-', 'update-from-earlier-releases', 'no earlier release in git history (a shallow clone needs fetch-depth: 0)');
-  const all = Object.entries(Object.assign({}, SCENARIOS, baselineScenarios(S))).concat([['messages', null]]).filter(([n]) => !ONLY || ONLY.test(n));
+  const PAGE_CHECKS = { messages, 'live-backup': liveBackup };   // run without a service worker
+  const all = Object.entries(Object.assign({}, SCENARIOS, baselineScenarios(S))).concat(Object.keys(PAGE_CHECKS).map(n => [n, null])).filter(([n]) => !ONLY || ONLY.test(n));
   await Promise.all(ENGINES.map(engine => pool(all, POOL, async ([name, fn]) => {
     if (!pw[engine]) { report('FAIL', engine, name, 'no such engine'); return; }
     let srv = null, s = null;
     try {
       srv = await startServer();
       if (fn) { s = await session(engine, srv); await fn(s, srv, S); }
-      else await messages(engine, srv, S);
+      else await PAGE_CHECKS[name](engine, srv, S);
       report('PASS', engine, name);
     } catch (e) {
       report('FAIL', engine, name, e.message.split('\n')[0] + (s ? ' — state: ' + await stateOf(s) : ''));

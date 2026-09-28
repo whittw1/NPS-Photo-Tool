@@ -1132,7 +1132,7 @@ if ('serviceWorker' in navigator) {
       <label style="display:block;font-size:13px;color:var(--text-label);margin-bottom:6px;">&#9729; Live backup to SharePoint</label>
       <div class="tk-sub" style="margin-bottom:8px;">Sends each saved entry and each new photo to the audit folder while the app is open and online. The export is unchanged.</div>
       <select id="backupTarget" class="tk-field" onchange="readBackupSettings();paintBackupSettings(true);"></select>
-      <input type="text" id="backupFolder" class="tk-field" placeholder="Folder — leave empty for park and year, e.g. ACAD/2026">
+      <input type="text" id="backupFolder" class="tk-field" placeholder="Folder — leave empty for the audit's first park and year, e.g. ACAD/2026">
       <div id="backupWho" class="tk-sub" style="margin-bottom:6px;"></div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         <label style="font-size:13px;display:flex;align-items:center;gap:6px;"><input type="checkbox" id="backupOn"> Turn it on</label>
@@ -5145,7 +5145,7 @@ loadPriorAudit();
 // every release. The bottom bar shows it, and while a newer service worker
 // is still installing (the page is fresh, the cache is last release's) it
 // says so and settles once the new worker takes control.
-const APP_VERSION = '4.11';
+const APP_VERSION = '4.12';
 let _versionTries = 0;
 // '1.10' sorts after '1.9': compare each dotted part as a number.
 function versionCompare(a, b) {
@@ -6273,14 +6273,21 @@ function paintBackupBadge() {
   if (!backupCfg.on) { b.style.display = 'none'; return; }
   b.style.display = 'inline-block';
   const waiting = backupQueue.length;
+  const unread = unreadableBackupCount();
   // Nothing is backed up until somebody has signed in, queue or no queue.
   const needsUser = _backupSignInNeeded || !backupUser;
-  const bad = _backupLastError && waiting;
+  const bad = (_backupLastError || unread) && waiting;
   b.style.background = needsUser ? 'rgba(224,164,74,0.95)' : bad ? 'rgba(224,164,74,0.9)' : waiting ? 'rgba(90,100,112,0.9)' : 'rgba(74,184,106,0.9)';
   b.style.color = '#fff';
   b.textContent = needsUser ? '☁ sign in to back up' : waiting ? '☁ ' + waiting + ' waiting' : '☁ backed up';
   b.title = needsUser ? 'Tap to open Settings and sign in with Microsoft.'
+    : unread ? unreadableBackupText(unread) + ' Tap for settings.'
     : bad ? 'Last try: ' + _backupLastError : 'Live backup to SharePoint. Tap for settings.';
+}
+// Photos the backup could not read on its last try. They stay waiting.
+function unreadableBackupCount() { return backupQueue.filter(i => i.k === 'photo' && i.unreadable).length; }
+function unreadableBackupText(n) {
+  return n + ' photo' + (n === 1 ? '' : 's') + ' could not be read on this device yet — still trying.';
 }
 // Queue helpers. The state file is one item however often it changes.
 function queueBackup(kind, key) {
@@ -6288,21 +6295,21 @@ function queueBackup(kind, key) {
   if (kind === 'state') {
     clearTimeout(_backupStateTimer);
     _backupStateTimer = setTimeout(() => {
-      // The state file covers every park, so it follows the current one; photos
-      // keep the folder they were taken under.
+      // The state file covers everything on this device and goes to the current
+      // audit's folder, worked out when it is sent.
       const existing = backupQueue.find(i => i.k === 'state');
-      if (existing) { existing.folder = backupFolder(); existing.target = backupCfg.target; }
-      else backupQueue.push({ k: 'state', folder: backupFolder(), target: backupCfg.target });
+      if (existing) existing.target = backupCfg.target;
+      else backupQueue.push({ k: 'state', target: backupCfg.target });
       // The photo index rides along with the state file: same cadence, same place.
       const idx = backupQueue.find(i => i.k === 'index');
-      if (idx) { idx.folder = backupFolder(); idx.target = backupCfg.target; }
-      else backupQueue.push({ k: 'index', folder: backupFolder(), target: backupCfg.target });
+      if (idx) idx.target = backupCfg.target;
+      else backupQueue.push({ k: 'index', target: backupCfg.target });
       saveBackupQueue(); drainBackupQueue();
     }, 2500);
     return;
   }
   if (kind === 'photo' && key && backupDone.indexOf(key) < 0 && !backupQueue.some(i => i.k === 'photo' && i.key === key)) {
-    backupQueue.push({ k: 'photo', key, folder: backupFolder(), target: backupCfg.target });
+    backupQueue.push({ k: 'photo', key, target: backupCfg.target });
     saveBackupQueue(); drainBackupQueue();
   }
 }
@@ -6315,6 +6322,33 @@ function backupStateFile() {
       park: exportParkCode(), entries: clean, sites: locSites, tanks: tankData, people: peopleList, audit: auditInfo }, null, 1),
   };
 }
+// Every photo this device still refers to: when it was taken (its folder under
+// photos/ is that day) and when its finding or site began (which audit it
+// belongs to). A photo that is not in here any more has nothing left to send.
+function photoBackupInfo() {
+  const info = new Map();
+  const add = (p, at) => {
+    if (!p || !p.dbKey || info.has(p.dbKey)) return;
+    const taken = Date.parse(p.timestamp) || at || Date.now();
+    info.set(p.dbKey, { taken, at: at || taken });
+  };
+  savedEntries.forEach(e => Object.values(e.photos || {}).forEach(p => add(p, entryStartedAt(e))));
+  Object.values(currentPhotos).forEach(p => add(p, entryStartedAt({ id: currentEntryId }) || Date.now()));
+  (typeof tankRows === 'function' ? tankRows() : []).forEach(r => Object.values(r.photos || {}).forEach(p => add(p, 0)));
+  (locSites || []).forEach(st => Object.values(st.photos || {}).forEach(p => add(p, siteStartedAt(st))));
+  return info;
+}
+function backupDay(t) {
+  const d = new Date(t || Date.now());
+  return d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+}
+function backupPhotoName(key, type) {
+  return String(key).replace(/[^\w.-]/g, '_') + (String(type || '').indexOf('png') >= 0 ? '.png' : '.jpg');
+}
+// A photo's folder, below the endpoint's parent: its audit's, then the day it was taken.
+function backupPhotoFolder(i, runs) {
+  return backupFolderFor(i.at, runs) + '/photos/' + backupDay(i.taken);
+}
 // A readable index next to the photos: the uploaded file names are storage
 // keys, which are exact but say nothing. This says what each one is, so the
 // folder can be read without opening the state file.
@@ -6323,13 +6357,15 @@ function backupIndexFile() {
     const t = String(v == null ? '' : v).replace(/[\r\n]+/g, ' ').trim();
     return /[",]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
   };
-  const rows = [['File', 'What', 'Park', 'Location', 'Detail', 'Priority', 'Slot', 'Taken'].join(',')];
+  const info = photoBackupInfo(), runs = auditRuns();
+  const rows = [['File', 'What', 'Park', 'Location', 'Detail', 'Priority', 'Slot', 'Taken', 'Folder'].join(',')];
   const add = (dbKey, what, park, location, detail, priority, slot, taken, fileType) => {
     if (!dbKey) return;
-    // Exactly the name backupPhotoFile() uploads it under, extension included.
-    const name = String(dbKey).replace(/[^\w.-]/g, '_') + (String(fileType || '').indexOf('png') >= 0 ? '.png' : '.jpg');
-    rows.push([cell(name), cell(what), cell(park), cell(location),
-               cell(String(detail || '').slice(0, 300)), cell(priority), cell(slot), cell(taken)].join(','));
+    // Exactly the name and folder backupPhotoFile() uploads it under, extension included.
+    const i = info.get(dbKey);
+    rows.push([cell(backupPhotoName(dbKey, fileType)), cell(what), cell(park), cell(location),
+               cell(String(detail || '').slice(0, 300)), cell(priority), cell(slot), cell(taken),
+               cell(i ? backupPhotoFolder(i, runs) : '')].join(','));
   };
   savedEntries.forEach(e => {
     const ph = e.photos || {};
@@ -6361,12 +6397,12 @@ function backupIndexFile() {
   return { path: 'photos_' + deviceId() + '.csv', contentType: 'text/csv',
            text: '\ufeff' + rows.join('\r\n') + '\r\n' };
 }
-async function backupPhotoFile(key) {
+async function backupPhotoFile(key, info, runs) {
   const pd = await loadPhotoBytes(key, 'image/jpeg');
-  if (!pd) return null;                        // bytes gone: nothing to send
-  const d = new Date();
-  const day = d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
-  return { path: 'photos/' + day + '/' + String(key).replace(/[^\w.-]/g, '_') + (pd.type.includes('png') ? '.png' : '.jpg'),
+  if (!pd) return null;                        // not readable now: the drain keeps it waiting
+  const i = (info && info.get(key)) || { taken: Date.now(), at: Date.now() };
+  // The same folder and day as backupPhotoFolder(), which the index shows.
+  return { folder: backupFolderFor(i.at, runs), path: 'photos/' + backupDay(i.taken) + '/' + backupPhotoName(key, pd.type),
     contentType: pd.type || 'image/jpeg', base64: uint8ToBase64(pd.bytes) };
 }
 async function sendToBackup(file, folder, target) {
@@ -6394,11 +6430,11 @@ function reconcileBackupQueue() {
     const done = new Set(backupDone);
     Array.from(new Set(allReferencedPhotoKeys())).forEach(k => {
       if (!k || done.has(k) || queued.has(k)) return;
-      backupQueue.push({ k: 'photo', key: k, folder: backupFolder(), target: backupCfg.target });
+      backupQueue.push({ k: 'photo', key: k, target: backupCfg.target });
     });
     const anything = savedEntries.length || (locSites || []).length || tankRows().length || peopleList.length;
-    if (anything && !backupQueue.some(i => i.k === 'state')) backupQueue.push({ k: 'state', folder: backupFolder(), target: backupCfg.target });
-    if (anything && !backupQueue.some(i => i.k === 'index')) backupQueue.push({ k: 'index', folder: backupFolder(), target: backupCfg.target });
+    if (anything && !backupQueue.some(i => i.k === 'state')) backupQueue.push({ k: 'state', target: backupCfg.target });
+    if (anything && !backupQueue.some(i => i.k === 'index')) backupQueue.push({ k: 'index', target: backupCfg.target });
     saveBackupQueue();
   } catch (e) {}
 }
@@ -6414,25 +6450,45 @@ async function drainBackupQueue() {
   }
   _backupBusy = true;
   try {
-    // One pass over the queue. A file the library keeps refusing goes to the
-    // back instead of holding up everything behind it.
+    let info = photoBackupInfo();
+    const runs = auditRuns();
+    // One pass over the queue. A file the library keeps refusing, or a photo
+    // that cannot be read just now, goes to the back instead of holding up
+    // everything behind it.
     let pass = backupQueue.length;
     while (backupQueue.length && navigator.onLine && pass-- > 0) {
       const item = backupQueue[0];
+      if (item.k === 'photo') {
+        // Taken since this pass began, or gone: look again before deciding.
+        if (!info.has(item.key)) info = photoBackupInfo();
+        // Nothing refers to it any more — its finding deleted, or retaken under
+        // a new name — so there is nothing to send.
+        if (!info.has(item.key)) { backupQueue.shift(); saveBackupQueue(); continue; }
+      } else if (item.k !== 'state' && item.k !== 'index') { backupQueue.shift(); saveBackupQueue(); continue; }
       let file = null;
       try {
         file = item.k === 'state' ? backupStateFile()
              : item.k === 'index' ? backupIndexFile()
-             : await backupPhotoFile(item.key);
+             : await backupPhotoFile(item.key, info, runs);
       } catch (e) { file = null; }
-      if (!file) { backupQueue.shift(); saveBackupQueue(); continue; }   // nothing to send for this item
+      if (!file) {
+        // Still wanted, but not readable just now (storage waking up after the
+        // app sat in the background, say). It stays waiting and is tried again
+        // on the next pass: dropped, it would never be backed up, and the badge
+        // would say it was.
+        item.unreadable = true;
+        backupQueue.push(backupQueue.shift());
+        saveBackupQueue();
+        continue;
+      }
+      delete item.unreadable;
       // The index only changes when the photos or their findings do: an
       // identical one is dropped rather than sent again on every save.
       if (item.k === 'index' && file.text === _backupLastIndex) { backupQueue.shift(); saveBackupQueue(); continue; }
       try {
-        await sendToBackup(file, item.folder, item.target);
+        await sendToBackup(file, file.folder || backupFolder(), item.target);
         backupQueue.shift();
-        if (item.k === 'photo') backupDone.push(item.key);
+        if (item.k === 'photo' && backupDone.indexOf(item.key) < 0) backupDone.push(item.key);
         if (item.k === 'index') _backupLastIndex = file.text;
         _backupLastError = '';
         saveBackupQueue();
@@ -6455,14 +6511,49 @@ async function drainBackupQueue() {
     paintBackupBadge();
   }
 }
-// Where this device writes inside the endpoint's parent folder. Empty means
-// the park and the year, so a new audit files itself without anyone changing
-// a setting: ACAD/2026/Live Backup.
-function backupFolder() {
+// Where this device writes inside the endpoint's parent folder: one folder per
+// audit, so a new audit files itself without anyone changing a setting. The app
+// keeps no audit record of its own, so an audit is read from the entries: a run
+// of them with no gap longer than a week, filed under the park and year of its
+// first entry (ACAD/2026/Live Backup). A trip that takes in two parks — ACAD,
+// then SACR — stays in one folder whichever park is picked in the app, and the
+// next trip, weeks later, starts its own. A folder typed in Settings wins.
+// Worked out when each file is sent, from the audit that file belongs to, so a
+// photo sent again later still goes with its own audit.
+const AUDIT_GAP_MS = 7 * 24 * 60 * 60 * 1000;
+function entryStartedAt(e) {
+  const m = /^e_(\d{12,14})_/.exec(String((e && e.id) || ''));
+  return (m && +m[1]) || Date.parse(e && e.timestamp) || 0;
+}
+function siteStartedAt(st) {
+  const m = /^st_([0-9a-z]+)_/.exec(String((st && st.id) || ''));
+  const t = m ? parseInt(m[1], 36) : 0;
+  return t > 1e12 ? t : 0;
+}
+function auditRuns() {
+  const runs = [];
+  savedEntries.map(e => ({ t: entryStartedAt(e), park: entryParkCode(e) })).filter(p => p.t > 0)
+    .sort((a, b) => a.t - b.t).forEach(p => {
+      const r = runs[runs.length - 1];
+      if (r && p.t - r.end <= AUDIT_GAP_MS) { r.end = p.t; if (!r.park) r.park = p.park; }
+      else runs.push({ start: p.t, end: p.t, park: p.park });
+    });
+  return runs;
+}
+// The folder for something that happened at time t: the audit under way then.
+function backupFolderFor(t, runs) {
   const typed = (backupCfg.folder || '').trim();
   if (typed) return typed;
-  const park = exportParkCode() || 'Unfiled';
-  return park + '/' + new Date().getFullYear() + '/Live Backup';
+  let run = null;
+  (runs || auditRuns()).forEach(r => { if (r.start - AUDIT_GAP_MS <= t) run = r; });
+  if (run && t - run.end > AUDIT_GAP_MS) run = null;   // long after it: a new audit with no entries yet
+  const park = (run && run.park) || exportParkCode() || 'Unfiled';
+  return park + '/' + new Date(run ? run.start : (t || Date.now())).getFullYear() + '/Live Backup';
+}
+// The current audit's folder: the state file, the index, and what Settings shows.
+function backupFolder() {
+  const runs = auditRuns();
+  return backupFolderFor(runs.length ? runs[runs.length - 1].end : Date.now(), runs);
 }
 // Settings dialog
 // `later` is a repaint after the dialog is already open — an answer arriving from
@@ -6496,8 +6587,10 @@ function paintBackupSettings(later) {
   if (inBtn) inBtn.style.display = backupUser ? 'none' : '';
   if (outBtn) outBtn.style.display = backupUser ? '' : 'none';
   const s = document.getElementById('backupStatus');
+  const unread = unreadableBackupCount();
   if (s) s.textContent = (!backupCfg.on ? 'Off. Nothing leaves this device except the exports you make.'
-    : backupQueue.length ? backupQueue.length + ' file' + (backupQueue.length === 1 ? '' : 's') + ' waiting' + (_backupLastError ? ' — ' + _backupLastError : '')
+    : backupQueue.length ? backupQueue.length + ' file' + (backupQueue.length === 1 ? '' : 's') + ' waiting'
+        + (unread ? ' — ' + unreadableBackupText(unread) : '') + (_backupLastError ? ' — ' + _backupLastError : '')
     : 'Up to date.') + '  Writing to ' + (backupTargetLabel() ? backupTargetLabel() + ' → ' : '…/') + backupFolder() + '/';
 }
 function readBackupSettings() {
@@ -6527,14 +6620,24 @@ async function testBackupEndpoint() {
     s.textContent = 'No: ' + e.message;
   }
 }
-// Send the lot: the state file plus every photo not already up.
+// Send the lot: every photo on this device, the state file and the index —
+// photos already sent included. "Sent" is only this device's own record, and
+// SharePoint may not have what it says: the ACAD_SACR audit's first 32 photos
+// (September 2026) were missing from the audit folder while the badge said
+// backed up. Nothing on SharePoint is deleted; a photo already in place is
+// written again as the same file.
 function backupEverythingNow() {
   readBackupSettings();
   if (!backupCfg.on) { document.getElementById('backupStatus').textContent = 'Turn it on first.'; return; }
-  const keys = Array.from(new Set(allReferencedPhotoKeys()));
-  keys.forEach(k => { if (backupDone.indexOf(k) < 0 && !backupQueue.some(i => i.k === 'photo' && i.key === k)) backupQueue.push({ k: 'photo', key: k, folder: backupFolder(), target: backupCfg.target }); });
-  if (!backupQueue.some(i => i.k === 'state')) backupQueue.push({ k: 'state', folder: backupFolder(), target: backupCfg.target });
-  if (!backupQueue.some(i => i.k === 'index')) backupQueue.push({ k: 'index', folder: backupFolder(), target: backupCfg.target });
+  const info = photoBackupInfo(), runs = auditRuns(), keys = Array.from(info.keys());
+  const folders = new Set(keys.map(k => backupFolderFor(info.get(k).at, runs)));
+  const where = folders.size > 1 ? "each audit's own folder (this one: " + backupFolder() + ')' : (folders.values().next().value || backupFolder());
+  if (keys.length && !confirm('Send all ' + keys.length + ' photo' + (keys.length === 1 ? '' : 's') + ' and every entry to SharePoint again, including photos already sent?\n\n'
+    + 'They go to ' + where + '. Nothing on SharePoint is deleted. Keep the app open until the badge says backed up.')) return;
+  keys.forEach(k => { if (!backupQueue.some(i => i.k === 'photo' && i.key === k)) backupQueue.push({ k: 'photo', key: k, target: backupCfg.target }); });
+  if (!backupQueue.some(i => i.k === 'state')) backupQueue.push({ k: 'state', target: backupCfg.target });
+  if (!backupQueue.some(i => i.k === 'index')) backupQueue.push({ k: 'index', target: backupCfg.target });
+  _backupLastIndex = '';
   _backupPauseUntil = 0;
   saveBackupQueue();
   paintBackupSettings();
